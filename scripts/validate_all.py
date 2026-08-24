@@ -83,7 +83,7 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
 
     if args.profile == "smoke":
         cmds += [
-            CommandSpec("mitigation smoke", "mitigation", _py(args, "scripts/demo_tool.py", "mitigation-report", "--scenario", "queue", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode)),
+            CommandSpec("mitigation smoke", "mitigation", _py(args, "scripts/demo_tool.py", "mitigation-report", "--scenario", "queue", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode, *nfts)),
             CommandSpec("runtime-cost smoke", "runtime_cost", _py(args, "scripts/measure_runtime_cost.py", "--requests", "800", "--concurrency", "32", "--work-ms", "2", "--rounds", "1", "--warmup-rounds", "0", "--artifact-dir", str(runtime_cost_artifact_dir))),
             CommandSpec("collector-limits smoke", "collector_limits", _py(args, "scripts/measure_collector_limits.py", "--profile", "smoke", "--repeats", "1", "--artifact-dir", str(collector_limits_artifact_dir))),
         ]
@@ -100,7 +100,7 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
     if args.profile in {"full", "publish"}:
         cmds += [
             CommandSpec("diag matrix full", "diagnostic_matrix", _py(args, "scripts/run_diagnostic_matrix.py", "--runs", str(args.runs), "--scenario", "queue", "--scenario", "blocking", "--scenario", "executor", "--scenario", "downstream", "--out", str(out / "diagnostic-matrix/runs.jsonl"), "--summary", str(out / "diagnostic-matrix/summary.json"), "--scorecard", str(out / "diagnostic-matrix/scorecard.md"), *mode, *nfts)),
-            CommandSpec("mitigation full", "mitigation", _py(args, "scripts/demo_tool.py", "mitigation-report", "--scenario", "queue", "--scenario", "blocking", "--scenario", "downstream", "--scenario", "db-pool", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode)),
+            CommandSpec("mitigation full", "mitigation", _py(args, "scripts/demo_tool.py", "mitigation-report", "--scenario", "queue", "--scenario", "blocking", "--scenario", "downstream", "--scenario", "db-pool", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode, *nfts)),
             CommandSpec("runtime-cost full", "runtime_cost", _py(args, "scripts/measure_runtime_cost.py", "--rounds", str(args.runs), "--artifact-dir", str(runtime_cost_artifact_dir))),
             CommandSpec("collector-limits full", "collector_limits", _py(args, "scripts/measure_collector_limits.py", "--profile", "default", "--repeats", "1", "--artifact-dir", str(collector_limits_artifact_dir))),
         ]

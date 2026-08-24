@@ -44,11 +44,11 @@ def suspect_score(report: dict, kind: str) -> int | None:
     return None
 
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
-    suspect = report.get("primary_suspect") or {}
-    for evidence in suspect.get("evidence") or []:
-        match = re.search(r"Blocking queue depth p95 is (\d+)", evidence)
-        if match:
-            return int(match.group(1))
+    for suspect in _suspects(report):
+        for evidence in suspect.get("evidence") or []:
+            match = re.search(r"Blocking queue depth p95 is (\d+)", evidence)
+            if match:
+                return int(match.group(1))
     return None
 
 def normalize_mode(mode: str) -> str:
@@ -220,640 +220,174 @@ def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
     return any((suspect or {}).get("kind") in expected_kinds for suspect in all_suspects)
 
 
-def _material_p95_improvement(before_p95: int, after_p95: int) -> bool:
-    return after_p95 < before_p95 and (before_p95 - after_p95) >= max(1_000, before_p95 // 20)
-
-
-def _queue_evidence_non_worsening(before: dict, after: dict) -> bool:
-    before_share = before.get("p95_queue_share_permille")
-    after_share = after.get("p95_queue_share_permille")
-    if before_share is None or after_share is None:
-        return True
-    return after_share <= before_share + 20
-
-
-def _queue_evidence_materially_improved(before: dict, after: dict) -> bool:
-    before_share = before.get("p95_queue_share_permille")
-    after_share = after.get("p95_queue_share_permille")
-    if before_share is None or after_share is None:
-        return False
-    return after_share + 100 <= before_share
-
-
-def _validate_nonworsening_score_or_explainable_saturation(
-    *,
-    before: dict,
-    after: dict,
-    expected_primary_kinds: set[str],
-    scenario: str,
-) -> None:
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    if after_score <= before_score:
-        return
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    after_kind = after["primary_suspect"]["kind"]
-    if not _material_p95_improvement(before_p95, after_p95):
-        raise SystemExit(
-            f"expected mitigated {scenario} suspect score to stay flat or drop when p95 does not materially improve, "
-            f"got p95 {before_p95}->{after_p95} and score {before_score}->{after_score}"
-        )
-    if after_kind not in expected_primary_kinds and not _queue_evidence_materially_improved(before, after):
-        raise SystemExit(
-            f"expected mitigated {scenario} primary suspect in {sorted(expected_primary_kinds)} when score rises unless queue evidence materially improves, got {after_kind}"
-        )
-    if not _queue_evidence_non_worsening(before, after):
-        raise SystemExit(
-            f"expected mitigated {scenario} score increase to have non-worsening queue evidence, "
-            f"got queue share {before.get('p95_queue_share_permille')}->{after.get('p95_queue_share_permille')}"
-        )
-
-
-def _validate_nonworsening_score_for_downstream(
-    *,
-    before: dict,
-    after: dict,
-    expected_primary_kinds: set[str],
-    scenario: str,
-) -> None:
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    if after_score <= before_score:
-        return
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    after_kind = after["primary_suspect"]["kind"]
-    if not _material_p95_improvement(before_p95, after_p95):
-        raise SystemExit(
-            f"expected mitigated {scenario} suspect score to stay flat or drop when p95 does not materially improve, "
-            f"got p95 {before_p95}->{after_p95} and score {before_score}->{after_score}"
-        )
-    if after_kind not in expected_primary_kinds:
-        raise SystemExit(
-            f"expected mitigated {scenario} primary suspect in {sorted(expected_primary_kinds)} when score rises, got {after_kind}"
-        )
-
-def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_queue(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "queue")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    kind = before["primary_suspect"]["kind"]
-    if kind not in EXPECTED_QUEUE_KIND:
-        raise SystemExit(f"expected queue saturation suspect in baseline, got {kind}")
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-    _validate_nonworsening_score_or_explainable_saturation(
-        before=before,
-        after=after,
-        expected_primary_kinds=EXPECTED_QUEUE_KIND,
-        scenario="queue",
-    )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
-            kind,
-            before_p95,
-            after_p95,
-            before["primary_suspect"]["score"],
-            after["primary_suspect"]["score"],
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def validate_blocking(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_blocking(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "blocking")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    before_kind = before["primary_suspect"]["kind"]
-    if before_kind not in EXPECTED_BLOCKING_KIND:
-        raise SystemExit(f"expected blocking pool pressure suspect in baseline, got {before_kind}")
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-
-    before_service_share = before.get("p95_service_share_permille")
-    after_service_share = after.get("p95_service_share_permille")
-    before_blocking_depth = extract_blocking_queue_depth_p95(before)
-    after_blocking_depth = extract_blocking_queue_depth_p95(after)
-
-    improvement_signals = []
-    if after_score < before_score:
-        improvement_signals.append("score")
-    if (
-        before_service_share is not None
-        and after_service_share is not None
-        and after_service_share < before_service_share
-    ):
-        improvement_signals.append("service_share")
-    if (
-        before_blocking_depth is not None
-        and after_blocking_depth is not None
-        and after_blocking_depth < before_blocking_depth
-    ):
-        improvement_signals.append("blocking_queue_depth")
-
-    if not improvement_signals:
-        raise SystemExit(
-            "expected at least one non-latency improvement signal (score/share/blocking depth), "
-            f"got score {before_score}->{after_score}, "
-            f"service_share {before_service_share}->{after_service_share}, "
-            f"blocking_queue_depth {before_blocking_depth}->{after_blocking_depth}"
-        )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}, "
-        "service-share {} -> {}, blocking-depth {} -> {} (signals: {})".format(
-            before_kind,
-            before_p95,
-            after_p95,
-            before_score,
-            after_score,
-            before_service_share,
-            after_service_share,
-            before_blocking_depth,
-            after_blocking_depth,
-            ", ".join(improvement_signals),
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_downstream(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "downstream")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    before_kind = before["primary_suspect"]["kind"]
-    if before_kind not in EXPECTED_DOWNSTREAM_KIND:
-        raise SystemExit(f"expected downstream stage suspect in baseline, got {before_kind}")
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    _validate_nonworsening_score_for_downstream(
-        before=before,
-        after=after,
-        expected_primary_kinds=EXPECTED_DOWNSTREAM_KIND,
-        scenario="downstream",
-    )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
-            before_kind,
-            before_p95,
-            after_p95,
-            before_score,
-            after_score,
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def validate_mixed(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_mixed(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "mixed")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    baseline_primary = before["primary_suspect"]["kind"]
-    if baseline_primary not in EXPECTED_MIXED_PRIMARY_KINDS:
-        raise SystemExit(
-            "expected baseline primary suspect to be queue saturation, "
-            f"got {baseline_primary}"
-        )
-
-    expected_secondary = EXPECTED_DOWNSTREAM_KIND
-    if not has_suspect_kind(before, expected_secondary):
-        raise SystemExit(
-            "expected baseline report to include secondary contention source, "
-            f"missing one of {sorted(expected_secondary)}"
-        )
-
-    after_primary = after["primary_suspect"]["kind"]
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    rank_shifted = after_primary != baseline_primary
-    score_shifted = after_score != before_score
-    if not (rank_shifted or score_shifted):
-        raise SystemExit(
-            "expected mitigation to shift rank or score for the primary suspect, "
-            f"got kind {baseline_primary}->{after_primary}, score {before_score}->{after_score}"
-        )
-
-    print(
-        "validation passed: baseline primary={}, mitigated primary={}, "
-        "baseline score={} mitigated score={}".format(
-            baseline_primary,
-            after_primary,
-            before_score,
-            after_score,
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def _contains_blocking_depth_evidence(report: dict) -> bool:
-    return any(
-        "blocking queue depth" in str(item).lower()
-        for suspect in _suspects(report)
-        for item in (suspect.get("evidence") or [])
-    )
-
-def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_executor(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "executor")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    kind = before["primary_suspect"]["kind"]
-    if kind not in EXPECTED_EXECUTOR_KIND:
-        raise SystemExit(
-            "expected executor demo baseline primary suspect in "
-            f"{sorted(EXPECTED_EXECUTOR_KIND)}, got {kind}"
-        )
-
-    has_executor_suspect = has_suspect_kind(before, EXPECTED_EXECUTOR_KIND)
-    if not has_executor_suspect:
-        raise SystemExit("expected executor pressure suspect to appear in baseline report")
-
-    if _contains_blocking_depth_evidence(before):
-        raise SystemExit("executor baseline evidence unexpectedly referenced blocking queue depth")
-
-    before_score = suspect_score(before, "executor_pressure_suspected")
-    after_score = suspect_score(after, "executor_pressure_suspected")
-    if profile != "release" and before_score is None:
-        raise SystemExit("baseline report missing executor pressure suspect score")
-    if before_score is not None and after_score is not None and after_score > before_score:
-        raise SystemExit(
-            "expected mitigated executor suspect score to stay flat or drop, "
-            f"got before={before_score} after={after_score}"
-        )
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, "
-        "executor score {} -> {}".format(
-            kind,
-            before_p95,
-            after_p95,
-            before_score,
-            after_score if after_score is not None else "missing",
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def _report_mentions_cold_start_or_queue(report: dict) -> bool:
-    suspects = [report.get("primary_suspect") or {}, *(report.get("secondary_suspects") or [])]
-    evidence_items = [
-        str(item).lower()
-        for suspect in suspects
-        for item in (suspect.get("evidence") or [])
-    ]
-    return any(
-        "cold_start_stage" in item
-        or "queue wait at p95" in item
-        or "queue depth sample" in item
-        for item in evidence_items
-    )
-
-def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_cold_start(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "cold-start")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    before_kind = before["primary_suspect"]["kind"]
-    if before_kind not in EXPECTED_COLD_START_PRIMARY_KINDS:
-        raise SystemExit(
-            "expected baseline primary suspect to indicate queue pressure, "
-            f"got {before_kind}"
-        )
-
-    if not _report_mentions_cold_start_or_queue(before):
-        raise SystemExit(
-            "expected baseline evidence to reference warmup-driven service stage or queue impact"
-        )
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    _validate_nonworsening_score_or_explainable_saturation(
-        before=before,
-        after=after,
-        expected_primary_kinds=EXPECTED_COLD_START_PRIMARY_KINDS,
-        scenario="cold-start",
-    )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
-            before_kind,
-            before_p95,
-            after_p95,
-            before_score,
-            after_score,
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_db_pool(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "db-pool")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    before_kind = before["primary_suspect"]["kind"]
-    if before_kind not in EXPECTED_DB_POOL_PRIMARY_KINDS:
-        raise SystemExit(
-            "expected baseline primary suspect to indicate queue pressure, "
-            f"got {before_kind}"
-        )
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-    _validate_nonworsening_score_or_explainable_saturation(
-        before=before,
-        after=after,
-        expected_primary_kinds=EXPECTED_DB_POOL_PRIMARY_KINDS,
-        scenario="db-pool",
-    )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
-            before_kind,
-            before_p95,
-            after_p95,
-            before_score,
-            after_score,
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_shared_lock(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "shared-lock")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    before_kind = before["primary_suspect"]["kind"]
-    if before_kind not in EXPECTED_SHARED_LOCK_PRIMARY_KINDS:
-        raise SystemExit(
-            "expected baseline primary suspect to indicate queue pressure, "
-            f"got {before_kind}"
-        )
-
-    evidence_text = " ".join(
-        str(item).lower()
-        for suspect in [before.get("primary_suspect") or {}, *(before.get("secondary_suspects") or [])]
-        for item in (suspect.get("evidence") or [])
-    )
-    if "queue wait at p95" not in evidence_text and "queue depth sample" not in evidence_text:
-        raise SystemExit("expected baseline evidence to mention queue wait/depth from lock contention")
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-    if after_score > before_score:
-        raise SystemExit(
-            "expected mitigated score to stay flat/drop or be justified by better evidence; score-only increase is not sufficient, "
-            f"got before={before_score} after={after_score}"
-        )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
-            before_kind,
-            before_p95,
-            after_p95,
-            before_score,
-            after_score,
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
-    run_scenario_retry_storm(root_dir, "both", profile=profile)
-    artifact_dir = scenario_artifact_dir(root_dir, "retry-storm")
-    before = load_report_json(artifact_dir / "before-analysis.json")
-    after = load_report_json(artifact_dir / "after-analysis.json")
-
-    before_kind = before["primary_suspect"]["kind"]
-    if before_kind not in EXPECTED_RETRY_STORM_PRIMARY_KINDS:
-        raise SystemExit(
-            "expected baseline primary suspect to indicate downstream stage dominance, "
-            f"got {before_kind}"
-        )
-
-    before_share = before.get("p95_service_share_permille")
-    if before_share is None or before_share < 900:
-        raise SystemExit(
-            "expected baseline to have elevated service share from retry-heavy downstream time, "
-            f"got p95_service_share_permille={before_share}"
-        )
-
-    before_p95 = before["p95_latency_us"]
-    after_p95 = after["p95_latency_us"]
-    if after_p95 >= before_p95:
-        raise SystemExit(
-            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
-        )
-
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    if after_score > before_score:
-        raise SystemExit(
-            "expected mitigated score to stay flat/drop or be justified by better evidence; score-only increase is not sufficient, "
-            f"got before={before_score} after={after_score}"
-        )
-
-    print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, "
-        "service-share {} -> {}, score {} -> {}".format(
-            before_kind,
-            before_p95,
-            after_p95,
-            before_share,
-            after.get("p95_service_share_permille"),
-            before_score,
-            after_score,
-        )
-    )
-    print(
-        "validated analysis files: "
-        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
-    )
-
-
-# This registry is the canonical executable policy surface for controlled live demos.
-# Each value owns both the baseline semantic expectations and the required mitigation
-# movement for its scenario.
-LIVE_SCENARIO_POLICIES: dict[str, Callable[..., None]] = {
-    "queue": validate_queue,
-    "blocking": validate_blocking,
-    "executor": validate_executor,
-    "downstream": validate_downstream,
-    "mixed": validate_mixed,
-    "cold-start": validate_cold_start,
-    "db-pool": validate_db_pool,
-    "shared-lock": validate_shared_lock,
-    "retry-storm": validate_retry_storm,
+# This registry is the single canonical executable policy surface for controlled live demos.
+# Its check names own both baseline expectations and mitigation movement for exactly nine
+# scenarios; both ordinary validation and mitigation reporting consume evaluate_live_scenario.
+LIVE_SCENARIO_POLICIES: dict[str, dict[str, Any]] = {
+    "queue": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_saturation", "downstream_stage_dominates"}},
+    "blocking": {"targeted": "blocking_pool_pressure", "checks": ["baseline_targeted", "p95_improves", "blocking_depth_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"blocking_pool_pressure", "downstream_stage_dominates"}},
+    "executor": {"targeted": "executor_pressure_suspected", "checks": ["baseline_targeted", "executor_present", "no_blocking_evidence", "p95_improves", "targeted_score_nonworsening"]},
+    "downstream": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "p95_improves", "targeted_score_nonworsening"], "after_high_confidence": {"downstream_stage_dominates"}},
+    "mixed": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "baseline_downstream_secondary", "primary_rank_or_score_shifts"]},
+    "cold-start": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "targeted_score_nonworsening"]},
+    "db-pool": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_saturation", "downstream_stage_dominates"}},
+    "shared-lock": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "targeted_score_nonworsening"]},
+    "retry-storm": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "baseline_service_share_elevated", "p95_improves", "targeted_score_nonworsening"]},
 }
 SCENARIOS = list(LIVE_SCENARIO_POLICIES)
 
 
-def validate_scenario(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
-    """Execute the canonical before/after policy for one controlled scenario."""
+def _delta(before: int | None, after: int | None) -> int | None:
+    return None if before is None or after is None else after - before
+
+
+def _ratio_delta(before: int | None, after: int | None) -> float | None:
+    return None if before is None or after is None or before == 0 else (after - before) / float(before)
+
+
+def _evidence_text(report: dict) -> str:
+    return " ".join(str(item).lower() for suspect in _suspects(report) for item in (suspect.get("evidence") or []))
+
+
+def evaluate_live_scenario(
+    scenario: str,
+    before: dict,
+    after: dict,
+    *,
+    profile: str = "dev",
+    min_p95_improvement_ratio: float = 0.0,
+    before_analysis_path: Path | str | None = None,
+    after_analysis_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Purely evaluate a produced before/after report pair against canonical policy."""
     try:
-        validator = LIVE_SCENARIO_POLICIES[scenario]
+        policy = LIVE_SCENARIO_POLICIES[scenario]
     except KeyError as exc:
         raise ValueError(f"unsupported live-demo scenario: {scenario}") from exc
-    validator(root_dir, profile=profile)
+    targeted = policy["targeted"]
+    before_primary = before.get("primary_suspect") or {}
+    after_primary = after.get("primary_suspect") or {}
+    before_p95, after_p95 = before.get("p95_latency_us"), after.get("p95_latency_us")
+    before_targeted_score = suspect_score(before, targeted)
+    after_targeted_score = suspect_score(after, targeted)
+    before_queue, after_queue = before.get("p95_queue_share_permille"), after.get("p95_queue_share_permille")
+    before_service, after_service = before.get("p95_service_share_permille"), after.get("p95_service_share_permille")
+    before_depth, after_depth = extract_blocking_queue_depth_p95(before), extract_blocking_queue_depth_p95(after)
+    ratio = _ratio_delta(before_p95, after_p95)
+    evidence = _evidence_text(before)
 
+    def check(name: str) -> bool:
+        if name == "baseline_targeted": return before_primary.get("kind") == targeted
+        if name == "p95_improves": return ratio is not None and ratio <= -min_p95_improvement_ratio and after_p95 < before_p95
+        if name == "queue_share_decreases": return before_queue is not None and after_queue is not None and after_queue < before_queue
+        if name == "blocking_depth_decreases": return before_depth is not None and after_depth is not None and after_depth < before_depth
+        if name == "targeted_score_nonworsening": return before_targeted_score is None or after_targeted_score is None or after_targeted_score <= before_targeted_score
+        if name == "executor_present": return has_suspect_kind(before, {targeted}) and (profile == "release" or before_targeted_score is not None)
+        if name == "no_blocking_evidence": return "blocking queue depth" not in evidence
+        if name == "baseline_downstream_secondary": return any(s.get("kind") == "downstream_stage_dominates" for s in before.get("secondary_suspects") or [])
+        if name == "primary_rank_or_score_shifts": return after_primary.get("kind") != before_primary.get("kind") or after_primary.get("score") != before_primary.get("score")
+        if name == "cold_start_or_queue_evidence": return any(x in evidence for x in ("cold_start_stage", "queue wait at p95", "queue depth sample"))
+        if name == "shared_lock_queue_evidence": return "queue wait at p95" in evidence or "queue depth sample" in evidence
+        if name == "baseline_service_share_elevated": return before_service is not None and before_service >= 900
+        raise AssertionError(f"unknown canonical check: {name}")
 
-def _mitigation_record(root_dir: Path, scenario: str, profile: str) -> dict[str, Any]:
-    artifact_dir = scenario_artifact_dir(root_dir, scenario)
-    before_path = artifact_dir / "before-analysis.json"
-    after_path = artifact_dir / "after-analysis.json"
-    before = load_report_json(before_path)
-    after = load_report_json(after_path)
+    checks = {name: check(name) for name in policy["checks"]}
+    allowed_after = policy.get("after_high_confidence")
+    high_confidence_wrong = bool(
+        allowed_after is not None
+        and after_primary.get("confidence") == "high"
+        and after_primary.get("kind") not in allowed_after
+    )
+    failed = [name for name, passed in checks.items() if not passed]
+    if high_confidence_wrong:
+        failed.append("high_confidence_wrong_after")
     return {
-        "schema_version": 1,
-        "scenario": scenario,
-        "profile": profile,
-        "policy_owner": "scripts/demo_tool.py",
-        "policy_passed": True,
-        "before_analysis_path": str(before_path),
-        "after_analysis_path": str(after_path),
-        "before_primary_kind": before["primary_suspect"]["kind"],
-        "after_primary_kind": after["primary_suspect"]["kind"],
-        "before_primary_score": before["primary_suspect"]["score"],
-        "after_primary_score": after["primary_suspect"]["score"],
-        "before_p95_latency_us": before["p95_latency_us"],
-        "after_p95_latency_us": after["p95_latency_us"],
-        "p95_delta_us": after["p95_latency_us"] - before["p95_latency_us"],
-        "before_p95_queue_share_permille": before.get("p95_queue_share_permille"),
-        "after_p95_queue_share_permille": after.get("p95_queue_share_permille"),
-        "before_p95_service_share_permille": before.get("p95_service_share_permille"),
-        "after_p95_service_share_permille": after.get("p95_service_share_permille"),
-        "before_blocking_queue_depth_p95": extract_blocking_queue_depth_p95(before),
-        "after_blocking_queue_depth_p95": extract_blocking_queue_depth_p95(after),
+        "schema_version": 1, "scenario": scenario, "profile": profile,
+        "policy_owner": "scripts/demo_tool.py", "targeted_suspect": targeted,
+        "before_analysis_path": str(before_analysis_path) if before_analysis_path else None,
+        "after_analysis_path": str(after_analysis_path) if after_analysis_path else None,
+        "before_primary_kind": before_primary.get("kind"), "after_primary_kind": after_primary.get("kind"),
+        "before_primary_confidence": before_primary.get("confidence"), "after_primary_confidence": after_primary.get("confidence"),
+        "before_primary_score": before_primary.get("score"), "after_primary_score": after_primary.get("score"),
+        "before_targeted_score": before_targeted_score, "after_targeted_score": after_targeted_score,
+        "targeted_score_delta": _delta(before_targeted_score, after_targeted_score),
+        "before_p95_latency_us": before_p95, "after_p95_latency_us": after_p95,
+        "p95_delta_us": _delta(before_p95, after_p95), "p95_delta_ratio": ratio,
+        "minimum_p95_improvement_ratio": min_p95_improvement_ratio,
+        "before_p95_queue_share_permille": before_queue, "after_p95_queue_share_permille": after_queue,
+        "queue_share_delta_permille": _delta(before_queue, after_queue),
+        "before_p95_service_share_permille": before_service, "after_p95_service_share_permille": after_service,
+        "service_share_delta_permille": _delta(before_service, after_service),
+        "before_blocking_queue_depth_p95": before_depth, "after_blocking_queue_depth_p95": after_depth,
+        "blocking_queue_depth_delta": _delta(before_depth, after_depth),
+        "expected_checks": list(policy["checks"]), "checks": checks,
+        "passed_checks": [name for name, passed in checks.items() if passed],
+        "failed_expectations": failed, "high_confidence_wrong_after": high_confidence_wrong,
+        "policy_passed": not failed,
     }
 
 
-def run_mitigation_report(
-    root_dir: Path,
-    scenarios: list[str],
-    *,
-    profile: str,
-    out: Path,
-    summary_path: Path,
-    scorecard_path: Path | None,
-) -> None:
-    """Report measurements produced by canonical live-demo policy evaluation."""
+def _load_and_evaluate(root_dir: Path, scenario: str, *, profile: str, min_p95_improvement_ratio: float) -> dict[str, Any]:
+    artifact_dir = scenario_artifact_dir(root_dir, scenario)
+    before_path, after_path = artifact_dir / "before-analysis.json", artifact_dir / "after-analysis.json"
+    return evaluate_live_scenario(scenario, load_report_json(before_path), load_report_json(after_path), profile=profile,
+        min_p95_improvement_ratio=min_p95_improvement_ratio, before_analysis_path=before_path, after_analysis_path=after_path)
+
+
+def validate_scenario(root_dir: Path, scenario: str, *, profile: str = "dev") -> dict[str, Any]:
+    """Run and canonically evaluate one controlled scenario."""
+    if scenario not in LIVE_SCENARIO_POLICIES:
+        raise ValueError(f"unsupported live-demo scenario: {scenario}")
+    _run_scenario(root_dir, scenario, "both", profile=profile)
+    result = _load_and_evaluate(root_dir, scenario, profile=profile, min_p95_improvement_ratio=0.0)
+    if not result["policy_passed"]:
+        raise SystemExit(f"{scenario} validation failed: {', '.join(result['failed_expectations'])}")
+    print(f"validation passed: {scenario}; p95 {result['before_p95_latency_us']}us -> {result['after_p95_latency_us']}us")
+    return result
+
+
+def validate_queue(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "queue", profile=profile)
+def validate_blocking(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "blocking", profile=profile)
+def validate_executor(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "executor", profile=profile)
+def validate_downstream(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "downstream", profile=profile)
+def validate_mixed(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "mixed", profile=profile)
+def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "cold-start", profile=profile)
+def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "db-pool", profile=profile)
+def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "shared-lock", profile=profile)
+def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> dict[str, Any]: return validate_scenario(root_dir, "retry-storm", profile=profile)
+
+
+def run_mitigation_report(root_dir: Path, scenarios: list[str], *, profile: str, out: Path,
+                          summary_path: Path, scorecard_path: Path | None,
+                          min_p95_improvement_ratio: float = 0.05,
+                          no_fail_thresholds: bool = False) -> bool:
+    """Run workloads, serialize every evaluable canonical policy result, and enforce status."""
     records = []
     for scenario in scenarios:
-        validate_scenario(root_dir, scenario, profile=profile)
-        records.append(_mitigation_record(root_dir, scenario, profile))
-
+        _run_scenario(root_dir, scenario, "both", profile=profile)
+        records.append(_load_and_evaluate(root_dir, scenario, profile=profile,
+            min_p95_improvement_ratio=min_p95_improvement_ratio))
+    passed = sum(row["policy_passed"] for row in records)
+    summary = {"schema_version": 1, "profile": profile, "policy_owner": "scripts/demo_tool.py",
+        "total_scenarios": len(records), "passed_scenarios": passed,
+        "failed_scenarios": len(records) - passed,
+        "high_confidence_wrong_count": sum(row["high_confidence_wrong_after"] for row in records),
+        "per_scenario": {row["scenario"]: row for row in records}}
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
-    summary = {
-        "schema_version": 1,
-        "profile": profile,
-        "policy_owner": "scripts/demo_tool.py",
-        "total_scenarios": len(records),
-        "passed_scenarios": len(records),
-        "failed_scenarios": 0,
-        "per_scenario": {row["scenario"]: row for row in records},
-    }
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     if scorecard_path:
-        lines = [
-            "# Live-demo mitigation validation scorecard",
-            "",
-            f"Profile: {profile}",
-            "",
-            "| Scenario | Passed | Before primary | After primary | p95 delta (us) |",
-            "|---|---:|---|---|---:|",
-        ]
+        lines = ["# Live-demo mitigation validation scorecard", "", f"Profile: {profile}", "",
+            "| Scenario | Passed | Before primary | After primary | p95 delta | Failed expectations |",
+            "|---|---:|---|---|---:|---|"]
         for row in records:
-            lines.append(
-                f"| {row['scenario']} | yes | {row['before_primary_kind']} | "
-                f"{row['after_primary_kind']} | {row['p95_delta_us']} |"
-            )
+            lines.append(f"| {row['scenario']} | {'yes' if row['policy_passed'] else 'no'} | {row['before_primary_kind']} | {row['after_primary_kind']} | {row['p95_delta_us']} | {', '.join(row['failed_expectations']) or '-'} |")
         scorecard_path.parent.mkdir(parents=True, exist_ok=True)
         scorecard_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if passed != len(records) and not no_fail_thresholds:
+        raise SystemExit("mitigation thresholds failed: " + "; ".join(f"{r['scenario']}: {','.join(r['failed_expectations'])}" for r in records if not r["policy_passed"]))
+    return passed == len(records)
 
 
 PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm", "blocking", "executor", "all"]
@@ -1368,6 +902,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mitigation_parser.add_argument("--out", type=Path, default=Path("target/mitigation-runs.jsonl"))
     mitigation_parser.add_argument("--summary", type=Path)
     mitigation_parser.add_argument("--scorecard", type=Path)
+    mitigation_parser.add_argument("--min-p95-improvement-ratio", type=float, default=0.05)
+    mitigation_parser.add_argument("--no-fail-thresholds", action="store_true")
 
     matrix_parser = subparsers.add_parser(
         "diagnosis-matrix",
@@ -1462,6 +998,8 @@ def main(argv: list[str] | None = None) -> None:
             out=args.out,
             summary_path=summary_path,
             scorecard_path=args.scorecard,
+            min_p95_improvement_ratio=args.min_p95_improvement_ratio,
+            no_fail_thresholds=args.no_fail_thresholds,
         )
         return
 

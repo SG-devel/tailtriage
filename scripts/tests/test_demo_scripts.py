@@ -30,41 +30,74 @@ class DemoWrapperTests(unittest.TestCase):
         }
         self.assertEqual(expected, set(demo_tool.LIVE_SCENARIO_POLICIES))
         self.assertEqual(expected, set(demo_tool.SCENARIOS))
-        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["queue"], demo_tool.validate_queue)
-        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["blocking"], demo_tool.validate_blocking)
-        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["executor"], demo_tool.validate_executor)
-        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["downstream"], demo_tool.validate_downstream)
-        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["db-pool"], demo_tool.validate_db_pool)
 
     def test_unknown_live_policy_fails_clearly(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported live-demo scenario: typo"):
             demo_tool.validate_scenario(REPO_ROOT, "typo")
 
-    @patch("demo_tool._mitigation_record")
-    @patch("demo_tool.validate_scenario")
-    def test_mitigation_reporting_consumes_canonical_evaluation(
-        self, validate_scenario_mock, mitigation_record_mock
-    ) -> None:
-        mitigation_record_mock.return_value = {
-            "scenario": "queue",
-            "before_primary_kind": "application_queue_saturation",
-            "after_primary_kind": "application_queue_saturation",
-            "p95_delta_us": -100,
-        }
+    @patch("demo_tool._load_and_evaluate")
+    @patch("demo_tool._run_scenario")
+    def test_mitigation_reporting_preserves_pass_and_failure(self, run_mock, evaluate_mock) -> None:
+        def record(scenario, passed):
+            return {"scenario": scenario, "policy_passed": passed,
+                "failed_expectations": [] if passed else ["queue_share_decreases"],
+                "high_confidence_wrong_after": False, "before_primary_kind": "application_queue_saturation",
+                "after_primary_kind": "application_queue_saturation", "p95_delta_us": -100}
+        evaluate_mock.side_effect = [record("queue", True), record("db-pool", False), record("queue", True), record("db-pool", False)]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            demo_tool.run_mitigation_report(
-                root,
-                ["queue"],
-                profile="dev",
-                out=root / "runs.jsonl",
-                summary_path=root / "summary.json",
-                scorecard_path=root / "scorecard.md",
-            )
+            with self.assertRaisesRegex(SystemExit, "mitigation thresholds failed"):
+                demo_tool.run_mitigation_report(root, ["queue", "db-pool"], profile="dev",
+                    out=root / "runs.jsonl", summary_path=root / "summary.json", scorecard_path=root / "scorecard.md")
+            rows = [json.loads(line) for line in (root / "runs.jsonl").read_text().splitlines()]
             summary = json.loads((root / "summary.json").read_text())
-        validate_scenario_mock.assert_called_once_with(root, "queue", profile="dev")
-        self.assertEqual("scripts/demo_tool.py", summary["policy_owner"])
-        self.assertEqual(1, summary["passed_scenarios"])
+            self.assertEqual([True, False], [r["policy_passed"] for r in rows])
+            self.assertEqual((2, 1, 1), (summary["total_scenarios"], summary["passed_scenarios"], summary["failed_scenarios"]))
+            self.assertIn("queue_share_decreases", summary["per_scenario"]["db-pool"]["failed_expectations"])
+            self.assertIn("| db-pool | no |", (root / "scorecard.md").read_text())
+            demo_tool.run_mitigation_report(root, ["queue", "db-pool"], profile="dev",
+                out=root / "runs2.jsonl", summary_path=root / "summary2.json", scorecard_path=None,
+                no_fail_thresholds=True)
+        self.assertEqual(4, run_mock.call_count)
+
+    def _report(self, kind, score=80, p95=1000, queue=700, service=950, confidence="medium", evidence=None, secondary=None):
+        return {"primary_suspect": {"kind": kind, "score": score, "confidence": confidence, "evidence": evidence or []},
+            "secondary_suspects": secondary or [], "p95_latency_us": p95,
+            "p95_queue_share_permille": queue, "p95_service_share_permille": service}
+
+    def test_queue_strong_movement_and_ratio_policy(self):
+        before=self._report("application_queue_saturation", p95=1000, queue=700)
+        after=self._report("application_queue_saturation", score=70, p95=940, queue=600)
+        self.assertTrue(demo_tool.evaluate_live_scenario("queue", before, after, min_p95_improvement_ratio=.05)["policy_passed"])
+        self.assertIn("p95_improves", demo_tool.evaluate_live_scenario("queue", before, after, min_p95_improvement_ratio=.10)["failed_expectations"])
+        after["p95_queue_share_permille"]=700
+        self.assertIn("queue_share_decreases", demo_tool.evaluate_live_scenario("queue", before, after)["failed_expectations"])
+
+    def test_target_score_and_high_confidence_wrong_fail_structurally(self):
+        for scenario, target in (("queue", "application_queue_saturation"), ("blocking", "blocking_pool_pressure"), ("downstream", "downstream_stage_dominates")):
+            evidence=["Blocking queue depth p95 is 10"] if scenario == "blocking" else []
+            before=self._report(target, score=70, p95=1000, evidence=evidence)
+            after=self._report("executor_pressure_suspected", score=90, p95=500, queue=500, confidence="high",
+                evidence=["Blocking queue depth p95 is 5"] if scenario == "blocking" else [])
+            result=demo_tool.evaluate_live_scenario(scenario, before, after)
+            self.assertFalse(result["policy_passed"])
+            self.assertIn("high_confidence_wrong_after", result["failed_expectations"])
+            self.assertIn("targeted_score_nonworsening", result["expected_checks"])
+
+    def test_required_queue_and_blocking_evidence_movement(self):
+        db_before=self._report("application_queue_saturation", queue=600)
+        db_after=self._report("application_queue_saturation", p95=500, queue=600)
+        self.assertIn("queue_share_decreases", demo_tool.evaluate_live_scenario("db-pool", db_before, db_after)["failed_expectations"])
+        before=self._report("blocking_pool_pressure", evidence=["Blocking queue depth p95 is 10"])
+        after=self._report("blocking_pool_pressure", score=20, p95=500, evidence=["Blocking queue depth p95 is 10"])
+        self.assertIn("blocking_depth_decreases", demo_tool.evaluate_live_scenario("blocking", before, after)["failed_expectations"])
+
+    def test_executor_and_extended_semantics_remain(self):
+        executor=self._report("executor_pressure_suspected", evidence=["Blocking queue depth p95 is 4"])
+        result=demo_tool.evaluate_live_scenario("executor", executor, self._report("executor_pressure_suspected", p95=500))
+        self.assertIn("no_blocking_evidence", result["failed_expectations"])
+        retry=self._report("downstream_stage_dominates", service=950)
+        self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", retry, self._report("downstream_stage_dominates", score=70, p95=500, service=800))["policy_passed"])
 
     def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
         self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))
@@ -176,7 +209,7 @@ class DemoWrapperTests(unittest.TestCase):
                 }
             ],
         }
-        self.assertTrue(demo_tool._contains_blocking_depth_evidence(report))
+        self.assertTrue("blocking queue depth" in demo_tool._evidence_text(report))
 
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_scenario_executor")
@@ -199,7 +232,7 @@ class DemoWrapperTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             SystemExit,
-            "expected executor demo baseline primary suspect",
+            "baseline_targeted",
         ):
             demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
 
@@ -532,99 +565,6 @@ class DemoWrapperTests(unittest.TestCase):
                 actual="investigation",
             )
 
-    def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
-        before = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
-            "p95_latency_us": 1_000_000,
-            "p95_queue_share_permille": 980,
-        }
-        after = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 100},
-            "p95_latency_us": 40_000,
-            "p95_queue_share_permille": 975,
-        }
-        demo_tool._validate_nonworsening_score_or_explainable_saturation(
-            before=before,
-            after=after,
-            expected_primary_kinds={"application_queue_saturation"},
-            scenario="queue",
-        )
-
-    def test_queue_score_increase_rejected_when_p95_worsens(self) -> None:
-        before = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
-            "p95_latency_us": 40_000,
-            "p95_queue_share_permille": 900,
-        }
-        after = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
-            "p95_latency_us": 45_000,
-            "p95_queue_share_permille": 890,
-        }
-        with self.assertRaisesRegex(SystemExit, "does not materially improve"):
-            demo_tool._validate_nonworsening_score_or_explainable_saturation(
-                before=before,
-                after=after,
-                expected_primary_kinds={"application_queue_saturation"},
-                scenario="queue",
-            )
-
-    def test_queue_score_increase_rejected_when_queue_evidence_worsens(self) -> None:
-        before = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
-            "p95_latency_us": 100_000,
-            "p95_queue_share_permille": 900,
-        }
-        after = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
-            "p95_latency_us": 50_000,
-            "p95_queue_share_permille": 950,
-        }
-        with self.assertRaisesRegex(SystemExit, "non-worsening queue evidence"):
-            demo_tool._validate_nonworsening_score_or_explainable_saturation(
-                before=before,
-                after=after,
-                expected_primary_kinds={"application_queue_saturation"},
-                scenario="queue",
-            )
-
-    def test_queue_score_increase_allows_primary_shift_when_queue_share_drops_materially(self) -> None:
-        before = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
-            "p95_latency_us": 1_000_000,
-            "p95_queue_share_permille": 980,
-        }
-        after = {
-            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 100},
-            "p95_latency_us": 40_000,
-            "p95_queue_share_permille": 0,
-        }
-        demo_tool._validate_nonworsening_score_or_explainable_saturation(
-            before=before,
-            after=after,
-            expected_primary_kinds={"application_queue_saturation"},
-            scenario="queue",
-        )
-
-    def test_downstream_score_increase_rejected_when_kind_shifts(self) -> None:
-        before = {
-            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 90},
-            "p95_latency_us": 1_000_000,
-            "p95_queue_share_permille": 980,
-        }
-        after = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
-            "p95_latency_us": 100_000,
-            "p95_queue_share_permille": 0,
-        }
-        with self.assertRaisesRegex(SystemExit, "expected mitigated downstream primary suspect"):
-            demo_tool._validate_nonworsening_score_for_downstream(
-                before=before,
-                after=after,
-                expected_primary_kinds={"downstream_stage_dominates"},
-                scenario="downstream",
-            )
-
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_scenario_downstream")
     def test_validate_downstream_uses_downstream_context(
@@ -638,13 +578,13 @@ class DemoWrapperTests(unittest.TestCase):
             "p95_latency_us": 100_000,
         }
         after_report = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95, "confidence": "high"},
             "secondary_suspects": [],
             "p95_latency_us": 20_000,
         }
         load_report_json_mock.side_effect = [before_report, after_report]
 
-        with self.assertRaisesRegex(SystemExit, "expected mitigated downstream primary suspect"):
+        with self.assertRaisesRegex(SystemExit, "high_confidence_wrong_after"):
             demo_tool.validate_downstream(Path("/tmp/tailscope"), profile="dev")
 
 

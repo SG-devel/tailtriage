@@ -82,6 +82,14 @@ class ValidateAllTests(unittest.TestCase):
         self.assertEqual(diagnostic_matrix.argv[diagnostic_matrix.argv.index("--runs") + 1], "7")
         self.assertEqual(runtime_cost.argv[runtime_cost.argv.index("--rounds") + 1], "7")
 
+    def test_no_fail_thresholds_propagates_to_mitigation_report(self):
+        for profile, command_name in (("smoke", "mitigation smoke"), ("full", "mitigation full")):
+            args = self.args(profile)
+            args.no_fail_thresholds = True
+            command = next(c for c in va.build_plan(args) if c.name == command_name)
+            self.assertIn("mitigation-report", command.argv)
+            self.assertIn("--no-fail-thresholds", command.argv)
+
     def test_default_repetition_depths(self):
         self.assertEqual(va.default_runs("smoke"), 1)
         self.assertEqual(va.default_runs("ci"), 1)
