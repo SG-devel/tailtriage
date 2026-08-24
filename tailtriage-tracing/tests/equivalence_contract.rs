@@ -56,14 +56,17 @@ fn assert_case_matches_independent_oracles(name: &str, limits: Option<CaptureLim
     assert_eq!(report(&native), expected_report);
     assert_eq!(report(&tracing), expected_report);
 }
+// TT-TEST: F03 primary
 #[test]
 fn precise_native_and_tracing_runs_match_independent_representable_projection() {
     assert_both("precise_route_divergent")
 }
+// TT-TEST: F03 primary
 #[test]
 fn precise_native_and_tracing_reports_match_independent_expected_projection() {
     assert_reports("precise_route_divergent")
 }
+// TT-TEST: F03 primary
 #[test]
 fn route_breakdowns_match_for_equivalent_native_and_tracing_evidence() {
     assert_case_matches_independent_oracles("precise_route_divergent", None);
@@ -100,6 +103,7 @@ fn route_breakdowns_match_for_equivalent_native_and_tracing_evidence() {
         assert_eq!(r.warnings.last().unwrap(), "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.");
     }
 }
+// TT-TEST: F03 primary
 #[test]
 fn temporal_segments_match_for_equivalent_native_and_tracing_evidence() {
     assert_case_matches_independent_oracles("precise_temporal_movement", None);
@@ -146,6 +150,7 @@ fn temporal_segments_match_for_equivalent_native_and_tracing_evidence() {
             .any(|w| w == "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect."));
     }
 }
+// TT-TEST: F03 secondary
 #[test]
 fn duration_only_native_and_tracing_cases_share_core_warning_and_report_semantics() {
     assert_case_matches_independent_oracles("duration_only_legacy", None);
@@ -199,6 +204,7 @@ fn duration_only_native_and_tracing_cases_share_core_warning_and_report_semantic
         assert_eq!(actual, expected);
     }
 }
+// TT-TEST: F03 secondary
 #[test]
 #[allow(clippy::too_many_lines)]
 fn semantic_limits_retain_the_same_evidence_and_drop_counts() {
@@ -317,6 +323,7 @@ fn semantic_limits_retain_the_same_evidence_and_drop_counts() {
         assert!(run.inflight.is_empty() && run.runtime_snapshots.is_empty());
     }
 }
+// TT-TEST: support
 #[test]
 fn completed_span_jsonl_import_never_fabricates_runtime_or_inflight_evidence() {
     let t = import_case("precise_route_divergent", None);
@@ -324,6 +331,7 @@ fn completed_span_jsonl_import_never_fabricates_runtime_or_inflight_evidence() {
     assert!(t.inflight.is_empty());
     assert_eq!(t.metadata.effective_tokio_sampler_config, None);
 }
+// TT-TEST: F03 secondary
 #[test]
 fn completed_span_equivalence_rejects_native_partial_stage_and_queue_evidence() {
     let mut r = native_case("precise_route_divergent");
@@ -339,6 +347,7 @@ fn completed_span_equivalence_rejects_native_partial_stage_and_queue_evidence() 
         Err(UnsupportedParityEvidence::PartialQueue)
     );
 }
+// TT-TEST: F03 secondary
 #[test]
 fn completed_span_equivalence_rejects_run_only_runtime_and_inflight_evidence() {
     let mut r = native_case("precise_route_divergent");
@@ -365,6 +374,7 @@ fn completed_span_equivalence_rejects_run_only_runtime_and_inflight_evidence() {
         Err(UnsupportedParityEvidence::RuntimeSnapshots)
     );
 }
+// TT-TEST: support
 #[test]
 fn run_only_metadata_differences_do_not_change_representable_projection() {
     let a = native_case("precise_route_divergent");
@@ -377,6 +387,7 @@ fn run_only_metadata_differences_do_not_change_representable_projection() {
     assert_eq!(project_run(&a), project_run(&b));
 }
 
+// TT-TEST: support
 #[test]
 #[allow(clippy::too_many_lines)]
 fn equivalence_projections_detect_every_contract_field_mutation() {
@@ -888,6 +899,7 @@ fn equivalence_projections_detect_every_contract_field_mutation() {
     assert_eq!(unix_actual, unix_expected);
 }
 
+// TT-TEST: support
 #[test]
 fn native_and_tracing_projection_json_matches_checked_in_bytes() {
     for (name, limits) in [

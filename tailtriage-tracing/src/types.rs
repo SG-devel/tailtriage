@@ -409,6 +409,7 @@ mod tests {
     use super::*;
     use crate::{TT_DEPTH_AT_START, TT_KIND, TT_SUCCESS};
 
+    // TT-TEST: support
     #[test]
     fn span_record_builder_stores_fields() {
         let record = SpanRecord::new("request", 10, 20)
@@ -431,6 +432,7 @@ mod tests {
         assert_eq!(record.fields().len(), 4);
     }
 
+    // TT-TEST: support
     #[test]
     fn field_value_from_conversions_work() {
         assert_eq!(
@@ -447,6 +449,7 @@ mod tests {
         assert_eq!(FieldValue::from(3.5_f64), FieldValue::F64(3.5));
     }
 
+    // TT-TEST: support
     #[test]
     fn import_options_builder_sets_values() {
         let options = ImportOptions::new("checkout-service")
@@ -460,12 +463,14 @@ mod tests {
         assert!(options.strict_mode());
     }
 
+    // TT-TEST: support
     #[test]
     fn import_warning_display_matches_message() {
         let warning = ImportWarning::new("dropped unknown field");
         assert_eq!(warning.to_string(), "dropped unknown field");
     }
 
+    // TT-TEST: support
     #[test]
     fn imported_run_accessors_and_into_parts_work() {
         let metadata = tailtriage_core::RunMetadata {
@@ -495,6 +500,7 @@ mod tests {
         assert_eq!(parts_warnings, warnings);
     }
 
+    // TT-TEST: support
     #[test]
     fn import_options_default_resolution_uses_light_core_defaults() {
         let options = ImportOptions::new("svc");
@@ -505,6 +511,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn import_options_mode_investigation_updates_defaults() {
         let options = ImportOptions::new("svc").mode(tailtriage_core::CaptureMode::Investigation);
@@ -514,6 +521,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn import_options_full_capture_limits_override_wins() {
         let full = tailtriage_core::CaptureLimits {
@@ -536,6 +544,7 @@ mod tests {
         assert_eq!(options.resolved_capture_limits(), full);
     }
 
+    // TT-TEST: support
     #[test]
     fn import_options_additive_capture_limits_override_applies_to_mode_defaults() {
         let additive = tailtriage_core::CaptureLimitsOverride {
