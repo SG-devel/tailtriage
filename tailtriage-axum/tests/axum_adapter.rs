@@ -43,6 +43,7 @@ async fn timeout_handler(TailtriageRequest(_): TailtriageRequest) -> StatusCode 
     StatusCode::REQUEST_TIMEOUT
 }
 
+// TT-TEST: X01 primary
 #[tokio::test(flavor = "current_thread")]
 async fn middleware_injects_request_handle_and_finishes_from_response_status() {
     let nanos = SystemTime::now()
@@ -113,6 +114,7 @@ async fn middleware_injects_request_handle_and_finishes_from_response_status() {
     assert_eq!(failure.outcome, "error");
 }
 
+// TT-TEST: X02 primary
 #[tokio::test(flavor = "current_thread")]
 async fn middleware_records_default_http_outcomes_in_snapshot() {
     let tailtriage = Arc::new(
@@ -172,6 +174,7 @@ async fn middleware_records_default_http_outcomes_in_snapshot() {
     assert_eq!(outcome_for("/fail"), "error");
 }
 
+// TT-TEST: X02 primary
 #[tokio::test(flavor = "current_thread")]
 async fn configurable_middleware_classifier_changes_recorded_outcome() {
     let tailtriage = Arc::new(

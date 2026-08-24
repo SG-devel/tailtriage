@@ -103,11 +103,13 @@ mod tests {
         decode_run_json_reader(Cursor::new(bytes))
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn valid_supported_run_decodes() {
         assert!(decode(&valid()).is_ok());
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn malformed_and_truncated_json_are_rejected() {
         assert!(matches!(
@@ -120,6 +122,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn typed_shape_errors_are_rejected() {
         assert!(matches!(
@@ -142,6 +145,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn structurally_valid_unsupported_schema_has_dedicated_error() {
         let data = String::from_utf8(valid())
@@ -156,6 +160,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn trailing_content_is_rejected() {
         let mut data = valid();
@@ -166,6 +171,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn deep_json_fails_under_normal_recursion_protection() {
         let nesting_depth = 256;
@@ -185,6 +191,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn unknown_nested_fields_are_ignored() {
         let mut data = String::from_utf8(valid()).unwrap();
@@ -192,6 +199,7 @@ mod tests {
         assert!(decode(data.as_bytes()).is_ok());
     }
 
+    // TT-TEST: support
     #[test]
     fn escaped_terminal_control_is_inert_string_data() {
         let data = String::from_utf8(valid()).unwrap().replace(
@@ -212,6 +220,7 @@ mod tests {
         }
     }
 
+    // TT-TEST: S02 primary
     #[test]
     fn decoder_accepts_non_seekable_reader() {
         let reader = NonSeekReader {
@@ -220,6 +229,7 @@ mod tests {
         assert!(decode_run_json_reader(reader).is_ok());
     }
 
+    // TT-TEST: support
     #[test]
     fn path_with_spaces() {
         let dir = tempfile::tempdir().unwrap();

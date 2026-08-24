@@ -732,6 +732,7 @@ mod tests {
         assert!(condition(), "{failure_message}");
     }
 
+    // TT-TEST: support
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_records_snapshots() {
         let nanos = SystemTime::now()
@@ -770,6 +771,7 @@ mod tests {
         assert!(first.global_queue_depth.is_some());
     }
 
+    // TT-TEST: T03 primary
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_rejects_zero_interval() {
         let tailtriage = Arc::new(
@@ -786,6 +788,7 @@ mod tests {
         assert_eq!(err, SamplerStartError::ZeroInterval);
     }
 
+    // TT-TEST: T03 primary
     #[test]
     fn runtime_sampler_requires_active_runtime() {
         let tailtriage = Arc::new(
@@ -810,6 +813,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn core_light_inherits_tokio_light_defaults() {
         let tailtriage = Arc::new(
@@ -842,6 +846,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn core_investigation_inherits_tokio_investigation_defaults() {
         let tailtriage = Arc::new(
@@ -874,6 +879,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn explicit_tokio_mode_override_beats_inherited_core_mode() {
         let tailtriage = Arc::new(
@@ -903,6 +909,7 @@ mod tests {
         assert_eq!(config.resolved_mode, CaptureMode::Investigation);
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn explicit_cadence_override_beats_mode_default() {
         let tailtriage = Arc::new(
@@ -926,6 +933,7 @@ mod tests {
         assert_eq!(config.resolved_sampler_cadence_ms, 17);
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn explicit_retention_override_beats_mode_default() {
         let tailtriage = Arc::new(
@@ -964,6 +972,7 @@ mod tests {
         assert_eq!(snapshot.runtime_snapshots.len(), 1);
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn sampler_stops_task_after_reaching_resolved_cap() {
         let tailtriage = Arc::new(
@@ -1002,6 +1011,7 @@ mod tests {
         sampler.shutdown().await;
     }
 
+    // TT-TEST: T05 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_records_when_started() {
         let tailtriage = Arc::new(
@@ -1031,6 +1041,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: T04 primary
     #[tokio::test(flavor = "current_thread")]
     async fn tokio_retention_override_is_clamped_by_core_limit() {
         let tailtriage = Arc::new(
@@ -1069,6 +1080,7 @@ mod tests {
         assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 0);
     }
 
+    // TT-TEST: support
     #[tokio::test(flavor = "current_thread")]
     async fn sampler_does_not_autostart_from_capture_mode() {
         let tailtriage = Tailtriage::builder("runtime-test")
@@ -1083,6 +1095,7 @@ mod tests {
         assert!(snapshot.metadata.effective_tokio_sampler_config.is_none());
     }
 
+    // TT-TEST: T05 primary
     #[tokio::test(flavor = "current_thread")]
     async fn unavailable_runtime_metrics_are_recorded_as_none() {
         let snapshot = super::capture_runtime_snapshot(&tokio::runtime::Handle::current());
@@ -1096,6 +1109,7 @@ mod tests {
         }
     }
 
+    // TT-TEST: T05 primary
     #[test]
     fn configured_multithread_worker_counts_are_captured() {
         for expected in [2_u32, 4] {
@@ -1109,6 +1123,7 @@ mod tests {
         }
     }
 
+    // TT-TEST: T03 primary
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_rejects_duplicate_start_for_same_run() {
         let tailtriage = Arc::new(
@@ -1192,6 +1207,7 @@ mod helper_tests {
         req.rwlock_write("rw_write_lifetime", lock).await
     }
 
+    // TT-TEST: T01 primary
     #[tokio::test(flavor = "current_thread")]
     async fn queue_and_lock_helpers_record_queue_only() {
         let run = run();
@@ -1261,6 +1277,7 @@ mod helper_tests {
         assert!(snap.stages.is_empty());
     }
 
+    // TT-TEST: T02 primary
     #[tokio::test(flavor = "current_thread")]
     async fn stage_helpers_and_inflight_behave_and_preserve_results() {
         let run = run();
@@ -1334,6 +1351,7 @@ mod helper_tests {
         assert!(!stage("blocking_panic").success);
     }
 
+    // TT-TEST: T02 primary
     #[tokio::test(flavor = "current_thread")]
     async fn blocking_stage_is_lazy_until_polled_and_records_on_await() {
         let run = run();
@@ -1382,6 +1400,7 @@ mod helper_tests {
         started.completion.finish_ok();
     }
 
+    // TT-TEST: T02 primary
     #[tokio::test(flavor = "current_thread")]
     async fn timeout_stage_is_lazy_until_polled() {
         let run = run();
@@ -1410,6 +1429,7 @@ mod helper_tests {
         started.completion.finish_ok();
     }
 
+    // TT-TEST: support
     #[tokio::test(flavor = "current_thread")]
     async fn timeout_stage_accepts_non_send_futures() {
         let run = run();
@@ -1427,6 +1447,7 @@ mod helper_tests {
         started.completion.finish_ok();
     }
 
+    // TT-TEST: K02 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn dropping_pending_queue_and_stage_helpers_records_partial_events() {
         let run = run();
@@ -1476,6 +1497,7 @@ mod helper_tests {
         started.completion.finish_ok();
     }
 
+    // TT-TEST: T02 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn owned_request_handle_works_and_helpers_do_not_finish_request() {
         let run = Arc::new(run());
@@ -1497,6 +1519,7 @@ mod helper_tests {
         assert_eq!(run.snapshot().requests.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn extension_impls_exist_for_borrowed_and_owned_handles() {
         fn assert_impl<T: crate::TokioRequestHandleExt>() {}
@@ -1504,6 +1527,7 @@ mod helper_tests {
         assert_impl::<tailtriage_core::OwnedRequestHandle>();
     }
 
+    // TT-TEST: T01 primary
     #[tokio::test(flavor = "current_thread")]
     async fn semaphore_helper_preserves_semaphore_lifetime() {
         let run = run();
@@ -1520,6 +1544,7 @@ mod helper_tests {
         assert_eq!(run.snapshot().requests.len(), 1);
     }
 
+    // TT-TEST: T01 primary
     #[tokio::test(flavor = "current_thread")]
     async fn lock_helpers_preserve_lock_lifetimes() {
         let run = run();
@@ -1582,6 +1607,7 @@ mod prompt09_tokio_partial_tests {
             .unwrap()
     }
 
+    // TT-TEST: T01 primary
     #[tokio::test(flavor = "current_thread")]
     async fn borrowed_semaphore_pending_then_drop_records_partial_queue() {
         let tt = capture();
@@ -1599,6 +1625,7 @@ mod prompt09_tokio_partial_tests {
         assert!(!ev.completed);
     }
 
+    // TT-TEST: K02 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn owned_semaphore_pending_then_drop_records_partial_queue() {
         let tt = capture();
@@ -1618,6 +1645,7 @@ mod prompt09_tokio_partial_tests {
         assert!(!ev.completed);
     }
 
+    // TT-TEST: K02 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn mpsc_send_pending_then_drop_records_partial_queue() {
         let tt = capture();
@@ -1634,6 +1662,7 @@ mod prompt09_tokio_partial_tests {
         assert!(!ev.completed);
     }
 
+    // TT-TEST: K02 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn mutex_and_rwlock_pending_then_drop_record_partial_queues() {
         let tt = capture();
@@ -1673,6 +1702,7 @@ mod prompt09_tokio_partial_tests {
         );
     }
 
+    // TT-TEST: T02 primary
     #[tokio::test(flavor = "current_thread")]
     async fn join_timeout_and_blocking_pending_then_drop_record_partial_stages() {
         let tt = capture();
@@ -1724,6 +1754,7 @@ mod prompt09_tokio_partial_tests {
         );
     }
 
+    // TT-TEST: K02 secondary
     #[tokio::test(flavor = "current_thread")]
     async fn owned_handle_stage_helper_pending_then_drop_records_partial_stage() {
         let tt = Arc::new(capture());
