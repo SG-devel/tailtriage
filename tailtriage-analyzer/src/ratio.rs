@@ -13,6 +13,7 @@ pub(super) fn meets_ratio(higher: u64, lower: u64, numerator: u64, denominator: 
 mod tests {
     use super::meets_ratio;
 
+    // TT-TEST: support
     #[test]
     fn ratio_boundary_is_inclusive_and_distinguishes_adjacent_values() {
         assert!(!meets_ratio(2, 2, 3, 2));
@@ -20,11 +21,13 @@ mod tests {
         assert!(meets_ratio(4, 2, 3, 2));
     }
 
+    // TT-TEST: support
     #[test]
     fn zero_baseline_never_meets_ratio() {
         assert!(!meets_ratio(u64::MAX, 0, 3, 2));
     }
 
+    // TT-TEST: support
     #[test]
     fn large_qualifying_and_non_qualifying_values_are_exact() {
         assert!(meets_ratio(u64::MAX, u64::MAX / 2, 3, 2));
@@ -32,6 +35,7 @@ mod tests {
         assert!(!meets_ratio(u64::MAX - 1, u64::MAX, 3, 2));
     }
 
+    // TT-TEST: support
     #[test]
     fn arithmetic_is_exact_near_u64_max() {
         assert!(meets_ratio(u64::MAX, u64::MAX - 1, 1, 1));

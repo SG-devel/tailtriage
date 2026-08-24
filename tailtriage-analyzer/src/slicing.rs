@@ -203,6 +203,7 @@ mod tests {
         slice_run(source, source, request_ids, global_evidence)
     }
 
+    // TT-TEST: A08 primary
     #[test]
     fn shared_slicer_preserves_request_scoped_source_order() {
         let downstream = fixture(include_str!("../tests/fixtures/downstream_stage.json"));
@@ -276,6 +277,7 @@ mod tests {
         assert_eq!(sliced.run.schema_version, source.schema_version);
     }
 
+    // TT-TEST: support
     #[test]
     fn scoped_projection_matches_internal_report_fields_exactly() {
         let source = fixture(include_str!("../tests/fixtures/queue_saturation.json"));
@@ -360,6 +362,7 @@ mod tests {
         assert!(temporal_json.get("temporal_segments").is_none());
     }
 
+    // TT-TEST: A09 secondary
     #[test]
     fn temporal_slice_filters_global_samples_with_existing_clock_rules() {
         let mut source = fixture(include_str!("../tests/fixtures/queue_saturation.json"));
