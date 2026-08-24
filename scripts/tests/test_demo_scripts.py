@@ -99,6 +99,85 @@ class DemoWrapperTests(unittest.TestCase):
         retry=self._report("downstream_stage_dominates", service=950)
         self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", retry, self._report("downstream_stage_dominates", score=70, p95=500, service=800))["policy_passed"])
 
+    def test_shared_lock_compares_actual_primary_scores(self):
+        before = self._report(
+            "application_queue_saturation",
+            score=80,
+            evidence=["Queue wait at p95 reflects shared lock contention"],
+        )
+        unchanged = self._report("application_queue_saturation", score=70, p95=500)
+        self.assertTrue(demo_tool.evaluate_live_scenario("shared-lock", before, unchanged)["policy_passed"])
+
+        higher_replacement = self._report("executor_pressure_suspected", score=90, p95=500)
+        result = demo_tool.evaluate_live_scenario("shared-lock", before, higher_replacement)
+        self.assertIn("primary_score_nonworsening", result["failed_expectations"])
+
+        lower_replacement = self._report("executor_pressure_suspected", score=70, p95=500)
+        self.assertTrue(demo_tool.evaluate_live_scenario("shared-lock", before, lower_replacement)["policy_passed"])
+
+    def test_retry_storm_compares_actual_primary_scores(self):
+        before = self._report("downstream_stage_dominates", score=80, service=950)
+        unchanged = self._report("downstream_stage_dominates", score=70, p95=500)
+        self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", before, unchanged)["policy_passed"])
+
+        higher_replacement = self._report("executor_pressure_suspected", score=90, p95=500)
+        result = demo_tool.evaluate_live_scenario("retry-storm", before, higher_replacement)
+        self.assertIn("primary_score_nonworsening", result["failed_expectations"])
+
+        lower_replacement = self._report("executor_pressure_suspected", score=80, p95=500)
+        self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", before, lower_replacement)["policy_passed"])
+
+    def test_cold_start_primary_score_nonincrease_passes(self):
+        before = self._report(
+            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            evidence=["cold_start_stage causes initial queue impact"],
+        )
+        after = self._report("executor_pressure_suspected", score=80, p95=19_500, queue=700)
+        self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, after)["policy_passed"])
+
+    def test_cold_start_score_increase_requires_material_latency_improvement(self):
+        before = self._report(
+            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            evidence=["cold_start_stage causes initial queue impact"],
+        )
+        after = self._report("application_queue_saturation", score=90, p95=19_500, queue=700)
+        result = demo_tool.evaluate_live_scenario("cold-start", before, after)
+        self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
+
+    def test_cold_start_changed_primary_requires_material_queue_improvement(self):
+        before = self._report(
+            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            evidence=["Queue wait at p95 reflects cold-start work"],
+        )
+        unrelated = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=650)
+        result = demo_tool.evaluate_live_scenario("cold-start", before, unrelated)
+        self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
+
+        explained = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=600)
+        self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, explained)["policy_passed"])
+
+    def test_cold_start_score_increase_retains_queue_worsening_tolerance(self):
+        before = self._report(
+            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            evidence=["cold_start_stage causes initial queue impact"],
+        )
+        tolerated = self._report("application_queue_saturation", score=90, p95=18_000, queue=720)
+        self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, tolerated)["policy_passed"])
+
+        worsened = self._report("application_queue_saturation", score=90, p95=18_000, queue=721)
+        result = demo_tool.evaluate_live_scenario("cold-start", before, worsened)
+        self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
+
+    def test_cold_start_target_disappearance_does_not_bypass_score_rule(self):
+        before = self._report(
+            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            evidence=["Queue depth sample reflects cold-start work"],
+        )
+        after = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=700)
+        result = demo_tool.evaluate_live_scenario("cold-start", before, after)
+        self.assertNotIn("application_queue_saturation", [after["primary_suspect"]["kind"]])
+        self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
+
     def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
         self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))
         self.assertIs(demo_tool.SCENARIO_PATHS, _demo_runner.SCENARIOS)

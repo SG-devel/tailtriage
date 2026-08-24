@@ -229,10 +229,10 @@ LIVE_SCENARIO_POLICIES: dict[str, dict[str, Any]] = {
     "executor": {"targeted": "executor_pressure_suspected", "checks": ["baseline_targeted", "executor_present", "no_blocking_evidence", "p95_improves", "targeted_score_nonworsening"]},
     "downstream": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "p95_improves", "targeted_score_nonworsening"], "after_high_confidence": {"downstream_stage_dominates"}},
     "mixed": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "baseline_downstream_secondary", "primary_rank_or_score_shifts"]},
-    "cold-start": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "targeted_score_nonworsening"]},
+    "cold-start": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "primary_score_increase_explainable"]},
     "db-pool": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_saturation", "downstream_stage_dominates"}},
-    "shared-lock": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "targeted_score_nonworsening"]},
-    "retry-storm": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "baseline_service_share_elevated", "p95_improves", "targeted_score_nonworsening"]},
+    "shared-lock": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "primary_score_nonworsening"]},
+    "retry-storm": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "baseline_service_share_elevated", "p95_improves", "primary_score_nonworsening"]},
 }
 SCENARIOS = list(LIVE_SCENARIO_POLICIES)
 
@@ -276,12 +276,36 @@ def evaluate_live_scenario(
     ratio = _ratio_delta(before_p95, after_p95)
     evidence = _evidence_text(before)
 
+    def cold_start_score_increase_explainable() -> bool:
+        before_score, after_score = before_primary.get("score"), after_primary.get("score")
+        if before_score is None or after_score is None:
+            return False
+        if after_score <= before_score:
+            return True
+        material_p95_improvement = (
+            before_p95 is not None
+            and after_p95 is not None
+            and after_p95 < before_p95
+            and before_p95 - after_p95 >= max(1_000, before_p95 // 20)
+        )
+        diagnosis_justified = after_primary.get("kind") == targeted or (
+            before_queue is not None
+            and after_queue is not None
+            and after_queue + 100 <= before_queue
+        )
+        queue_evidence_nonworsening = (
+            before_queue is None or after_queue is None or after_queue <= before_queue + 20
+        )
+        return material_p95_improvement and diagnosis_justified and queue_evidence_nonworsening
+
     def check(name: str) -> bool:
         if name == "baseline_targeted": return before_primary.get("kind") == targeted
         if name == "p95_improves": return ratio is not None and ratio <= -min_p95_improvement_ratio and after_p95 < before_p95
         if name == "queue_share_decreases": return before_queue is not None and after_queue is not None and after_queue < before_queue
         if name == "blocking_depth_decreases": return before_depth is not None and after_depth is not None and after_depth < before_depth
         if name == "targeted_score_nonworsening": return before_targeted_score is None or after_targeted_score is None or after_targeted_score <= before_targeted_score
+        if name == "primary_score_nonworsening": return before_primary.get("score") is not None and after_primary.get("score") is not None and after_primary["score"] <= before_primary["score"]
+        if name == "primary_score_increase_explainable": return cold_start_score_increase_explainable()
         if name == "executor_present": return has_suspect_kind(before, {targeted}) and (profile == "release" or before_targeted_score is not None)
         if name == "no_blocking_evidence": return "blocking queue depth" not in evidence
         if name == "baseline_downstream_secondary": return any(s.get("kind") == "downstream_stage_dominates" for s in before.get("secondary_suspects") or [])
