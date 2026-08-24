@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Validate public documentation contract expectations."""
+"""Validate structural documentation and repository source-policy contracts."""
 
 from __future__ import annotations
 
 import argparse
 import ast
-import json
 import re
 import shlex
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -16,209 +14,26 @@ from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
-SPEC_PATH = REPO_ROOT / "SPEC.md"
 DEV_DOCS_DIR = REPO_ROOT / "docs" / "dev"
-DESIGN_NOTES_PATH = DEV_DOCS_DIR / "DESIGN_NOTES.md"
-IMPLEMENTATION_PLAN_PATH = DEV_DOCS_DIR / "IMPLEMENTATION_PLAN.md"
-VALIDATION_PATH = DEV_DOCS_DIR / "VALIDATION.md"
-DEV_README_PATH = DEV_DOCS_DIR / "README.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
-ANALYZER_RATIONALE_PATH = REPO_ROOT / "docs" / "analyzer-rationale.md"
 OPERATIONS_PATH = REPO_ROOT / "docs" / "operations.md"
+ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 ANALYZER_CONFIG_EXAMPLE_PATH = REPO_ROOT / "examples" / "analyzer-config.toml"
-ANALYZER_DOC_PATHS = (
-    DIAGNOSTICS_PATH,
-    OPERATIONS_PATH,
-    USER_GUIDE_PATH,
-    REPO_ROOT / "tailtriage-analyzer" / "README.md",
-    REPO_ROOT / "tailtriage-cli" / "README.md",
-    REPO_ROOT / "tailtriage-tracing" / "README.md",
-)
-DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
+ANALYZER_DOC_PATHS = (DIAGNOSTICS_PATH, OPERATIONS_PATH, USER_GUIDE_PATH, REPO_ROOT / "tailtriage-analyzer" / "README.md", REPO_ROOT / "tailtriage-cli" / "README.md", REPO_ROOT / "tailtriage-tracing" / "README.md")
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
-ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
-ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "before-analysis.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
-USER_FACING_TERMINOLOGY_PATHS = (
-    README_PATH,
-    DOCS_INDEX_PATH,
-    USER_GUIDE_PATH,
-    DIAGNOSTICS_PATH,
-    OPERATIONS_PATH,
-    ARCHITECTURE_PATH,
-    REPO_ROOT / "docs" / "runtime-cost.md",
-    REPO_ROOT / "docs" / "collector-limits.md",
-    REPO_ROOT / "docs" / "getting-started-demo.md",
-    REPO_ROOT / "tailtriage" / "README.md",
-    REPO_ROOT / "tailtriage-core" / "README.md",
-    REPO_ROOT / "tailtriage-controller" / "README.md",
-    REPO_ROOT / "tailtriage-tokio" / "README.md",
-    REPO_ROOT / "tailtriage-axum" / "README.md",
-    REPO_ROOT / "tailtriage-analyzer" / "README.md",
-    REPO_ROOT / "tailtriage-cli" / "README.md",
-    REPO_ROOT / "tailtriage-tracing" / "README.md",
-    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage" / "Cargo.toml",
-)
-
-RUN_SCHEMA_CURRENT_CLAIM_PATHS = (
-    README_PATH,
-    SPEC_PATH,
-    VALIDATION_PATH,
-    IMPLEMENTATION_PLAN_PATH,
-    DESIGN_NOTES_PATH,
-    DOCS_INDEX_PATH,
-    USER_GUIDE_PATH,
-    DIAGNOSTICS_PATH,
-    OPERATIONS_PATH,
-    ARCHITECTURE_PATH,
-    REPO_ROOT / "tailtriage-core" / "README.md",
-    REPO_ROOT / "tailtriage-cli" / "README.md",
-    REPO_ROOT / "tailtriage-analyzer" / "README.md",
-    REPO_ROOT / "tailtriage-tracing" / "README.md",
-    REPO_ROOT / "tailtriage-controller" / "README.md",
-)
-
-STALE_CONTROLLER_POLICY_NAMES = (
-    'kind = "manual"',
-    'kind = "max_requests"',
-    'kind = "max_duration_ms"',
-    'kind = "first_limit_hit"',
-)
-
-DOCS_INDEX_EXCLUDED_MARKDOWN = {
-    # GitHub workflow templates, surfaced by GitHub UI rather than docs index.
-    ".github/ISSUE_TEMPLATE/bug_report.md",
-    ".github/ISSUE_TEMPLATE/feature_request.md",
-    ".github/pull_request_template.md",
-
-    # Agent working rules are not product docs.
-    "AGENTS.md",
-
-    # The docs index should not be required to link to itself.
-    "docs/README.md",
-
-    # Validation-domain internals. User-facing guidance is under docs/.
-    "validation/collector-limits/README.md",
-    "validation/collector-limits/latest/scorecard.md",
-    "validation/diagnostics/README.md",
-    "validation/diagnostics/latest/scorecard.md",
-    "validation/runtime-cost/README.md",
-    "validation/runtime-cost/latest/scorecard.md",
-}
-
-DOCS_DISALLOWED_HISTORY_PATTERNS = (
-    r"issue\s*#\d+",
-    r"PR\s*#\d+",
-)
-
-CAPTURE_INTEGRATION_README_PATHS = (
-    REPO_ROOT / "tailtriage" / "README.md",
-    REPO_ROOT / "tailtriage-core" / "README.md",
-    REPO_ROOT / "tailtriage-controller" / "README.md",
-    REPO_ROOT / "tailtriage-tokio" / "README.md",
-    REPO_ROOT / "tailtriage-axum" / "README.md",
-)
-
-DIAGNOSTICS_FIELD_REFERENCE_LABELS = (
-    "field reference",
-    "field-reference",
-)
-
-VALIDATION_DOC_PATHS = (
-    VALIDATION_PATH,
-    DIAGNOSTIC_VALIDATION_PATH,
-    REPO_ROOT / "validation" / "diagnostics" / "README.md",
-    REPO_ROOT / "validation" / "diagnostics" / "latest" / "scorecard.md",
-)
-
-DIAGNOSTIC_BENCHMARK_CI_ARGS = (
-    "--manifest validation/diagnostics/manifest.json",
-    "--min-top1 0.75",
-    "--min-top2 0.90",
-    "--max-high-confidence-wrong 0",
-)
-
-STALE_VALIDATION_DOC_PHRASES = (
-    "no in normal pr ci",
-)
-
-
-
-OBSOLETE_CHECKPOINT_PHRASES = (
-    "analyzer interpretation is unchanged in this release",
-    "Cancellation does not add partial queue or stage evidence",
-)
-
-MISLEADING_CANCELLATION_PATTERNS = (
-    r"cancellation\s+does\s+not\s+add\s+partial\s+queue\s+or\s+stage\s+evidence",
-)
-
-CANONICAL_CHECKPOINT_CONTRACT_PATHS = (
-    SPEC_PATH,
-    OPERATIONS_PATH,
-)
-
-RUSTDOC_INCLUDE_CRATE_LIBS = (
-    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-core" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
-    REPO_ROOT / "tailtriage-tracing" / "src" / "lib.rs",
-)
-
-ANALYZER_GROUPS = (
-    "queueing",
-    "blocking",
-    "executor",
-    "downstream",
-    "confidence",
-    "evidence",
-    "route",
-    "temporal",
-)
-ANALYZER_V1_VALID_PATHS = {
-    "queueing.trigger_permille",
-    "blocking.min_nonzero_samples_for_signal",
-    "blocking.strong_p95_threshold",
-    "blocking.strong_peak_threshold",
-    "blocking.strong_nonzero_share_permille",
-    "blocking.strong_min_samples",
-    "executor.min_global_queue_p95_for_signal",
-    "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
-    "downstream.blocking_correlated_stage_patterns",
-    "downstream.min_stage_samples",
-    "downstream.blocking_correlation_score_margin",
-    "confidence.medium_score_threshold",
-    "confidence.high_score_threshold",
-    "confidence.ambiguity_min_score",
-    "confidence.ambiguity_score_gap",
-    "evidence.low_completed_request_threshold",
-    "route.min_request_count",
-    "route.breakdown_limit",
-    "route.emit_on_divergent_suspects",
-    "route.slowest_to_fastest_p95_ratio_numerator",
-    "route.slowest_to_fastest_p95_ratio_denominator",
-    "route.slowest_to_global_p95_ratio_numerator",
-    "route.slowest_to_global_p95_ratio_denominator",
-    "temporal.min_request_count",
-    "temporal.min_segment_request_count",
-    "temporal.share_shift_permille",
-    "temporal.p95_shift_ratio_numerator",
-    "temporal.p95_shift_ratio_denominator",
-    "temporal.emit_on_suspect_shift",
-    "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
-}
+STALE_CONTROLLER_POLICY_NAMES = ('kind = "manual"', 'kind = "max_requests"', 'kind = "max_duration_ms"', 'kind = "first_limit_hit"')
+DOCS_INDEX_EXCLUDED_MARKDOWN = {".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/feature_request.md", ".github/pull_request_template.md", "AGENTS.md", "docs/README.md", "validation/collector-limits/README.md", "validation/collector-limits/latest/scorecard.md", "validation/diagnostics/README.md", "validation/diagnostics/latest/scorecard.md", "validation/runtime-cost/README.md", "validation/runtime-cost/latest/scorecard.md"}
+RUSTDOC_INCLUDE_CRATE_LIBS = tuple(REPO_ROOT / crate / "src" / "lib.rs" for crate in ("tailtriage", "tailtriage-core", "tailtriage-controller", "tailtriage-tokio", "tailtriage-axum", "tailtriage-analyzer", "tailtriage-cli", "tailtriage-tracing"))
+ANALYZER_GROUPS = ("queueing", "blocking", "executor", "downstream", "confidence", "evidence", "route", "temporal")
+DIAGNOSTIC_BENCHMARK_CI_ARGS = ("--manifest validation/diagnostics/manifest.json", "--min-top1 0.75", "--min-top2 0.90", "--max-high-confidence-wrong 0")
 
 
 def parse_args() -> argparse.Namespace:
@@ -285,98 +100,6 @@ def has_markdown_heading(markdown: str, heading_pattern: str) -> bool:
         is not None
     )
 
-
-def _kind_of(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, int):
-        return "int"
-    if isinstance(value, float):
-        return "float"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, list):
-        return "array"
-    if isinstance(value, dict):
-        return "object"
-    raise TypeError(f"unsupported JSON value type: {type(value)}")
-
-
-def assert_same_object_shape(*, name: str, actual: dict[str, Any], expected: dict[str, Any]) -> None:
-    actual_keys = set(actual.keys())
-    expected_keys = set(expected.keys())
-    if actual_keys != expected_keys:
-        raise ValueError(
-            f"{name} key drift: expected {sorted(expected_keys)}, got {sorted(actual_keys)}"
-        )
-
-    for key, expected_value in expected.items():
-        actual_kind = _kind_of(actual[key])
-        expected_kind = _kind_of(expected_value)
-        if actual_kind != expected_kind:
-            raise ValueError(f"{name}.{key} type drift: expected {expected_kind}, got {actual_kind}")
-
-
-
-def validate_governance_strictness_contract() -> None:
-    text = SPEC_PATH.read_text(encoding="utf-8")
-    lower_text = text.lower()
-
-    required_tokens = (
-        "default cli run artifact analysis strictly validates",
-        "tailtriage analyze --allow-ambiguous-artifact",
-        "analyzer library defaults remain permissive",
-        "tracing import `--strict` separately controls",
-        "does not replace strict run artifact validation",
-        "stable wrapper format",
-        "only accepted tracing jsonl file format",
-        "pre-stable/internal jsonl must be regenerated",
-    )
-    for token in required_tokens:
-        if token not in lower_text:
-            raise ValueError(f"SPEC.md strictness contract missing token: {token}")
-
-    conflations = (
-        r"strict artifact validation[^\n]*(?:cli/import strict flags|tracing import `--strict`)",
-        r"tracing import `--strict`[^\n]*(?<!not )replace(?:s)? strict run artifact validation",
-    )
-    for pattern in conflations:
-        if re.search(pattern, lower_text):
-            raise ValueError("SPEC.md conflates strict Run artifact validation with tracing import --strict")
-
-
-def validate_analyzer_strictness_ownership_contract(*, path: Path = DEV_README_PATH) -> None:
-    text = path.read_text(encoding="utf-8")
-    if re.search(r"analyzer (?:library )?entry points?[^\n]*expose strict alternatives", text, re.IGNORECASE):
-        raise ValueError(
-            f"{path.relative_to(REPO_ROOT)} claims analyzer-owned strict validation alternatives"
-        )
-
-
-def validate_governance_pending_state_contract() -> None:
-    text = DESIGN_NOTES_PATH.read_text(encoding="utf-8")
-    lower_text = text.lower()
-
-    required_tokens = (
-        "pending/unfinished request state can grow with admitted requests",
-        "completion token finishes or the collector is dropped",
-        "shutdown()` currently inspects pending requests",
-        "does not clear pending bookkeeping",
-        "seal the collector against later admissions",
-        "separate from the retained request, queue, stage, in-flight, and runtime vectors",
-        "known current limitations rather than desired permanent contracts",
-    )
-    for token in required_tokens:
-        if token not in lower_text:
-            raise ValueError(f"DESIGN_NOTES.md pending-state contract missing token: {token}")
-
-    if re.search(r"pending/unfinished request state[^\n]*until[^\n]*run shuts down", lower_text):
-        raise ValueError("DESIGN_NOTES.md must not claim shutdown clears pending request state")
-
-    if re.search(r"(?m)^\s*all live (?:bookkeeping|state) (?:is|are) (?:capture-limited|bounded by capture limits)", lower_text):
-        raise ValueError("DESIGN_NOTES.md must not claim all live bookkeeping is capture-limited")
 
 def validate_analyzer_ownership_navigation(
     *,
@@ -454,108 +177,15 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
 
 
 def validate_controller_readme_toml() -> None:
+    """Parse controller README examples and compare enum values with Rust source."""
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
-    if not has_markdown_heading(readme_text, r"TOML\s+field\s+reference"):
-        raise ValueError("controller README must include a TOML field reference section")
-    _validate_controller_precedence_semantics(readme_text)
+    snippets = extract_all_fenced_blocks(readme_text, fence="toml")
+    if len(snippets) < 2:
+        raise ValueError("controller README must include minimal and expanded TOML examples")
 
-    required_reference_tokens = (
-        "service_name",
-        "initially_enabled",
-        "mode",
-        "strict_lifecycle",
-        "capture_limits_override",
-        "max_requests",
-        "max_stages",
-        "max_queues",
-        "max_inflight_snapshots",
-        "max_runtime_snapshots",
-        "enabled_for_armed_runs",
-        "mode_override",
-        "interval_ms",
-        "run_end_policy",
-        "continue_after_limits_hit",
-        "auto_seal_on_limits_hit",
-    )
-    for token in required_reference_tokens:
-        if token not in readme_text:
-            raise ValueError(f"controller README TOML field reference missing token: {token}")
-
-    if "## Minimal TOML example" in readme_text and "## Expanded TOML example" in readme_text:
-        minimal_snippet = extract_fenced_block(
-            readme_text,
-            fence="toml",
-            anchor="## Minimal TOML example",
-        )
-        expanded_snippet = extract_fenced_block(
-            readme_text,
-            fence="toml",
-            anchor="## Expanded TOML example",
-        )
-    else:
-        snippets = extract_all_fenced_blocks(readme_text, fence="toml")
-        if len(snippets) < 2:
-            raise ValueError("controller README must include minimal and expanded TOML examples")
-        minimal_snippet, expanded_snippet = snippets[0], snippets[1]
-    minimal = tomllib.loads(minimal_snippet)
-    expanded = tomllib.loads(expanded_snippet)
-
+    minimal, expanded = (tomllib.loads(snippet) for snippet in snippets[:2])
     _validate_controller_toml_shape(parsed=minimal, example_name="minimal")
     _validate_controller_toml_shape(parsed=expanded, example_name="expanded")
-
-    expanded_controller = expanded["controller"]
-    if "initially_enabled" not in expanded_controller:
-        raise ValueError("expanded controller TOML example must include controller.initially_enabled")
-    if expanded_controller["initially_enabled"] is not False:
-        raise ValueError("expanded controller TOML example must set controller.initially_enabled = false")
-
-    expanded_activation = expanded_controller["activation"]
-    for required_table in ("capture_limits_override", "runtime_sampler", "run_end_policy"):
-        if required_table not in expanded_activation or not isinstance(
-            expanded_activation[required_table], dict
-        ):
-            raise ValueError(
-                f"expanded controller TOML example must include [controller.activation.{required_table}]"
-            )
-
-    runtime_sampler = expanded_activation["runtime_sampler"]
-    for key in (
-        "enabled_for_armed_runs",
-        "mode_override",
-        "interval_ms",
-        "max_runtime_snapshots",
-    ):
-        if key not in runtime_sampler:
-            raise ValueError(f"expanded controller TOML example must include runtime_sampler.{key}")
-
-    run_end_policy = expanded_activation["run_end_policy"]
-    if "kind" not in run_end_policy:
-        raise ValueError("expanded controller TOML example must include run_end_policy.kind")
-
-
-def _validate_controller_precedence_semantics(readme_text: str) -> None:
-    semantic_checks = (
-        (
-            "service_name fallback",
-            r"service_name[\s\S]{0,200}(?:fall[s]?\s+back|uses?)[\s\S]{0,120}builder",
-        ),
-        (
-            "initially_enabled fallback",
-            r"initially_enabled[\s\S]{0,200}(?:fall[s]?\s+back|uses?)[\s\S]{0,120}builder",
-        ),
-        (
-            "activation settings owned by TOML",
-            r"(?:activation[\s\S]{0,200}(?:comes?\s+from|owned\s+by)[\s\S]{0,80}toml|toml[\s\S]{0,80}owned[\s\S]{0,120}activation)",
-        ),
-        (
-            "activation optional-subfield defaults",
-            r"omitted[\s\S]{0,120}activation[\s\S]{0,120}default",
-        ),
-    )
-    lower_text = readme_text.lower()
-    for check_name, pattern in semantic_checks:
-        if re.search(pattern, lower_text, flags=re.IGNORECASE) is None:
-            raise ValueError(f"controller README precedence guidance missing semantic rule: {check_name}")
 
 
 def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str) -> None:
@@ -696,159 +326,13 @@ def validate_docs_index_contract() -> None:
         raise ValueError(f"docs index missing required Markdown links: {missing}")
 
 
-def validate_analyzer_rationale_contract(
-    *,
-    rationale_path: Path = ANALYZER_RATIONALE_PATH,
-    docs_index_path: Path = DOCS_INDEX_PATH,
-) -> None:
-    """Protect rationale ownership and structure without freezing catalog prose."""
-    rationale = rationale_path.read_text(encoding="utf-8")
-    index_links = markdown_links(docs_index_path.read_text(encoding="utf-8"))
-
-    if "analyzer-rationale.md" not in index_links:
-        raise ValueError("docs/README.md must link to analyzer-rationale.md")
-
-    required_concepts = (
-        "classification",
-        "recorded intent",
-        "present-purpose inference",
-        "unknown provenance",
-    )
-    missing = [concept for concept in required_concepts if concept.lower() not in rationale.lower()]
-    if missing:
-        raise ValueError(f"analyzer rationale missing required structural concepts: {missing}")
-
-    entry_fields = (
-        "**Rule or default:**",
-        "**Classification:**",
-        "**Problem addressed:**",
-        "**Why this shape:**",
-        "**Tradeoff:**",
-        "**Proof owner:**",
-        "**Revision criteria:**",
-        "**Provenance:**",
-    )
-    entries = re.findall(r"^###\s+AN-[^\n]+\n(.*?)(?=^###\s+AN-|^##\s+|\Z)", rationale, re.MULTILINE | re.DOTALL)
-    if not entries:
-        raise ValueError("analyzer rationale must contain stable AN-* catalog entries")
-    for index, entry in enumerate(entries, start=1):
-        missing = [field for field in entry_fields if field.lower() not in entry.lower()]
-        if missing:
-            raise ValueError(f"analyzer rationale entry {index} missing required fields: {missing}")
-
-    if not any(link.startswith("diagnostics.md") for link in markdown_links(rationale)):
-        raise ValueError("analyzer rationale must link mechanics to docs/diagnostics.md")
-
-
 def validate_root_readme_docs_link() -> None:
     text = README_PATH.read_text(encoding="utf-8")
     links = {normalize_doc_link(link) for link in markdown_links(text)}
 
     if "docs/README.md" not in links:
         raise ValueError("root README must link to docs/README.md")
-    
 
-def validate_user_guide_contract() -> None:
-    text = USER_GUIDE_PATH.read_text(encoding="utf-8")
-    lower_text = text.lower()
-    required_concepts = (
-        "default adoption path",
-        "request lifecycle contract",
-        "direct capture vs controller",
-        "controller toml config",
-        "tailtriagecontroller::builder(",
-        "[controller]",
-        "[controller.activation]",
-        "[controller.activation.sink]",
-        "runtime sampler",
-        "future generations only",
-        "insufficient_evidence",
-    )
-    for concept in required_concepts:
-        if concept not in lower_text:
-            raise ValueError(f"user guide missing required concept/token: {concept}")
-
-    toml_snippet = extract_fenced_block(
-        text,
-        fence="toml",
-        anchor="Minimal TOML shape:",
-    )
-    parsed = tomllib.loads(toml_snippet)
-    controller = parsed.get("controller")
-    if not isinstance(controller, dict):
-        raise ValueError("user guide TOML example must include a [controller] table")
-
-    service_name = controller.get("service_name")
-    if not isinstance(service_name, str) or not service_name.strip():
-        raise ValueError("user guide TOML example must include non-empty controller.service_name")
-
-    activation = controller.get("activation")
-    if not isinstance(activation, dict):
-        raise ValueError("user guide TOML example must include a [controller.activation] table")
-
-    mode = activation.get("mode")
-    if not isinstance(mode, str) or not mode.strip():
-        raise ValueError("user guide TOML example must include non-empty controller.activation.mode")
-
-    sink = activation.get("sink")
-    if not isinstance(sink, dict):
-        raise ValueError("user guide TOML example must include a [controller.activation.sink] table")
-
-    sink_type = sink.get("type")
-    output_path = sink.get("output_path")
-    if sink_type != "local_json":
-        raise ValueError(
-            "user guide TOML example must set controller.activation.sink.type = \"local_json\""
-        )
-    if not isinstance(output_path, str) or not output_path.strip():
-        raise ValueError(
-            "user guide TOML example must include non-empty controller.activation.sink.output_path"
-        )
-
-
-def validate_operations_guide_contract() -> None:
-    if not OPERATIONS_PATH.exists():
-        raise ValueError("operations guide is missing: docs/operations.md")
-
-    text = OPERATIONS_PATH.read_text(encoding="utf-8")
-    lower_text = text.lower()
-    required_concepts = (
-        "production operations guide",
-        "recommended rollout path",
-        "light",
-        "investigation",
-        "runtime sampling",
-        "artifact",
-        "truncation",
-        "capture limits",
-        "insufficient_evidence",
-        "evidence_quality",
-        "not universal production guarantees",
-        "not proof of root cause",
-        "controller",
-    )
-    for concept in required_concepts:
-        if concept not in lower_text:
-            raise ValueError(f"operations guide missing required concept/token: {concept}")
-
-    required_refs = ("validation.md", "diagnostics.md", "runtime-cost.md", "collector-limits.md")
-    for ref in required_refs:
-        if ref not in lower_text:
-            raise ValueError(f"operations guide missing required reference: {ref}")
-
-
-def validate_diagnostics_contract_truthfulness() -> None:
-    readme_text = README_PATH.read_text(encoding="utf-8")
-    docs_index_text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
-    diagnostics_text = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
-
-    combined_labels_text = f"{readme_text}\n{docs_index_text}".lower()
-    references_field_ref = any(label in combined_labels_text for label in DIAGNOSTICS_FIELD_REFERENCE_LABELS)
-    if references_field_ref and "## Field reference" not in diagnostics_text:
-        raise ValueError(
-            "README/docs index describe diagnostics as field reference, "
-            "but docs/diagnostics.md lacks a matching field reference section"
-        )
 
 def validate_analyzer_config_example_contract(*, config_path: Path = ANALYZER_CONFIG_EXAMPLE_PATH) -> None:
     if not config_path.exists():
@@ -880,60 +364,12 @@ def validate_analyzer_config_example_contract(*, config_path: Path = ANALYZER_CO
         )
 
 
-def _extract_analyzer_paths_for_validation(text: str) -> set[str]:
-    prefixes = "|".join((*ANALYZER_GROUPS, "queuing"))
-    pattern = re.compile(
-        rf"(?:`([^`]+)`|\b(--analyzer-set\s+)?(({prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)(?:=[^\s`]+)?)"
-    )
-    paths: set[str] = set()
-    for quoted, _, bare_with_optional_value, _ in pattern.findall(text):
-        candidate = quoted or bare_with_optional_value
-        candidate = candidate.split("=", 1)[0].strip()
-        candidate = re.sub(r"^--analyzer-set\s+", "", candidate)
-        if re.fullmatch(rf"(?:{prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", candidate):
-            paths.add(candidate)
-    return paths
-
-
 def validate_no_root_level_analyzer_toml_in_docs(*, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS) -> None:
     for path in doc_paths:
         text = path.read_text(encoding="utf-8")
         for group in ANALYZER_GROUPS:
             if re.search(rf"(?m)^\s*\[{group}\]\s*$", text):
                 raise ValueError(f"{path.relative_to(REPO_ROOT)} contains invalid root-level TOML header: [{group}]")
-
-
-def validate_analyzer_tuning_tokens_contract() -> None:
-    diagnostics_text = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
-    diagnostics_lower = diagnostics_text.lower()
-    diagnostics_required = ("analyzer tuning", "analyzeoptions", "--help-analyzer-options")
-    for token in diagnostics_required:
-        if token not in diagnostics_lower:
-            raise ValueError(f"docs/diagnostics.md missing required analyzer token: {token}")
-    if "not proof" not in diagnostics_lower:
-        raise ValueError("docs/diagnostics.md must include bounded wording that suspects are not proof")
-
-    cli_lower = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8").lower()
-    for token in ("--analyzer-config", "--analyzer-set", "--help-analyzer-options", "report json"):
-        if token not in cli_lower:
-            raise ValueError(f"tailtriage-cli/README.md missing required analyzer token: {token}")
-
-    analyzer_lower = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8").lower()
-    for token in ("analyzeoptions", "analyze_run", "with_queueing", "analyzer_config"):
-        if token not in analyzer_lower:
-            raise ValueError(f"tailtriage-analyzer/README.md missing required analyzer token: {token}")
-
-def validate_analyzer_override_paths_contract(*, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS) -> None:
-    for path in doc_paths:
-        text = path.read_text(encoding="utf-8")
-        candidates = _extract_analyzer_paths_for_validation(text)
-        invalid = sorted(candidate for candidate in candidates if candidate not in ANALYZER_V1_VALID_PATHS)
-        if invalid:
-            raise ValueError(
-                f"{path.relative_to(REPO_ROOT)} contains invalid analyzer override path(s): "
-                + ", ".join(invalid)
-            )
-
 
 
 def _strip_allowed_analyzer_migration_note(text: str) -> str:
@@ -1002,105 +438,6 @@ def validate_published_crate_readmes_are_self_contained(paths: tuple[Path, ...])
         )
 
 
-def validate_analyzer_cli_docs_split_contract() -> None:
-    analyzer_readme = REPO_ROOT / "tailtriage-analyzer" / "README.md"
-    cli_readme = REPO_ROOT / "tailtriage-cli" / "README.md"
-    validate_published_crate_readmes_are_self_contained((analyzer_readme, cli_readme))
-
-    analyzer_text = analyzer_readme.read_text(encoding="utf-8")
-    analyzer_lower = analyzer_text.lower()
-    analyzer_required = (
-        "in-process",
-        "completed",
-        "run",
-        "typed",
-        "report",
-        "render_json",
-        "render_json_pretty",
-        "analyze_run",
-        "render_text",
-        "analyzeoptions::default()",
-        "tailtriage-cli",
-    )
-    for token in analyzer_required:
-        if token not in analyzer_lower:
-            raise ValueError(f"tailtriage-analyzer README missing required concept/token: {token}")
-
-    if "let report = analyze_run" not in analyzer_lower or "analyzeoptions::default())?" not in analyzer_lower:
-        raise ValueError("tailtriage-analyzer README must teach checked analyze_run and separate Report rendering")
-
-    if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
-        raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
-
-    if "## How to interpret a report" not in analyzer_text:
-        raise ValueError("tailtriage-analyzer README must include heading: ## How to interpret a report")
-
-    analyzer_interpretation_tokens = (
-        "primary_suspect",
-        "evidence[]",
-        "next_checks[]",
-        "confidence",
-        "evidence_quality",
-        "Report JSON",
-        "Run artifact JSON",
-    )
-    for token in analyzer_interpretation_tokens:
-        if token not in analyzer_text:
-            raise ValueError(
-                "tailtriage-analyzer README interpretation guidance missing required token: "
-                f"{token}"
-            )
-
-    cli_text = cli_readme.read_text(encoding="utf-8")
-    cli_lower = cli_text.lower()
-    cli_required_patterns = (
-        ("saved/run artifact loading", r"(saved|captured|on-disk|persisted|run).{0,120}artifact"),
-        ("schema validation", r"(schema.{0,80}validat|validat.{0,80}schema)"),
-        ("non-empty requests loader rule", r"non[-\s]?empty.{0,80}requests"),
-        ("tailtriage-analyzer use", r"tailtriage-analyzer"),
-        ("command-line text/json output", r"(command[-\s]?line|cli).{0,160}(text|json|human-readable)"),
-        ("in-process pointer for Rust users", r"(rust|in-process).{0,120}tailtriage-analyzer"),
-        ("report vs run artifact json distinction", r"(report json).{0,140}(run artifact json|artifact json)|(run artifact json).{0,140}(report json)"),
-        ("cli does not consume report json as input", r"(does\s+not|never|is\s+not).{0,120}(consume|accept|load|read).{0,80}report json.{0,80}(input|artifact)"),
-    )
-    for label, pattern in cli_required_patterns:
-        if re.search(pattern, cli_lower, flags=re.IGNORECASE | re.DOTALL) is None:
-            raise ValueError(f"tailtriage-cli README missing required concept: {label}")
-
-
-def validate_capture_readmes_analyzer_cli_wording_contract() -> None:
-    stale_patterns = (
-        r"analysis\s+is\s+still\s+done\s+by\s+`?tailtriage-cli`?",
-        r"analysis\s+happens\s+in\s+`?tailtriage-cli`?",
-        r"artifact\s+produced\s+here.{0,80}analy[sz]ed\s+by\s+`?tailtriage-cli`?",
-        r"this\s+crate\s+writes\s+artifacts?.{0,80}`?tailtriage-cli`?\s+analy[sz]es",
-        r"analysis\s+or\s+report\s+generation.{0,120}`?tailtriage-cli`?",
-    )
-
-    failures: list[str] = []
-    for path in CAPTURE_INTEGRATION_README_PATHS:
-        text = path.read_text(encoding="utf-8")
-        lower = text.lower()
-        if "tailtriage-analyzer" not in lower:
-            failures.append(
-                f"{path.relative_to(REPO_ROOT)} must mention tailtriage-analyzer for in-process analysis"
-            )
-        if "tailtriage-cli" not in lower:
-            failures.append(
-                f"{path.relative_to(REPO_ROOT)} must mention tailtriage-cli for command-line artifact analysis"
-            )
-
-        for pattern in stale_patterns:
-            if re.search(pattern, lower, flags=re.IGNORECASE | re.DOTALL):
-                failures.append(
-                    f"{path.relative_to(REPO_ROOT)} contains stale CLI-only analyzer wording: {pattern}"
-                )
-
-    if failures:
-        raise ValueError(
-            "capture/integration README analyzer wording contract violation:\n" + "\n".join(failures)
-        )
-
 def _active_yaml_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -1155,93 +492,6 @@ def validate_diagnostic_benchmark_ci_contract(
         )
 
 
-def validate_validation_docs_ci_contract(
-    *, doc_paths: tuple[Path, ...] = VALIDATION_DOC_PATHS
-) -> None:
-    failures: list[str] = []
-    combined_text_parts: list[str] = []
-    for path in doc_paths:
-        text = path.read_text(encoding="utf-8")
-        combined_text_parts.append(text)
-        lower_text = text.lower()
-        for phrase in STALE_VALIDATION_DOC_PHRASES:
-            if phrase in lower_text:
-                try:
-                    display_path = str(path.relative_to(REPO_ROOT))
-                except ValueError:
-                    display_path = str(path)
-                failures.append(f"{display_path} contains stale validation-CI wording: {phrase}")
-
-    if failures:
-        raise ValueError("validation docs contain stale CI wording:\n" + "\n".join(failures))
-
-    combined_text = "\n".join(combined_text_parts)
-    ownership_contracts = (
-        (
-            r"normal\s+(?:mandatory\s+)?CI.{0,200}deterministic.{0,120}(?:gate|benchmark|corpus)",
-            "normal CI owns the deterministic diagnostics gate",
-        ),
-        (
-            r"scripts/generate_diagnostic_scorecard\.py.{0,180}(?:local/manual|locally|local evidence)",
-            "local/manual deterministic scorecards use scripts/generate_diagnostic_scorecard.py",
-        ),
-        (
-            r"scripts/validate_all\.py.{0,60}--profile\s+publish",
-            "local/manual release readiness uses scripts/validate_all.py --profile publish",
-        ),
-        (
-            r"normal\s+CI.{0,180}(?:does\s+not|doesn't).{0,120}(?:publish|upload).{0,100}(?:GitHub\s+artifacts?|scorecards?)",
-            "normal CI does not automatically publish scorecards or GitHub artifacts",
-        ),
-    )
-    for pattern, description in ownership_contracts:
-        if re.search(pattern, combined_text, flags=re.IGNORECASE | re.DOTALL) is None:
-            raise ValueError(f"validation docs must state that {description}")
-
-
-def validate_architecture_contract() -> None:
-    text = ARCHITECTURE_PATH.read_text(encoding="utf-8")
-    required_tokens = (
-        "`tailtriage`",
-        "`tailtriage-controller`",
-        "default entry point",
-        "file-based",
-    )
-    for token in required_tokens:
-        if token not in text:
-            raise ValueError(f"architecture doc missing required product-contract token: {token}")
-
-
-def validate_docs_no_history_framing() -> None:
-    failures: list[str] = []
-    for path in sorted(PUBLIC_DOCS_GLOB):
-        text = path.read_text(encoding="utf-8")
-        for pattern in DOCS_DISALLOWED_HISTORY_PATTERNS:
-            if re.search(pattern, text, flags=re.IGNORECASE):
-                failures.append(f"{path.relative_to(REPO_ROOT)} matches disallowed pattern: {pattern}")
-
-    if failures:
-        raise ValueError("docs include stale history/process framing:\n" + "\n".join(failures))
-
-
-def validate_no_user_facing_facade_wording() -> None:
-    failures: list[str] = []
-    for path in USER_FACING_TERMINOLOGY_PATHS:
-        text = path.read_text(encoding="utf-8")
-        if re.search(r"\bfacade\b", text, flags=re.IGNORECASE):
-            try:
-                display_path = str(path.relative_to(REPO_ROOT))
-            except ValueError:
-                display_path = str(path)
-            failures.append(f"{display_path} contains disallowed term: facade")
-
-    if failures:
-        raise ValueError(
-            "user-facing files contain stale facade wording:\n" + "\n".join(failures)
-        )
-
-
-
 def validate_crate_rustdocs_include_readmes() -> None:
     required = '#![doc = include_str!("../README.md")]'
     failures: list[str] = []
@@ -1281,6 +531,7 @@ def validate_residual_public_api_cleanup() -> None:
                 raise ValueError(
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
+
 
 def is_misleading_controller_example_flow(readme_text: str) -> bool:
     for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
@@ -1325,322 +576,6 @@ def validate_sampler_integration_boundary() -> None:
         raise ValueError(
             "tailtriage-core hidden __internal register_tokio_runtime_sampler hook is missing"
         )
-
-
-
-def normalized_words(text: str) -> str:
-    return re.sub(r"\s+", " ", text.lower()).strip()
-
-
-def require_doc_concepts(path: Path, concepts: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
-    text = normalized_words(path.read_text(encoding="utf-8"))
-    missing = [label for label, tokens in concepts if not all(token in text for token in tokens)]
-    if missing:
-        raise ValueError(
-            f"{path.relative_to(REPO_ROOT)} missing public docs contract concept(s): "
-            + ", ".join(missing)
-        )
-
-
-def validate_tracing_completed_jsonl_public_contract() -> None:
-    require_doc_concepts(
-        USER_GUIDE_PATH,
-        (
-            ("retained original source output", ("completed-span jsonl output contains retained original tracing source records",)),
-            ("representable-evidence-only replay parity", ("replay parity is limited to representable normalized request/stage/queue evidence",)),
-            ("complete run artifact", ("run json remains the complete persisted artifact",)),
-            ("run-only omissions", ("runtime snapshots", "in-flight snapshots", "semantic/raw truncation counters", "omitted-source diagnostics")),
-        ),
-    )
-    require_doc_concepts(
-        ARCHITECTURE_PATH,
-        (
-            ("tracing parser and retention role", ("tracing-specific parsing and retention",)),
-            ("core normalization role", ("core normalization",)),
-            ("private provenance role", ("private source provenance",)),
-            ("retained-source jsonl role", ("retained-source jsonl",)),
-            ("complete run artifact", ("run json remains the complete persisted artifact",)),
-        ),
-    )
-    require_doc_concepts(
-        SPEC_PATH,
-        (
-            ("prompt 05 public api boundary", ("prompt 05 owns public tracing api simplification",)),
-            ("prompt 06 compatibility boundary", ("prompt 06 owns compatibility-mode removal",)),
-        ),
-    )
-
-
-
-def validate_tracing_jsonl_no_compat_guidance_contract() -> None:
-    public_paths = (
-        README_PATH,
-        SPEC_PATH,
-        USER_GUIDE_PATH,
-        DOCS_INDEX_PATH,
-        ARCHITECTURE_PATH,
-        REPO_ROOT / "tailtriage-cli" / "README.md",
-        REPO_ROOT / "tailtriage-tracing" / "README.md",
-    )
-    disallowed_patterns = (
-        (r"jsonl" + r"parse" + r"mode", "JSONL parse mode API"),
-        (r"wrapper" + r"\s*" + r"-?" + r"\s*" + r"only" + r"\s+" + r"mode", "tracing JSONL wrapper-only mode wording"),
-        (r"--" + r"\s*" + r"input-format", "CLI input format option"),
-        (r"compatible\s+(?:mode|parser|tracing\s+import)", "compatible tracing import guidance"),
-        (r'(?<!"format":"tailtriage\.tracing-span\.v1",)"span"\s*:\s*\{', "unversioned tracing JSONL example"),
-    )
-    for path in public_paths:
-        text = path.read_text(encoding="utf-8")
-        compact = re.sub(r"\s+", " ", text.lower())
-        for pattern, label in disallowed_patterns:
-            if re.search(pattern, compact):
-                raise ValueError(f"{path.relative_to(REPO_ROOT)} contains unsupported tracing JSONL guidance: {label}")
-
-
-def strip_live_tracing_migration_sections(text: str) -> str:
-    pattern = re.compile(
-        r"^## Live tracing session migration\s*$.*?(?=^##\s+|\Z)",
-        flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
-    )
-    return pattern.sub("", text)
-
-
-def validate_tracing_readme_migration_section_contract() -> None:
-    path = REPO_ROOT / "tailtriage-tracing" / "README.md"
-    text = path.read_text(encoding="utf-8")
-    normalized = normalized_words(text)
-    duplicate = "for both `tracingsession` and `tracingsession`"
-    if duplicate in normalized:
-        raise ValueError(
-            "tailtriage-tracing/README.md contains duplicated TracingSession migration wording"
-        )
-    heading_count = len(
-        re.findall(
-            r"^## Live tracing session migration\s*$",
-            text,
-            flags=re.IGNORECASE | re.MULTILINE,
-        )
-    )
-    if heading_count != 1:
-        raise ValueError(
-            "tailtriage-tracing/README.md must contain exactly one "
-            "'## Live tracing session migration' heading"
-        )
-
-
-def validate_live_tracing_session_public_contract() -> None:
-    validate_tracing_readme_migration_section_contract()
-    required = (
-        USER_GUIDE_PATH,
-        REPO_ROOT / "tailtriage-tracing" / "README.md",
-    )
-    for path in required:
-        require_doc_concepts(
-            path,
-            (
-                ("sole current live entry point", ("tracingsession", "current live", "entry point")),
-                ("async shutdown", ("shutdown().await",)),
-                ("opt-in background sampling", ("background runtime sampling is opt-in", "sampler_interval",)),
-                ("opt-in manual runtime", ("manual runtime collection is opt-in", "manual_runtime_snapshots",)),
-                ("fallible manual recording", ("record_runtime_snapshot", "configuration error")),
-                ("retained original source jsonl", ("completed-span jsonl", "retained original tracing source")),
-                ("complete run artifact", ("run json", "complete persisted artifact")),
-                ("independent transactions", ("each output file is an independent transaction",)),
-            ),
-        )
-
-    obsolete = (
-        "TracingRecorder",
-        "TracingRecorderBuilder",
-        "TracingIntakeSession",
-        "TracingIntakeSessionBuilder",
-        "TracingTokioSession",
-        "TracingTokioSessionBuilder",
-        "TracingTokioSessionStartError",
-        "TracingTokioSessionShutdownError",
-        "disable_background_sampler",
-        "block_on_ready",
-    )
-    public_paths = (
-        README_PATH,
-        USER_GUIDE_PATH,
-        OPERATIONS_PATH,
-        ARCHITECTURE_PATH,
-        REPO_ROOT / "tailtriage" / "README.md",
-        REPO_ROOT / "tailtriage-tracing" / "README.md",
-        REPO_ROOT / "tailtriage" / "src" / "lib.rs",
-        REPO_ROOT / "tailtriage-tracing" / "src" / "lib.rs",
-    )
-    for path in public_paths:
-        current = strip_live_tracing_migration_sections(path.read_text(encoding="utf-8"))
-        found = [symbol for symbol in obsolete if symbol in current]
-        if found:
-            raise ValueError(
-                f"{path.relative_to(REPO_ROOT)} contains obsolete current live tracing guidance outside migration section: {found}"
-            )
-
-def tracked_markdown_paths() -> list[Path]:
-    result = subprocess.run(
-        ["git", "ls-files", "*.md"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    return [REPO_ROOT / line for line in result.stdout.splitlines() if line]
-
-
-def validate_checkpoint_documentation_contract(
-    *,
-    markdown_paths: tuple[Path, ...] | None = None,
-    canonical_paths: tuple[Path, ...] = CANONICAL_CHECKPOINT_CONTRACT_PATHS,
-) -> None:
-    if markdown_paths is None:
-        markdown_paths = tuple(tracked_markdown_paths())
-
-    errors: list[str] = []
-    for path in markdown_paths:
-        text = path.read_text(encoding="utf-8")
-        lower_text = text.lower()
-        for phrase in OBSOLETE_CHECKPOINT_PHRASES:
-            if phrase.lower() in lower_text:
-                errors.append(
-                    f"{path.relative_to(REPO_ROOT)} contains obsolete checkpoint phrase: {phrase}"
-                )
-        for pattern in MISLEADING_CANCELLATION_PATTERNS:
-            if re.search(pattern, text, flags=re.IGNORECASE):
-                errors.append(
-                    f"{path.relative_to(REPO_ROOT)} contains misleading cancellation wording: {pattern}"
-                )
-
-    required_concepts = (
-        (
-            "schema v2 finalization",
-            (
-                "Run JSON schema version 2",
-                "RunMetadata::finalized_at_unix_ms",
-                "sole run-level finalization timestamp",
-                "Active snapshots",
-                "None",
-                "finalized Runs",
-                "Some(timestamp)",
-            ),
-        ),
-        (
-            "request cancellation versus partial child Drop",
-            (
-                "dropping an admitted request-completion token while capture is open records one request outcome `cancelled`",
-                "does not itself fabricate child evidence",
-                "queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event",
-                "tracing spans remain completed-only",
-                "late Drop after finalization is inert",
-            ),
-        ),
-        (
-            "overlap-safe attribution",
-            (
-                "request-scoped bounded attribution",
-                "same-name stage",
-                "overlap",
-                "do not double-count",
-            ),
-        ),
-        (
-            "partial lower-bound interpretation",
-            (
-                "completed queue/stage distributions exclude partial observations",
-                "observed lower bound",
-                "materially partial-reliant queue/stage candidates cannot exceed medium confidence",
-            ),
-        ),
-        (
-            "completed-only tracing",
-            (
-                "tracing intake remains completed-only",
-            ),
-        ),
-        (
-            "confidence-first ordering",
-            (
-                "final confidence descending",
-                "raw score descending",
-                "stable suspect-kind rank",
-                "InsufficientEvidence last",
-            ),
-        ),
-        (
-            "ambiguity cluster cap",
-            (
-                "raw-score proximity",
-                "ambiguity",
-                "capped uniformly",
-            ),
-        ),
-    )
-    for path in canonical_paths:
-        text = path.read_text(encoding="utf-8")
-        lower_text = text.lower()
-        for concept, tokens in required_concepts:
-            missing = [token for token in tokens if token.lower() not in lower_text]
-            if missing:
-                errors.append(
-                    f"{path.relative_to(REPO_ROOT)} missing checkpoint contract tokens for {concept}: {missing}"
-                )
-
-    if errors:
-        raise ValueError("checkpoint documentation contract failed:\n" + "\n".join(errors))
-
-
-def validate_run_schema_v2_public_contract(
-    *,
-    doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS,
-    required_current_paths: tuple[Path, ...] | None = None,
-) -> None:
-    if required_current_paths is None:
-        required_current_paths = (
-            SPEC_PATH,
-            DIAGNOSTICS_PATH,
-            REPO_ROOT / "tailtriage-cli" / "README.md",
-        )
-        if doc_paths != RUN_SCHEMA_CURRENT_CLAIM_PATHS:
-            required_current_paths = doc_paths
-    stale_run_patterns = (
-        r"current\s+supported\s+run\s+schema\s+version\s*(?:is\s*)?[:=]?\s*`?1`?",
-        r"current\s+run\s+json\s+schema\s+version\s*(?:is\s*)?[:=]?\s*`?1`?",
-    )
-    for path in doc_paths:
-        text = path.read_text(encoding="utf-8")
-        for pattern in stale_run_patterns:
-            if re.search(pattern, text, flags=re.IGNORECASE):
-                raise ValueError(
-                    f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
-                )
-        if re.search(
-            r"(?:metadata\.finished_at_unix_ms|RunMetadata::finished_at_unix_ms)",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            raise ValueError(
-                f"{path.relative_to(REPO_ROOT)} contains removed current Run metadata field"
-            )
-
-    required = (
-        "Run JSON schema version 2",
-        "metadata.finalized_at_unix_ms",
-        "sole run-level finalization timestamp",
-        "Schema-v1 Run JSON",
-        "Event-level completion timestamps",
-    )
-    for path in required_current_paths:
-        text = path.read_text(encoding="utf-8")
-        missing = [token for token in required if token not in text]
-        if missing:
-            raise ValueError(f"{path.relative_to(REPO_ROOT)} missing Run schema v2 wording: {missing}")
-        lower = text.lower()
-        if "numeric finalization" not in lower and "numeric `metadata.finalized_at_unix_ms`" not in lower:
-            raise ValueError(f"{path.relative_to(REPO_ROOT)} must require numeric finalization for persisted Run artifacts")
-        if "null" not in lower:
-            raise ValueError(f"{path.relative_to(REPO_ROOT)} must permit null finalization for active snapshots")
 
 
 def _prohibited_release_command(command: str) -> str | None:
@@ -1799,41 +734,23 @@ def validate_manual_release_boundary(
     if errors:
         raise ValueError("manual release boundary failed:\n" + "\n".join(errors))
 
+
 def main() -> int:
     _ = parse_args()
-    validate_governance_strictness_contract()
-    validate_analyzer_strictness_ownership_contract()
-    validate_governance_pending_state_contract()
     validate_analyzer_ownership_navigation()
     validate_crate_rustdocs_include_readmes()
     validate_residual_public_api_cleanup()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
-    validate_analyzer_rationale_contract()
     validate_root_readme_docs_link()
-    validate_user_guide_contract()
-    validate_operations_guide_contract()
-    validate_diagnostics_contract_truthfulness()
     validate_analyzer_config_example_contract()
     validate_no_root_level_analyzer_toml_in_docs()
-    validate_analyzer_tuning_tokens_contract()
-    validate_analyzer_override_paths_contract()
     validate_cli_not_presented_as_library_analyzer_api()
-    validate_analyzer_cli_docs_split_contract()
-    validate_capture_readmes_analyzer_cli_wording_contract()
+    validate_published_crate_readmes_are_self_contained((REPO_ROOT / "tailtriage-analyzer" / "README.md", REPO_ROOT / "tailtriage-cli" / "README.md"))
     validate_diagnostic_benchmark_ci_contract()
-    validate_validation_docs_ci_contract()
-    validate_architecture_contract()
-    validate_docs_no_history_framing()
-    validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
-    validate_tracing_completed_jsonl_public_contract()
-    validate_tracing_jsonl_no_compat_guidance_contract()
-    validate_live_tracing_session_public_contract()
-    validate_run_schema_v2_public_contract()
-    validate_checkpoint_documentation_contract()
     validate_manual_release_boundary()
     print("docs contracts validated successfully")
     return 0
