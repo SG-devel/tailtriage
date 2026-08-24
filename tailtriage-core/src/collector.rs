@@ -1030,12 +1030,14 @@ mod tests {
     use super::normalize_host_name;
     use std::ffi::OsString;
 
+    // TT-TEST: support
     #[test]
     fn normalize_host_name_rejects_blank_values() {
         assert_eq!(normalize_host_name(OsString::from("")), None);
         assert_eq!(normalize_host_name(OsString::from("   ")), None);
     }
 
+    // TT-TEST: support
     #[test]
     fn normalize_host_name_trims_non_blank_values() {
         assert_eq!(

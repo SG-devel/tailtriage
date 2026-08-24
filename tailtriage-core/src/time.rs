@@ -121,6 +121,7 @@ mod tests {
     use super::{duration_to_unix_ms, duration_to_us, system_time_to_unix_ms, RunClock};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+    // TT-TEST: support
     #[test]
     fn duration_to_us_saturates_at_u64_max() {
         assert_eq!(duration_to_us(Duration::from_micros(123)), 123);
@@ -131,6 +132,7 @@ mod tests {
         assert_eq!(duration_to_us(overflow_duration), u64::MAX);
     }
 
+    // TT-TEST: support
     #[test]
     fn run_clock_intervals_include_run_relative_offsets() {
         let clock = RunClock::new();
@@ -152,6 +154,7 @@ mod tests {
         assert!(clock.run_started_at_unix_ms() <= finished.finished_at_unix_ms);
     }
 
+    // TT-TEST: support
     #[test]
     fn system_time_to_unix_ms_clamps_epoch_and_overflow() {
         let before_epoch = UNIX_EPOCH
