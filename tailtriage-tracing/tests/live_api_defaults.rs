@@ -1,5 +1,6 @@
 #![cfg(feature = "live")]
 
+// TT-TEST: support
 #[test]
 fn crate_root_exports_live_recorder_default_limits_consistently() {
     let defaults = tailtriage_tracing::RecorderLimits::default();

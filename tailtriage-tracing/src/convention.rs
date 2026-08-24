@@ -21,6 +21,7 @@ pub const TT_SUCCESS: &str = "tt.success";
 mod tests {
     use super::*;
 
+    // TT-TEST: support
     #[test]
     fn constants_match_expected_keys() {
         assert_eq!(TT_KIND, "tt.kind");

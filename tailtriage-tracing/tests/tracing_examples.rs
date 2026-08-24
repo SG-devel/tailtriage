@@ -127,6 +127,7 @@ fn assert_single_request_timing_semantics(run: &Run) {
     assert_eq!(report.p95_queue_share_permille, Some(600));
 }
 
+// TT-TEST: F03 secondary
 #[cfg(feature = "live")]
 #[test]
 fn native_core_and_live_tracing_capture_preserve_timing_semantics() {
@@ -137,6 +138,7 @@ fn native_core_and_live_tracing_capture_preserve_timing_semantics() {
     assert_single_request_timing_semantics(&tracing);
 }
 
+// TT-TEST: F02 secondary
 #[test]
 fn jsonl_fixture_imports_completed_span_shape() {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -168,6 +170,7 @@ fn jsonl_fixture_imports_completed_span_shape() {
         .contains("precise_interval_validation_unavailable")));
 }
 
+// TT-TEST: F02 secondary
 #[test]
 fn jsonl_fixture_reader_and_path_import_parity_on_counts() {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -192,6 +195,7 @@ fn jsonl_fixture_reader_and_path_import_parity_on_counts() {
     assert_eq!(run_path.stages.len(), run_reader.stages.len());
 }
 
+// TT-TEST: support
 #[test]
 fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -213,6 +217,7 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     assert_eq!(report.request_count, 1);
 }
 
+// TT-TEST: support
 #[test]
 fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
     let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1700000000000,"started_at_run_us":0,"finished_at_unix_ms":1700000000001,"finished_at_run_us":1000,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}"#;

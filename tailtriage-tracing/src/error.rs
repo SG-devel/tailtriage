@@ -166,6 +166,7 @@ impl std::error::Error for ImportError {}
 mod tests {
     use super::ImportError;
 
+    // TT-TEST: S04 primary
     #[test]
     fn import_error_display_escapes_dynamic_fields_and_preserves_layout() {
         let error = ImportError::ZeroRequestArtifactWithWarnings {
@@ -179,6 +180,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn jsonl_resource_errors_have_deterministic_context() {
         assert_eq!(

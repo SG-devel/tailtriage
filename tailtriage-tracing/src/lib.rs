@@ -906,6 +906,7 @@ mod persistable_tests {
     use crate::ImportError;
     use tailtriage_core::{MemorySink, RequestEvent, Tailtriage};
 
+    // TT-TEST: support
     #[test]
     fn ensure_persistable_run_has_requests_accepts_non_empty_runs() {
         let collector = Tailtriage::builder("svc")
@@ -927,6 +928,7 @@ mod persistable_tests {
         assert!(ensure_persistable_run_has_requests(&run).is_ok());
     }
 
+    // TT-TEST: support
     #[test]
     fn ensure_persistable_run_has_requests_rejects_empty_runs() {
         let run = Tailtriage::builder("svc")
@@ -1045,6 +1047,7 @@ fn parse_depth_at_start(
 mod tests {
     use super::*;
 
+    // TT-TEST: S01 primary
     #[test]
     fn streaming_conversion_directly_bounds_temporary_candidate_and_source_state() {
         let mut spans = Vec::new();
@@ -1133,6 +1136,7 @@ mod tests {
     }
     use tailtriage_core::CaptureMode;
 
+    // TT-TEST: support
     #[test]
     fn span_kind_parser_accepts_supported_values_only() {
         assert_eq!(SpanKind::parse("request"), Some(SpanKind::Request));
@@ -1261,6 +1265,7 @@ mod tests {
             .collect()
     }
 
+    // TT-TEST: R05 primary
     #[test]
     fn provenance_maps_valid_request_stage_queue_source_indices() {
         let spans = vec![
@@ -1286,6 +1291,7 @@ mod tests {
         assert_eq!(result.retained_sources, spans);
     }
 
+    // TT-TEST: support
     #[test]
     fn imported_run_privately_carries_exact_retained_original_sources() {
         let request = req("a", 100, 120)
@@ -1312,6 +1318,7 @@ mod tests {
         let (_run, _warnings) = imported.into_parts();
     }
 
+    // TT-TEST: support
     #[test]
     fn imported_run_new_has_no_private_retained_sources() {
         let imported = ImportedRun::new(empty_candidate_run(), Vec::new());
@@ -1319,6 +1326,7 @@ mod tests {
         assert!(imported.retained_sources().is_empty());
     }
 
+    // TT-TEST: R05 primary
     #[test]
     #[allow(clippy::too_many_lines)]
     fn provenance_excludes_children_of_core_excluded_parents_without_truncation() {
@@ -1490,6 +1498,7 @@ mod tests {
         assert!(!candidate.truncation.limits_hit);
     }
 
+    // TT-TEST: R05 primary
     #[test]
     fn provenance_retained_output_indices_are_exact_and_contiguous_per_section() {
         let spans = vec![
@@ -1574,6 +1583,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: R05 secondary
     #[test]
     fn provenance_retained_sources_follow_original_source_order_not_canonical_sections() {
         let spans = vec![
@@ -1620,6 +1630,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn provenance_core_exclusions_do_not_increment_tracing_truncation_counters() {
         let spans = vec![
@@ -1655,6 +1666,7 @@ mod tests {
         assert!(!result.imported.run().truncation.limits_hit);
     }
 
+    // TT-TEST: R05 secondary
     #[test]
     fn provenance_never_revives_source_parsing_drops() {
         let spans = vec![
@@ -1696,6 +1708,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn provenance_retains_original_source_when_optional_precision_is_missing_or_repaired() {
         let missing = vec![
@@ -1737,6 +1750,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn provenance_excludes_core_duplicate_ambiguous_orphan_parent_and_containment_cases() {
         let spans = vec![
@@ -1778,6 +1792,7 @@ mod tests {
         assert_eq!(result.imported.run().truncation.dropped_queues, 0);
     }
 
+    // TT-TEST: R05 secondary
     #[test]
     fn provenance_semantic_limits_preserve_mappings_and_never_revive_dropped_sources() {
         let spans = vec![
@@ -1827,6 +1842,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn provenance_ordering_issue_codes_repeatability_and_public_equivalence_are_deterministic() {
         let spans = vec![
@@ -1881,6 +1897,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
     }
+    // TT-TEST: support
     #[test]
     fn request_only_conversion_creates_one_request_event() {
         let spans = vec![SpanRecord::new("req", 100, 110)
@@ -1891,6 +1908,7 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn request_and_stage_convert() {
         let spans = vec![
@@ -1913,6 +1931,7 @@ mod tests {
         assert_eq!(run.stages.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn request_and_queue_convert() {
         let spans = vec![
@@ -1934,6 +1953,7 @@ mod tests {
         assert_eq!(run.queues.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn span_record_run_relative_fields_convert_to_core_events() {
         let spans = vec![
@@ -1972,6 +1992,7 @@ mod tests {
         assert_eq!(run.queues[0].waited_until_run_us, Some(3_010));
     }
 
+    // TT-TEST: support
     #[test]
     fn missing_duration_uses_run_relative_delta_before_unix_bounds() {
         let spans = vec![SpanRecord::new("req", 10, 11)
@@ -1986,6 +2007,7 @@ mod tests {
         assert_eq!(imported.run().requests[0].latency_us, 50_000);
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_duration_matching_run_relative_allows_wall_clock_mismatch() {
         let spans = vec![SpanRecord::new("req", 10, 11)
@@ -2002,6 +2024,7 @@ mod tests {
         assert_eq!(imported.run().requests[0].latency_us, 50_000);
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_duration_mismatching_run_relative_fails_even_if_unix_matches() {
         let spans = vec![SpanRecord::new("req", 10, 60)
@@ -2019,6 +2042,7 @@ mod tests {
         assert!(message.contains("duration_mismatch"));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_duration_mismatching_run_relative_warns_and_retains_duration() {
         let spans = vec![SpanRecord::new("req", 10, 60)
@@ -2044,6 +2068,7 @@ mod tests {
             .any(|w| w.contains("duration_mismatch")));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_inverted_request_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![SpanRecord::new("req", 100, 120)
@@ -2069,6 +2094,7 @@ mod tests {
             .any(|w| w.message().contains("optional run-relative offsets")));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_inverted_request_run_relative_offsets_fail() {
         let spans = vec![SpanRecord::new("req", 100, 120)
@@ -2085,6 +2111,7 @@ mod tests {
         assert!(err.to_string().contains("inverted_interval"));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_incomplete_request_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![SpanRecord::new("req", 100, 120)
@@ -2108,6 +2135,7 @@ mod tests {
             .any(|w| w.message().contains("optional run-relative offsets")));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_inverted_queue_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![
@@ -2135,6 +2163,7 @@ mod tests {
             .any(|w| w.message().contains("inverted_interval")));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_inverted_stage_run_relative_without_duration_uses_coarse_delta() {
         let spans = vec![
@@ -2166,6 +2195,7 @@ mod tests {
             .any(|w| w.message().contains("optional run-relative offsets")));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_inverted_queue_run_relative_offsets_fail() {
         let spans = vec![
@@ -2188,6 +2218,7 @@ mod tests {
         assert!(err.to_string().contains("inverted_interval"));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_incomplete_queue_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![
@@ -2217,6 +2248,7 @@ mod tests {
             .any(|w| w.message().contains("optional run-relative offsets")));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_incomplete_queue_run_relative_offsets_fail() {
         let spans = vec![
@@ -2238,6 +2270,7 @@ mod tests {
         assert!(err.to_string().contains("partial_run_relative_interval"));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_orphan_stage_is_skipped_and_warning_is_durable() {
         let spans = vec![
@@ -2266,6 +2299,7 @@ mod tests {
             .any(|w| w.contains(warning)));
     }
 
+    // TT-TEST: support
     #[test]
     fn orphan_stage_does_not_affect_retained_bounds_or_default_stage_success_warning() {
         let spans = vec![
@@ -2299,6 +2333,7 @@ mod tests {
             .any(|w| w.contains("missing optional 'tt.success'; assumed true")));
     }
 
+    // TT-TEST: R02 secondary
     #[test]
     fn strict_orphan_stage_fails() {
         let spans = vec![
@@ -2320,6 +2355,7 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_orphan_queue_is_skipped_and_warning_is_durable() {
         let spans = vec![
@@ -2348,6 +2384,7 @@ mod tests {
             .any(|w| w.contains(warning)));
     }
 
+    // TT-TEST: R02 secondary
     #[test]
     fn strict_orphan_queue_fails() {
         let spans = vec![
@@ -2369,6 +2406,7 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
     #[test]
     fn wall_clock_stage_before_request_start_is_retained_without_precise_containment_warning() {
         let spans = vec![
@@ -2398,6 +2436,7 @@ mod tests {
             .any(|w| w.contains("precise_interval_validation_unavailable")));
     }
 
+    // TT-TEST: support
     #[test]
     fn wall_clock_stage_after_request_finish_is_retained_without_precise_containment_warning() {
         let spans = vec![
@@ -2427,6 +2466,7 @@ mod tests {
             .any(|w| w.contains("precise_interval_validation_unavailable")));
     }
 
+    // TT-TEST: support
     #[test]
     fn wall_clock_queue_before_request_start_is_retained_without_precise_containment_warning() {
         let spans = vec![
@@ -2456,6 +2496,7 @@ mod tests {
             .any(|w| w.contains("precise_interval_validation_unavailable")));
     }
 
+    // TT-TEST: support
     #[test]
     fn wall_clock_queue_after_request_finish_is_retained_without_precise_containment_warning() {
         let spans = vec![
@@ -2485,6 +2526,7 @@ mod tests {
             .any(|w| w.contains("precise_interval_validation_unavailable")));
     }
 
+    // TT-TEST: R02 primary
     #[test]
     fn precise_stage_outside_request_is_excluded_permissively_and_rejected_strictly() {
         let spans = vec![
@@ -2512,6 +2554,7 @@ mod tests {
         assert!(err.to_string().contains("child_interval_outside_request"));
     }
 
+    // TT-TEST: R02 secondary
     #[test]
     fn precise_queue_outside_request_is_excluded_permissively_and_rejected_strictly() {
         let spans = vec![
@@ -2539,6 +2582,7 @@ mod tests {
         assert!(err.to_string().contains("child_interval_outside_request"));
     }
 
+    // TT-TEST: support
     #[test]
     fn wall_clock_stage_starting_before_request_is_retained_without_containment() {
         let spans = vec![
@@ -2555,6 +2599,7 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn wall_clock_queue_ending_after_request_is_retained_without_containment() {
         let spans = vec![
@@ -2571,6 +2616,7 @@ mod tests {
         assert_eq!(imported.run().queues.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn boundary_equal_stage_and_queue_are_accepted() {
         let spans = vec![
@@ -2595,6 +2641,7 @@ mod tests {
         assert_eq!(run.queues.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn zero_duration_request_with_boundary_equal_stage_and_queue_is_accepted() {
         let spans = vec![
@@ -2621,6 +2668,7 @@ mod tests {
         assert_eq!(run.queues.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_duplicate_request_id_excludes_all_duplicate_requests_and_children() {
         let spans = vec![
@@ -2670,6 +2718,7 @@ mod tests {
             .any(|w| w.contains("ambiguous_parent_request_id")));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_retained_duplicate_missing_outcome_warns_before_core_exclusion() {
         let spans = vec![
@@ -2700,6 +2749,7 @@ mod tests {
             .any(|w| w.contains("missing optional 'tt.outcome'; assumed 'ok'")));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_duplicate_request_id_fails() {
         let spans = vec![
@@ -2716,6 +2766,7 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_error_lists_unique_core_issue_codes_once_in_order() {
         let spans = vec![
@@ -2747,6 +2798,7 @@ mod tests {
         assert_eq!(message.matches("ambiguous_parent_request_id").count(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn overflow_duplicate_request_ids_beyond_max_requests_do_not_warn() {
         let spans = vec![
@@ -2779,6 +2831,7 @@ mod tests {
             .any(|w| w.message().contains("duplicate_completed_request_id")));
     }
 
+    // TT-TEST: support
     #[test]
     fn invalid_extreme_timestamps_do_not_affect_metadata_bounds_or_default_run_id() {
         let spans = vec![
@@ -2810,6 +2863,7 @@ mod tests {
         assert!(run.metadata.run_id.contains("tracing-import-100-120"));
     }
 
+    // TT-TEST: support
     #[test]
     fn orphan_queue_does_not_affect_retained_bounds_or_default_run_id() {
         let spans = vec![
@@ -2833,6 +2887,7 @@ mod tests {
         assert!(run.metadata.run_id.contains("tracing-import-100-120"));
     }
 
+    // TT-TEST: support
     #[test]
     fn overflow_request_does_not_affect_metadata_bounds_or_run_id() {
         let max_requests = 2;
@@ -2873,6 +2928,7 @@ mod tests {
             .contains("missing optional 'tt.outcome'; assumed 'ok'")));
     }
 
+    // TT-TEST: support
     #[test]
     fn overflow_stage_does_not_affect_metadata_bounds_or_success_warning() {
         let max_stages = 2;
@@ -2916,6 +2972,7 @@ mod tests {
             .contains("missing optional 'tt.success'; assumed true")));
     }
 
+    // TT-TEST: support
     #[test]
     fn overflow_queue_does_not_affect_metadata_bounds() {
         let max_queues = 2;
@@ -2955,6 +3012,7 @@ mod tests {
         assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
     }
 
+    // TT-TEST: support
     #[test]
     fn run_from_span_records_respects_import_mode_and_resolved_limits() {
         let spans = vec![
@@ -3015,6 +3073,7 @@ mod tests {
         assert_eq!(run.truncation.dropped_queues, 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn retained_request_missing_outcome_still_warns() {
         let spans = vec![SpanRecord::new("req", 100, 120)
@@ -3027,6 +3086,7 @@ mod tests {
             .contains("missing optional 'tt.outcome'; assumed 'ok'")));
     }
 
+    // TT-TEST: support
     #[test]
     fn retained_stage_missing_success_still_warns() {
         let spans = vec![
@@ -3046,6 +3106,7 @@ mod tests {
             .contains("missing optional 'tt.success'; assumed true")));
     }
 
+    // TT-TEST: support
     #[test]
     fn matched_request_stage_queue_are_retained() {
         let spans = vec![
@@ -3071,6 +3132,7 @@ mod tests {
         assert_eq!(run.queues.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn missing_optional_fields_default() {
         let spans = vec![
@@ -3096,6 +3158,7 @@ mod tests {
         assert_eq!(run.queues[0].depth_at_start, None);
     }
 
+    // TT-TEST: R02 primary
     #[test]
     fn missing_required_field_warns_and_skips_non_strict() {
         let spans = vec![SpanRecord::new("req", 1, 2)
@@ -3106,6 +3169,7 @@ mod tests {
         assert!(!imported.warnings().is_empty());
     }
 
+    // TT-TEST: R02 primary
     #[test]
     fn missing_required_field_errors_in_strict() {
         let spans = vec![SpanRecord::new("req", 1, 2)
@@ -3115,6 +3179,7 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
+    // TT-TEST: R02 primary
     #[test]
     fn unknown_kind_warns_non_strict() {
         let spans = vec![SpanRecord::new("x", 1, 2).field(TT_KIND, "wat")];
@@ -3128,6 +3193,7 @@ mod tests {
             .any(|warning| warning.contains("unknown tt.kind 'wat'")));
     }
 
+    // TT-TEST: R02 primary
     #[test]
     fn unknown_kind_errors_in_strict() {
         let spans = vec![SpanRecord::new("x", 1, 2).field(TT_KIND, "wat")];
@@ -3135,6 +3201,7 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
+    // TT-TEST: support
     #[test]
     fn span_without_kind_ignored_silently() {
         let spans = vec![SpanRecord::new("x", 1, 2).field("a", "b")];
@@ -3142,6 +3209,7 @@ mod tests {
         assert!(imported.warnings().is_empty());
     }
 
+    // TT-TEST: support
     #[test]
     fn tailtriage_tagged_span_missing_kind_warns_or_errors() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
@@ -3157,6 +3225,7 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
+    // TT-TEST: support
     #[test]
     fn missing_optional_defaults_emit_aggregate_warnings() {
         let spans = vec![
@@ -3217,6 +3286,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn inverted_timestamps_warn_or_error() {
         let spans = vec![SpanRecord::new("req", 5, 4)
@@ -3229,6 +3299,7 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
+    // TT-TEST: support
     #[test]
     fn run_from_span_records_validates_service_name_before_strict_span_parsing() {
         let spans = vec![SpanRecord::new("bad", 10, 20).field(TT_KIND, 123_u64)];
@@ -3236,6 +3307,7 @@ mod tests {
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
 
+    // TT-TEST: support
     #[test]
     fn run_from_span_records_empty_input_uses_equal_start_finish_finalized() {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
@@ -3252,6 +3324,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn normalized_empty_import_uses_fallback_bounds_after_core_exclusions() {
         let before = tailtriage_core::unix_time_ms();
@@ -3291,6 +3364,7 @@ mod tests {
         assert!(imported.retained_sources().is_empty());
     }
 
+    // TT-TEST: R02 secondary
     #[test]
     fn tracing_import_remains_completed_only_under_partial_aware_analysis() {
         let imported = run_from_span_records(
@@ -3343,6 +3417,7 @@ mod tests {
                     && !note.contains("Partial stage evidence"))));
     }
 
+    // TT-TEST: support
     #[test]
     fn tracing_import_uses_min_start_and_max_finish_as_run_bounds() {
         let spans = vec![SpanRecord::new("req", 10, 20)
@@ -3358,6 +3433,7 @@ mod tests {
         assert_eq!(run.metadata.finalized_at_unix_ms, Some(20));
     }
 
+    // TT-TEST: support
     #[test]
     fn run_from_span_records_preserves_computed_import_run_id() {
         let spans = vec![SpanRecord::new("req", 10, 20)
@@ -3371,6 +3447,7 @@ mod tests {
         assert_eq!(run.metadata.run_id, "tracing-import-10-20");
     }
 
+    // TT-TEST: support
     #[test]
     fn run_from_span_records_preserves_explicit_import_run_id() {
         let spans = vec![SpanRecord::new("req", 10, 20)
@@ -3384,6 +3461,7 @@ mod tests {
         assert_eq!(run.metadata.run_id, "explicit-run");
     }
 
+    // TT-TEST: support
     #[test]
     fn runtime_snapshots_and_inflight_are_empty() {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
@@ -3391,6 +3469,7 @@ mod tests {
         assert!(imported.run().inflight.is_empty());
     }
 
+    // TT-TEST: support
     #[test]
     fn ordinary_span_without_kind_does_not_affect_metadata_bounds() {
         let spans = vec![
@@ -3408,6 +3487,7 @@ mod tests {
         assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 20);
     }
 
+    // TT-TEST: support
     #[test]
     fn unknown_kind_does_not_affect_metadata_bounds_and_is_durable_lifecycle_warning() {
         let spans = vec![
@@ -3435,6 +3515,7 @@ mod tests {
             .any(|w| w.contains("unknown tt.kind")));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_string_kind_warns_non_strict_and_errors_strict() {
         let bad = SpanRecord::new("bad", 1, 2).field(TT_KIND, true);
@@ -3443,6 +3524,7 @@ mod tests {
         assert!(run_from_span_records(vec![bad], ImportOptions::new("svc").strict(true)).is_err());
     }
 
+    // TT-TEST: support
     #[test]
     fn non_string_required_and_optional_fields_warn_non_strict_and_error_strict() {
         let bad_route = SpanRecord::new("req", 1, 2)
@@ -3472,6 +3554,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_request_id_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("req", 1, 2)
@@ -3487,6 +3570,7 @@ mod tests {
         }));
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_route_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("req", 1, 2)
@@ -3502,6 +3586,7 @@ mod tests {
         }));
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_stage_non_strict_skips_stage_and_warns() {
         let spans = vec![
@@ -3523,6 +3608,7 @@ mod tests {
         }));
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_queue_non_strict_skips_queue_and_warns() {
         let spans = vec![
@@ -3544,6 +3630,7 @@ mod tests {
         }));
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_required_field_strict_returns_strict_violation() {
         let spans = vec![SpanRecord::new("req", 1, 2)
@@ -3557,6 +3644,7 @@ mod tests {
             .contains("invalid field 'tt.request_id' in span 'req'"));
     }
 
+    // TT-TEST: support
     #[test]
     fn builtin_request_outcomes_are_retained_exactly() {
         let spans = RECOMMENDED_OUTCOME_LABELS
@@ -3580,6 +3668,7 @@ mod tests {
         assert_eq!(retained, RECOMMENDED_OUTCOME_LABELS);
     }
 
+    // TT-TEST: support
     #[test]
     fn missing_outcome_defaults_ok_and_warns() {
         let spans = vec![SpanRecord::new("req", 1, 2)
@@ -3594,6 +3683,7 @@ mod tests {
             .contains("missing optional 'tt.outcome'; assumed 'ok'")));
     }
 
+    // TT-TEST: support
     #[test]
     fn custom_outcome_is_accepted_and_preserved_exactly() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
@@ -3606,6 +3696,7 @@ mod tests {
         assert_eq!(imported.run().requests[0].outcome, "cache_miss_fallback");
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_outcome_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
@@ -3620,6 +3711,7 @@ mod tests {
             .contains("invalid field 'tt.outcome' in span 'http.request': expected non-empty, non-whitespace string")));
     }
 
+    // TT-TEST: support
     #[test]
     fn whitespace_only_outcome_strict_fails() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
@@ -3634,6 +3726,7 @@ mod tests {
             .contains("invalid field 'tt.outcome' in span 'http.request': expected non-empty, non-whitespace string"));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_string_outcome_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
@@ -3648,6 +3741,7 @@ mod tests {
             .contains("invalid field 'tt.outcome' in span 'http.request': expected string")));
     }
 
+    // TT-TEST: support
     #[test]
     fn non_string_outcome_strict_fails() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
@@ -3662,6 +3756,7 @@ mod tests {
             .contains("invalid field 'tt.outcome' in span 'http.request': expected string"));
     }
 
+    // TT-TEST: support
     #[test]
     fn native_other_outcome_round_trips_through_tracing_style_outcome_field() {
         let native = tailtriage_core::Outcome::Other("custom".to_owned());
@@ -3675,6 +3770,7 @@ mod tests {
         assert_eq!(imported.run().requests[0].outcome, native.as_str());
     }
 
+    // TT-TEST: support
     #[test]
     fn invalid_whitespace_outcome_skips_child_spans_via_existing_correlation_logic() {
         let spans = vec![
@@ -3703,6 +3799,7 @@ mod tests {
             .any(|w| w.message().contains("orphan_request_scoped_event")));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_duplicate_request_id_overflow_keeps_retained_children() {
         let spans = vec![
@@ -3753,6 +3850,7 @@ mod tests {
         assert_eq!(imported.run().truncation.dropped_queues, 0);
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
         let spans = vec![
@@ -3789,6 +3887,7 @@ mod tests {
         assert_eq!(imported.run().queues.len(), 1);
     }
 
+    // TT-TEST: support
     #[test]
     fn non_strict_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
         let spans = vec![
@@ -3849,6 +3948,7 @@ mod tests {
             .iter()
             .all(|msg| !msg.contains("valid but not retained due to max_requests")));
     }
+    // TT-TEST: support
     #[test]
     fn strict_mode_max_requests_overflow_children_are_retention_fallout() {
         let spans = vec![
@@ -3893,6 +3993,7 @@ mod tests {
         assert!(imported.to_string().contains("orphan_request_scoped_event"));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_max_requests_overflow_invalid_stage_still_fails() {
         let spans = vec![
@@ -3927,6 +4028,7 @@ mod tests {
         assert!(!msg.contains("valid but not retained due to max_requests"));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_max_requests_overflow_invalid_queue_still_fails() {
         let spans = vec![
@@ -3961,6 +4063,7 @@ mod tests {
         assert!(!msg.contains("valid but not retained due to max_requests"));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_max_requests_overflow_non_lexical_request_ids_follow_input_order() {
         let spans = vec![
@@ -4005,6 +4108,7 @@ mod tests {
         assert!(imported.to_string().contains("orphan_request_scoped_event"));
     }
 
+    // TT-TEST: support
     #[test]
     fn invalid_success_warns_and_skips_stage_non_strict() {
         let spans = vec![
@@ -4033,6 +4137,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn invalid_success_errors_strict() {
         let spans = vec![
@@ -4050,6 +4155,7 @@ mod tests {
         assert!(run_from_span_records(spans, ImportOptions::new("svc").strict(true)).is_err());
     }
 
+    // TT-TEST: support
     #[test]
     fn invalid_depth_warns_and_skips_queue_non_strict() {
         let spans = vec![
@@ -4078,6 +4184,7 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
     #[test]
     fn invalid_depth_errors_strict() {
         let spans = vec![
@@ -4095,6 +4202,7 @@ mod tests {
         assert!(run_from_span_records(spans, ImportOptions::new("svc").strict(true)).is_err());
     }
 
+    // TT-TEST: support
     #[test]
     fn valid_optional_fields_are_applied() {
         let spans = vec![
@@ -4121,6 +4229,7 @@ mod tests {
         assert_eq!(run.queues[0].depth_at_start, Some(9));
     }
 
+    // TT-TEST: support
     #[test]
     fn mismatched_request_duration_warns_and_retains_duration_us_in_non_strict_mode() {
         let spans = vec![SpanRecord::new("req", 100, 101)
@@ -4148,6 +4257,7 @@ mod tests {
             .any(|w| w.contains("duration evidence was retained")));
     }
 
+    // TT-TEST: support
     #[test]
     fn absent_request_duration_us_derives_from_timestamps() {
         let spans = vec![SpanRecord::new("req", 100, 101)
@@ -4168,6 +4278,7 @@ mod tests {
             .any(|w| w.contains("precise_interval_validation_unavailable")));
     }
 
+    // TT-TEST: support
     #[test]
     fn mismatched_stage_duration_warns_and_retains_duration_us_in_non_strict_mode() {
         let spans = vec![
@@ -4191,6 +4302,7 @@ mod tests {
             .any(|w| w.message().contains("duration evidence was retained")));
     }
 
+    // TT-TEST: support
     #[test]
     fn mismatched_queue_duration_warns_and_retains_duration_us_in_non_strict_mode() {
         let spans = vec![
@@ -4214,6 +4326,7 @@ mod tests {
             .any(|w| w.message().contains("duration evidence was retained")));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_rejects_mismatched_request_duration() {
         let spans = vec![SpanRecord::new("req", 100, 101)
@@ -4230,6 +4343,7 @@ mod tests {
         assert!(message.contains("duration_mismatch"));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_rejects_contradictory_stage_duration() {
         let spans = vec![
@@ -4251,6 +4365,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: support
     #[test]
     fn strict_mode_rejects_contradictory_queue_duration() {
         let spans = vec![
@@ -4272,6 +4387,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: support
     #[test]
     fn duration_us_within_2000_microseconds_is_accepted() {
         let spans = vec![SpanRecord::new("req", 100, 101)
@@ -4287,6 +4403,7 @@ mod tests {
             .any(|w| w.message().contains("duration_mismatch")));
     }
 
+    // TT-TEST: support
     #[test]
     fn empty_service_name_is_rejected() {
         let err = run_from_span_records(Vec::new(), ImportOptions::new(" ")).unwrap_err();
