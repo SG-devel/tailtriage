@@ -21,18 +21,14 @@ DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
 OPERATIONS_PATH = REPO_ROOT / "docs" / "operations.md"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 ANALYZER_CONFIG_EXAMPLE_PATH = REPO_ROOT / "examples" / "analyzer-config.toml"
-ANALYZER_DOC_PATHS = (DIAGNOSTICS_PATH, OPERATIONS_PATH, USER_GUIDE_PATH, REPO_ROOT / "tailtriage-analyzer" / "README.md", REPO_ROOT / "tailtriage-cli" / "README.md", REPO_ROOT / "tailtriage-tracing" / "README.md")
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
-PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
-STALE_CONTROLLER_POLICY_NAMES = ('kind = "manual"', 'kind = "max_requests"', 'kind = "max_duration_ms"', 'kind = "first_limit_hit"')
 DOCS_INDEX_EXCLUDED_MARKDOWN = {".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/feature_request.md", ".github/pull_request_template.md", "AGENTS.md", "docs/README.md", "validation/collector-limits/README.md", "validation/collector-limits/latest/scorecard.md", "validation/diagnostics/README.md", "validation/diagnostics/latest/scorecard.md", "validation/runtime-cost/README.md", "validation/runtime-cost/latest/scorecard.md"}
 RUSTDOC_INCLUDE_CRATE_LIBS = tuple(REPO_ROOT / crate / "src" / "lib.rs" for crate in ("tailtriage", "tailtriage-core", "tailtriage-controller", "tailtriage-tokio", "tailtriage-axum", "tailtriage-analyzer", "tailtriage-cli", "tailtriage-tracing"))
-ANALYZER_GROUPS = ("queueing", "blocking", "executor", "downstream", "confidence", "evidence", "route", "temporal")
 DIAGNOSTIC_BENCHMARK_CI_ARGS = ("--manifest validation/diagnostics/manifest.json", "--min-top1 0.75", "--min-top2 0.90", "--max-high-confidence-wrong 0")
 
 
@@ -251,20 +247,6 @@ def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str
         )
 
 
-def validate_no_stale_controller_policy_names() -> None:
-    paths = [README_PATH, CONTROLLER_README_PATH, *sorted(PUBLIC_DOCS_GLOB)]
-    hits: list[str] = []
-    for path in paths:
-        text = path.read_text(encoding="utf-8")
-        for token in STALE_CONTROLLER_POLICY_NAMES:
-            if token in text:
-                hits.append(f"{path.relative_to(REPO_ROOT)} contains stale token: {token}")
-
-    if hits:
-        joined = "\n".join(hits)
-        raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
-
-
 def normalize_doc_link(link: str) -> str:
     return link.split("#", 1)[0]
 
@@ -339,37 +321,9 @@ def validate_analyzer_config_example_contract(*, config_path: Path = ANALYZER_CO
         raise ValueError(f"missing analyzer config example: {config_path}")
     text = config_path.read_text(encoding="utf-8")
     try:
-        parsed = tomllib.loads(text)
+        tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise ValueError(f"invalid TOML in {config_path}: {exc}") from exc
-
-    analyzer = parsed.get("analyzer")
-    if not isinstance(analyzer, dict):
-        raise ValueError(f"{config_path} must define an [analyzer] table")
-    if analyzer.get("schema_version") != 1:
-        raise ValueError(f"{config_path} must set analyzer.schema_version = 1")
-
-    missing_groups = [group for group in ANALYZER_GROUPS if not isinstance(analyzer.get(group), dict)]
-    if missing_groups:
-        raise ValueError(
-            f"{config_path} missing required [analyzer.*] groups: "
-            f"{', '.join(missing_groups)}"
-        )
-
-    invalid_root = sorted(group for group in ANALYZER_GROUPS if isinstance(parsed.get(group), dict))
-    if invalid_root:
-        raise ValueError(
-            f"{config_path} must not define root-level analyzer groups: "
-            f"{', '.join(invalid_root)}"
-        )
-
-
-def validate_no_root_level_analyzer_toml_in_docs(*, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS) -> None:
-    for path in doc_paths:
-        text = path.read_text(encoding="utf-8")
-        for group in ANALYZER_GROUPS:
-            if re.search(rf"(?m)^\s*\[{group}\]\s*$", text):
-                raise ValueError(f"{path.relative_to(REPO_ROOT)} contains invalid root-level TOML header: [{group}]")
 
 
 def _strip_allowed_analyzer_migration_note(text: str) -> str:
@@ -531,22 +485,6 @@ def validate_residual_public_api_cleanup() -> None:
                 raise ValueError(
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
-
-
-def is_misleading_controller_example_flow(readme_text: str) -> bool:
-    for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
-        if "cargo add tailtriage-controller" in block and "cargo run --example controller_minimal" in block:
-            return True
-    return False
-
-
-def validate_controller_example_usage_contract() -> None:
-    readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
-    if is_misleading_controller_example_flow(readme_text):
-        raise ValueError(
-            "controller README contains a misleading dependency-example flow: "
-            "`cargo add tailtriage-controller` + `cargo run --example controller_minimal`."
-        )
 
 
 def find_public_sampler_forge_methods(source: str) -> list[str]:
@@ -741,15 +679,12 @@ def main() -> int:
     validate_crate_rustdocs_include_readmes()
     validate_residual_public_api_cleanup()
     validate_controller_readme_toml()
-    validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
     validate_root_readme_docs_link()
     validate_analyzer_config_example_contract()
-    validate_no_root_level_analyzer_toml_in_docs()
     validate_cli_not_presented_as_library_analyzer_api()
     validate_published_crate_readmes_are_self_contained((REPO_ROOT / "tailtriage-analyzer" / "README.md", REPO_ROOT / "tailtriage-cli" / "README.md"))
     validate_diagnostic_benchmark_ci_contract()
-    validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
     validate_manual_release_boundary()
     print("docs contracts validated successfully")

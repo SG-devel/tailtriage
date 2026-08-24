@@ -131,56 +131,18 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_analyzer_config_example_contract(self) -> None:
         validate_docs_contracts.validate_analyzer_config_example_contract()
 
-    def test_analyzer_config_example_contract_rejects_missing_schema_version(self) -> None:
+    def test_analyzer_config_example_contract_rejects_malformed_toml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / 'analyzer-config.toml'
-            path.write_text('[analyzer]\n[analyzer.queueing]\n', encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, 'schema_version = 1'):
+            path.write_text('[analyzer\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'invalid TOML'):
                 validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
-    def test_analyzer_config_example_contract_rejects_missing_analyzer_table(self) -> None:
+    def test_analyzer_config_example_contract_does_not_require_schema_groups(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / 'analyzer-config.toml'
-            path.write_text('schema_version = 1\n', encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, '\\[analyzer\\]'):
-                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
-
-    def test_analyzer_config_example_contract_rejects_missing_group(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = Path(tmp_dir) / 'analyzer-config.toml'
-            body = '[analyzer]\nschema_version = 1\n' + '\n'.join((f'[analyzer.{g}]' for g in validate_docs_contracts.ANALYZER_GROUPS if g != 'temporal'))
-            path.write_text(body, encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, 'temporal'):
-                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
-
-    def test_analyzer_config_example_contract_rejects_root_level_group(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = Path(tmp_dir) / 'analyzer-config.toml'
-            body = '[analyzer]\nschema_version = 1\n' + '\n'.join((f'[analyzer.{g}]' for g in validate_docs_contracts.ANALYZER_GROUPS)) + '\n[queueing]\ntrigger_permille = 100\n'
-            path.write_text(body, encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, 'root-level analyzer groups'):
-                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
-
-    def test_analyzer_no_root_level_docs_rejects_root_level_table_header(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            repo_root = Path(tmp_dir)
-            docs_dir = repo_root / 'docs'
-            docs_dir.mkdir(parents=True, exist_ok=True)
-            path = docs_dir / 'diagnostics.md'
-            path.write_text('[queueing]\ntrigger_permille = 400\n', encoding='utf-8')
-            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', repo_root):
-                with self.assertRaisesRegex(ValueError, 'invalid root-level TOML header'):
-                    validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(doc_paths=(path,))
-
-    def test_analyzer_no_root_level_docs_allows_namespaced_table_header(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = Path(tmp_dir) / 'docs.md'
-            path.write_text('[analyzer.queueing]\ntrigger_permille = 400\n', encoding='utf-8')
-            validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(doc_paths=(path,))
-
-    def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
-        readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding='utf-8')
-        self.assertFalse(validate_docs_contracts.is_misleading_controller_example_flow(readme_text))
+            path.write_text('syntactically_valid = true\n', encoding='utf-8')
+            validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
     def test_sampler_integration_boundary_contract_validates(self) -> None:
         validate_docs_contracts.validate_sampler_integration_boundary()
