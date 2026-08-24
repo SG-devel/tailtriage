@@ -7,6 +7,7 @@ use std::process::Command;
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_core::{CaptureMode, Run};
 
+// TT-TEST: L05 secondary
 #[test]
 fn cli_json_output_is_valid_report_json() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -34,6 +35,7 @@ fn cli_json_output_is_valid_report_json() {
     assert!(report.get("primary_suspect").is_some());
 }
 
+// TT-TEST: S04 primary
 #[test]
 fn artifact_warning_controls_are_visible_on_stderr_but_preserved_in_json() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -64,6 +66,7 @@ fn artifact_warning_controls_are_visible_on_stderr_but_preserved_in_json() {
     );
 }
 
+// TT-TEST: V03 primary
 #[test]
 fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -84,6 +87,7 @@ fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     assert_eq!(report.request_count, 0);
 }
 
+// TT-TEST: support
 #[test]
 fn help_analyzer_options_works_without_run_json() {
     let exe = env!("CARGO_BIN_EXE_tailtriage");
@@ -98,6 +102,7 @@ fn help_analyzer_options_works_without_run_json() {
     assert!(stdout.contains("queueing.trigger_permille"));
 }
 
+// TT-TEST: L04 secondary
 #[test]
 fn cli_analyzer_config_applies_toml_and_reports_non_default_config() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -126,6 +131,7 @@ fn cli_analyzer_config_applies_toml_and_reports_non_default_config() {
     assert_eq!(non_defaults[0]["value"], "410");
 }
 
+// TT-TEST: L04 secondary
 #[test]
 fn cli_analyzer_set_applies_override_and_reports_non_default_config() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -148,6 +154,7 @@ fn cli_analyzer_set_applies_override_and_reports_non_default_config() {
     assert_eq!(non_defaults[0]["value"], "420");
 }
 
+// TT-TEST: L04 secondary
 #[test]
 fn cli_analyzer_set_beats_toml_and_repeated_overrides_are_last_wins() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -180,6 +187,8 @@ fn cli_analyzer_set_beats_toml_and_repeated_overrides_are_last_wins() {
     assert_eq!(non_defaults[0]["value"], "440");
 }
 
+// TT-TEST: V03 primary
+// TT-TEST: L03 primary
 #[test]
 fn analyze_rejects_duplicate_completed_request_ids_by_default() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -205,6 +214,7 @@ fn analyze_rejects_duplicate_completed_request_ids_by_default() {
     assert!(stderr.contains("request[1]"));
 }
 
+// TT-TEST: L03 secondary
 #[test]
 fn analyze_allow_ambiguous_artifact_warns_then_rejects_empty_normalized_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -237,6 +247,7 @@ fn analyze_allow_ambiguous_artifact_warns_then_rejects_empty_normalized_run() {
     assert!(!stderr.contains("unsupported run artifact"));
 }
 
+// TT-TEST: L03 secondary
 #[test]
 fn analyze_rejects_orphan_stage_by_default() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -259,6 +270,7 @@ fn analyze_rejects_orphan_stage_by_default() {
     assert!(stderr.contains("stage[0]"));
 }
 
+// TT-TEST: L03 primary
 #[test]
 fn analyze_default_accepts_warning_only_precision_findings() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -288,6 +300,7 @@ fn analyze_default_accepts_warning_only_precision_findings() {
         .any(|limitation| limitation.contains("precise_interval_validation_unavailable")));
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_default_required_field_location_includes_index_and_field() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -308,6 +321,7 @@ fn analyze_default_required_field_location_includes_index_and_field() {
     assert!(stderr.contains("request[0].route"));
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_default_duplicate_plus_orphan_displays_unique_error_codes_only() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -337,6 +351,7 @@ fn analyze_default_duplicate_plus_orphan_displays_unique_error_codes_only() {
     assert!(!stderr.contains("precise_interval_validation_unavailable"));
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_malformed_json_fails_before_core_validation() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -356,6 +371,7 @@ fn analyze_malformed_json_fails_before_core_validation() {
     assert!(!stderr.contains("strict artifact validation failed"));
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_default_discloses_truncated_error_details() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -387,6 +403,8 @@ fn analyze_default_discloses_truncated_error_details() {
     assert!(stderr.contains("2 additional error finding(s) omitted"));
 }
 
+// TT-TEST: V03 primary
+// TT-TEST: L03 primary
 #[test]
 fn analyze_allow_ambiguous_artifact_excludes_orphan_and_warns() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -419,6 +437,7 @@ fn analyze_allow_ambiguous_artifact_excludes_orphan_and_warns() {
     assert!(original.metadata.lifecycle_warnings.is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_allow_ambiguous_artifact_retains_duration_and_clears_partial_precision() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -450,6 +469,7 @@ fn analyze_allow_ambiguous_artifact_retains_duration_and_clears_partial_precisio
         .any(|limitation| limitation.contains("duration evidence was retained")));
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_permissive_artifact_excludes_precise_child_outside_parent_but_retains_request() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -484,6 +504,7 @@ fn analyze_permissive_artifact_excludes_precise_child_outside_parent_but_retains
     assert!(!report.to_string().contains(r#""db""#));
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_rejects_inverted_interval_by_default() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -510,6 +531,7 @@ fn analyze_rejects_inverted_interval_by_default() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn allow_ambiguous_artifact_is_noop_for_valid_artifact() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -538,6 +560,7 @@ fn allow_ambiguous_artifact_is_noop_for_valid_artifact() {
     assert!(strict.stderr.is_empty() && permissive.stderr.is_empty());
 }
 
+// TT-TEST: L01 primary
 #[test]
 fn analyze_help_documents_strict_default_and_permissive_escape_hatch() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -552,6 +575,7 @@ fn analyze_help_documents_strict_default_and_permissive_escape_hatch() {
     assert!(!help.contains("malformed/incomplete tailtriage spans"));
 }
 
+// TT-TEST: L01 primary
 #[test]
 fn analyze_rejects_removed_strict_artifact_flag() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -565,6 +589,7 @@ fn analyze_rejects_removed_strict_artifact_flag() {
     );
 }
 
+// TT-TEST: L01 primary
 #[test]
 fn tracing_import_help_keeps_distinct_strict_input_flag() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -578,6 +603,7 @@ fn tracing_import_help_keeps_distinct_strict_input_flag() {
     assert!(!help.contains("--allow-ambiguous-artifact"));
 }
 
+// TT-TEST: support
 #[test]
 fn cli_misspelled_analyzer_set_reports_suggestion() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -597,6 +623,7 @@ fn cli_misspelled_analyzer_set_reports_suggestion() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn cli_invalid_analyzer_set_type_reports_expected_type() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -617,6 +644,7 @@ fn cli_invalid_analyzer_set_type_reports_expected_type() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn cli_missing_analyzer_config_file_reports_path() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -642,6 +670,7 @@ fn cli_missing_analyzer_config_file_reports_path() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn missing_run_json_without_help_flag_fails_clearly() {
     let exe = env!("CARGO_BIN_EXE_tailtriage");
@@ -655,6 +684,7 @@ fn missing_run_json_without_help_flag_fails_clearly() {
     assert!(stderr.contains("RUN_JSON") || stderr.contains("missing required"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -684,6 +714,7 @@ fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_fails_when_output_parent_path_is_not_directory() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -714,6 +745,7 @@ fn import_tracing_spans_jsonl_fails_when_output_parent_path_is_not_directory() {
     assert!(!run_path.exists(), "run artifact should not be written");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -744,6 +776,7 @@ fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_writes_run_json_when_output_path_contains_spaces() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -770,6 +803,7 @@ fn import_tracing_spans_jsonl_writes_run_json_when_output_path_contains_spaces()
     assert_eq!(loaded.run.requests.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_mode_investigation_sets_run_metadata_mode() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -793,6 +827,7 @@ fn import_tracing_spans_jsonl_mode_investigation_sets_run_metadata_mode() {
     assert_eq!(loaded.run.metadata.mode, CaptureMode::Investigation);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -822,6 +857,7 @@ fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
     assert_eq!(loaded.run.queues.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_rejects_zero_max_requests() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -852,6 +888,7 @@ fn import_tracing_spans_jsonl_rejects_zero_max_requests() {
     assert!(!run_path.exists());
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -886,6 +923,7 @@ fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_rejects_inert_runtime_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -909,6 +947,7 @@ fn import_tracing_spans_jsonl_rejects_inert_runtime_snapshot_flags() {
     assert!(stderr.contains("unexpected argument '--max-runtime-snapshots'"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_rejects_inert_inflight_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -932,6 +971,7 @@ fn import_tracing_spans_jsonl_rejects_inert_inflight_snapshot_flags() {
     assert!(stderr.contains("unexpected argument '--max-inflight-snapshots'"));
 }
 
+// TT-TEST: L01 primary
 #[test]
 fn tailtriage_help_mentions_import_and_analyze_artifacts() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -943,6 +983,8 @@ fn tailtriage_help_mentions_import_and_analyze_artifacts() {
     assert!(stdout.contains("Import and analyze tailtriage run artifacts"));
 }
 
+// TT-TEST: R01 secondary
+// TT-TEST: F02 secondary
 #[test]
 fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixture() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -974,6 +1016,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixtu
     assert_eq!(report.request_count, 1);
 }
 
+// TT-TEST: R01 secondary
 #[test]
 fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_rejects_unwrapped() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -998,6 +1041,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_rejects_unwra
     assert!(!run_path.exists());
 }
 
+// TT-TEST: R01 secondary
 #[test]
 fn import_tracing_spans_jsonl_default_wrapper_mode_rejects_wrong_wrapper_format_with_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1019,6 +1063,7 @@ fn import_tracing_spans_jsonl_default_wrapper_mode_rejects_wrong_wrapper_format_
     assert!(stderr.contains("tailtriage.tracing-span.v1"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_default_wrapper_mode_semantic_missing_route_no_wrapper_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1042,6 +1087,7 @@ fn import_tracing_spans_jsonl_default_wrapper_mode_semantic_missing_route_no_wra
     assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_default_wrapper_mode_semantic_invalid_kind_type_no_wrapper_guidance()
 {
@@ -1066,6 +1112,7 @@ fn import_tracing_spans_jsonl_default_wrapper_mode_semantic_invalid_kind_type_no
     assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_default_wrapper_mode_missing_input_does_not_append_wrapper_guidance()
 {
@@ -1089,6 +1136,7 @@ fn import_tracing_spans_jsonl_default_wrapper_mode_missing_input_does_not_append
     assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_default_wrapper_mode_malformed_json_does_not_append_wrapper_guidance()
 {
@@ -1113,6 +1161,7 @@ fn import_tracing_spans_jsonl_default_wrapper_mode_malformed_json_does_not_appen
     assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
 }
 
+// TT-TEST: R01 secondary
 #[test]
 fn import_tracing_spans_jsonl_default_rejects_fmt_json_with_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1148,6 +1197,7 @@ fn import_tracing_spans_jsonl_default_rejects_fmt_json_with_guidance() {
     assert!(!run_path.exists());
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_compatible_rejects_ordinary_fmt_json_without_completed_span_timing() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1177,6 +1227,7 @@ fn import_tracing_spans_jsonl_compatible_rejects_ordinary_fmt_json_without_compl
     assert!(!run_path.exists(), "run json should not be written");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_rejects_fmt_metadata_with_completed_span_timing() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1203,6 +1254,7 @@ fn import_tracing_spans_jsonl_rejects_fmt_metadata_with_completed_span_timing() 
     assert!(!run_path.exists(), "run json should not be written");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_help_shows_only_live_input_format_values() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -1218,6 +1270,7 @@ fn import_tracing_spans_jsonl_help_shows_only_live_input_format_values() {
     assert!(!stdout.contains("tracing-subscriber-fmt-json"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_input_format_compatible_is_clap_unknown_argument() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1250,6 +1303,7 @@ fn import_tracing_spans_jsonl_input_format_compatible_is_clap_unknown_argument()
     assert!(!run_path.exists());
 }
 
+// TT-TEST: R02 secondary
 #[test]
 fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1279,6 +1333,7 @@ fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_strict_with_max_requests_rejects_retained_orphan_children() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1324,6 +1379,7 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_rejects_retained_orphan_c
     );
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_permissive_with_max_requests_excludes_retained_orphan_children() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1381,6 +1437,7 @@ fn import_tracing_spans_jsonl_permissive_with_max_requests_excludes_retained_orp
         .any(|warning| warning.contains("orphan_request_scoped_event")));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_strict_with_max_requests_fails_on_invalid_overflow_stage() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1421,6 +1478,7 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_fails_on_invalid_overflow
     );
 }
 
+// TT-TEST: R02 secondary
 #[test]
 fn import_tracing_spans_jsonl_non_strict_writes_output_and_emits_warning_to_stderr() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1454,6 +1512,7 @@ fn import_tracing_spans_jsonl_non_strict_writes_output_and_emits_warning_to_stde
     assert_eq!(loaded.run.requests.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1488,6 +1547,7 @@ fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_accepts_paths_with_spaces() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1513,6 +1573,7 @@ fn import_tracing_spans_jsonl_accepts_paths_with_spaces() {
     artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_rejects_whitespace_service_name() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1535,6 +1596,7 @@ fn import_tracing_spans_jsonl_rejects_whitespace_service_name() {
     assert!(!run_path.exists(), "run output should not be written");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_fails_when_only_unrelated_lines_are_present() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1558,6 +1620,7 @@ fn import_tracing_spans_jsonl_fails_when_only_unrelated_lines_are_present() {
     assert!(!run_path.exists(), "run output should not be written");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_fails_when_non_strict_skips_all_malformed_tt_spans() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1581,6 +1644,7 @@ fn import_tracing_spans_jsonl_fails_when_non_strict_skips_all_malformed_tt_spans
     assert!(!run_path.exists(), "run output should not be written");
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_fails_when_only_tt_spans_are_missing_kind() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1606,6 +1670,7 @@ fn import_tracing_spans_jsonl_fails_when_only_tt_spans_are_missing_kind() {
     assert!(!run_path.exists(), "run output should not be written");
 }
 
+// TT-TEST: R02 secondary
 #[test]
 fn import_tracing_spans_jsonl_warns_for_tt_fields_missing_kind_and_still_writes_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1643,6 +1708,7 @@ fn import_tracing_spans_jsonl_warns_for_tt_fields_missing_kind_and_still_writes_
     assert_eq!(warning_matches, 1);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_persists_unknown_kind_warning_in_run_artifact() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1680,6 +1746,7 @@ fn import_tracing_spans_jsonl_persists_unknown_kind_warning_in_run_artifact() {
     assert_eq!(warning_matches, 1);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_persists_optional_default_assumption_warnings_in_run_artifact() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1726,6 +1793,7 @@ fn import_tracing_spans_jsonl_persists_optional_default_assumption_warnings_in_r
     assert_eq!(report.request_count, 1);
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_whitespace_outcome_non_strict_warns_and_fails_zero_request() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1751,6 +1819,7 @@ fn import_tracing_spans_jsonl_whitespace_outcome_non_strict_warns_and_fails_zero
     assert!(stderr.contains("zero request events"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_whitespace_outcome_strict_fails_with_message() {
     let dir = tempfile::tempdir().expect("tempdir should build");
@@ -1775,6 +1844,7 @@ fn import_tracing_spans_jsonl_whitespace_outcome_strict_fails_with_message() {
     assert!(stderr.contains("expected non-empty, non-whitespace string"));
 }
 
+// TT-TEST: support
 #[test]
 fn import_tracing_spans_jsonl_valid_outcomes_import_successfully() {
     let dir = tempfile::tempdir().expect("tempdir should build");

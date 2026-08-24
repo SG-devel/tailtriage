@@ -110,6 +110,7 @@ mod tests {
         )
     }
 
+    // TT-TEST: L04 primary
     #[test]
     fn positive_config_composition_cases() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -140,6 +141,7 @@ mod tests {
         }
     }
 
+    // TT-TEST: L04 secondary
     #[test]
     fn misspelled_path_reports_suggestion() {
         let err = build_analyze_options(None, &["queuing.trigger_permille=400".to_string()])
@@ -148,6 +150,7 @@ mod tests {
         assert!(msg.contains("queueing.trigger_permille"));
     }
 
+    // TT-TEST: L04 primary
     #[test]
     fn invalid_type_reports_expected_type() {
         let err = build_analyze_options(None, &["queueing.trigger_permille=abc".to_string()])
@@ -157,6 +160,7 @@ mod tests {
         assert!(matches!(err, CliAnalyzeConfigError::Analyzer(_)));
     }
 
+    // TT-TEST: L04 secondary
     #[test]
     fn missing_config_returns_read_config_error_with_path() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -174,6 +178,7 @@ mod tests {
         ));
     }
 
+    // TT-TEST: L04 primary
     #[test]
     fn invalid_toml_returns_analyzer_error() {
         let dir = tempfile::tempdir().expect("tempdir");

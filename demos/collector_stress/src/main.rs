@@ -837,6 +837,7 @@ const fn capture_mode_label(mode: CaptureMode) -> &'static str {
 mod tests {
     use super::{parse_cli_from, Mode, WorkLabel};
 
+    // TT-TEST: support
     #[test]
     fn parse_cli_supports_required_knobs() {
         let cli = parse_cli_from([
@@ -878,6 +879,7 @@ mod tests {
         assert_eq!(cli.output_dir.to_string_lossy(), "tmp/out");
     }
 
+    // TT-TEST: support
     #[test]
     fn parse_cli_rejects_zero_requests() {
         let err = parse_cli_from(["--mode", "baseline", "--requests", "0"])
@@ -885,6 +887,7 @@ mod tests {
         assert!(err.to_string().contains("--requests must be > 0"));
     }
 
+    // TT-TEST: support
     #[test]
     fn parse_cli_accepts_legacy_aliases() {
         let cli = parse_cli_from([
