@@ -146,6 +146,7 @@ mod tests {
     use super::has_material_route_p95_ratio;
     use crate::AnalyzeOptions;
 
+    // TT-TEST: support
     #[test]
     fn slowest_to_fastest_ratio_uses_its_boundary_and_baseline() {
         let mut options = AnalyzeOptions::default();
@@ -160,6 +161,7 @@ mod tests {
         assert!(has_material_route_p95_ratio(31, 20, Some(1), &options));
     }
 
+    // TT-TEST: support
     #[test]
     fn slowest_to_global_ratio_uses_its_boundary_and_baseline() {
         let mut options = AnalyzeOptions::default();
