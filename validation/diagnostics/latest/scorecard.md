@@ -14,7 +14,7 @@
 | runtime overhead | Manual/local operational validation available | canonical operational domain lives under `validation/runtime-cost/`; machine/workload scoped; generated outputs in selected local artifact directories are not committed by default. |
 | collector limits | Manual/local operational validation available | canonical operational domain lives under `validation/collector-limits/`; characterizes retained/truncation/drop evidence and measured onset/resource behavior under bounded stress. |
 | repeated-run diagnostic matrix | Manual/local repeated-run validation available | publishable repeated-run outputs are generated locally (JSONL/summary/scorecard) and not committed by default; results are machine/workload scoped. |
-| mitigation validation | Manual/local mitigation matrix available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
+| mitigation validation | Manual/local canonical live-demo mitigation reporting available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
 Schema-version-2 accounting separates 11 analyzer-executed, accuracy-eligible observations from 34 report-contract cases. Report-contract pass rates do not contribute to analyzer accuracy; equivalent artifact encodings are one logical observation, not independent samples. Fixture labels are controlled intent, not production truth. These checks are not real-service validation and do not provide root-cause proof.

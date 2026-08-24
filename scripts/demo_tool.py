@@ -7,7 +7,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from _demo_runner import (
     PROFILE_CHOICES,
@@ -31,7 +31,6 @@ EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
-SCENARIOS = list(SCENARIO_PATHS)
 
 
 def _suspects(report: dict) -> list[dict]:
@@ -755,6 +754,108 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     )
 
 
+# This registry is the canonical executable policy surface for controlled live demos.
+# Each value owns both the baseline semantic expectations and the required mitigation
+# movement for its scenario.
+LIVE_SCENARIO_POLICIES: dict[str, Callable[..., None]] = {
+    "queue": validate_queue,
+    "blocking": validate_blocking,
+    "executor": validate_executor,
+    "downstream": validate_downstream,
+    "mixed": validate_mixed,
+    "cold-start": validate_cold_start,
+    "db-pool": validate_db_pool,
+    "shared-lock": validate_shared_lock,
+    "retry-storm": validate_retry_storm,
+}
+SCENARIOS = list(LIVE_SCENARIO_POLICIES)
+
+
+def validate_scenario(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    """Execute the canonical before/after policy for one controlled scenario."""
+    try:
+        validator = LIVE_SCENARIO_POLICIES[scenario]
+    except KeyError as exc:
+        raise ValueError(f"unsupported live-demo scenario: {scenario}") from exc
+    validator(root_dir, profile=profile)
+
+
+def _mitigation_record(root_dir: Path, scenario: str, profile: str) -> dict[str, Any]:
+    artifact_dir = scenario_artifact_dir(root_dir, scenario)
+    before_path = artifact_dir / "before-analysis.json"
+    after_path = artifact_dir / "after-analysis.json"
+    before = load_report_json(before_path)
+    after = load_report_json(after_path)
+    return {
+        "schema_version": 1,
+        "scenario": scenario,
+        "profile": profile,
+        "policy_owner": "scripts/demo_tool.py",
+        "policy_passed": True,
+        "before_analysis_path": str(before_path),
+        "after_analysis_path": str(after_path),
+        "before_primary_kind": before["primary_suspect"]["kind"],
+        "after_primary_kind": after["primary_suspect"]["kind"],
+        "before_primary_score": before["primary_suspect"]["score"],
+        "after_primary_score": after["primary_suspect"]["score"],
+        "before_p95_latency_us": before["p95_latency_us"],
+        "after_p95_latency_us": after["p95_latency_us"],
+        "p95_delta_us": after["p95_latency_us"] - before["p95_latency_us"],
+        "before_p95_queue_share_permille": before.get("p95_queue_share_permille"),
+        "after_p95_queue_share_permille": after.get("p95_queue_share_permille"),
+        "before_p95_service_share_permille": before.get("p95_service_share_permille"),
+        "after_p95_service_share_permille": after.get("p95_service_share_permille"),
+        "before_blocking_queue_depth_p95": extract_blocking_queue_depth_p95(before),
+        "after_blocking_queue_depth_p95": extract_blocking_queue_depth_p95(after),
+    }
+
+
+def run_mitigation_report(
+    root_dir: Path,
+    scenarios: list[str],
+    *,
+    profile: str,
+    out: Path,
+    summary_path: Path,
+    scorecard_path: Path | None,
+) -> None:
+    """Report measurements produced by canonical live-demo policy evaluation."""
+    records = []
+    for scenario in scenarios:
+        validate_scenario(root_dir, scenario, profile=profile)
+        records.append(_mitigation_record(root_dir, scenario, profile))
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in records), encoding="utf-8")
+    summary = {
+        "schema_version": 1,
+        "profile": profile,
+        "policy_owner": "scripts/demo_tool.py",
+        "total_scenarios": len(records),
+        "passed_scenarios": len(records),
+        "failed_scenarios": 0,
+        "per_scenario": {row["scenario"]: row for row in records},
+    }
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    if scorecard_path:
+        lines = [
+            "# Live-demo mitigation validation scorecard",
+            "",
+            f"Profile: {profile}",
+            "",
+            "| Scenario | Passed | Before primary | After primary | p95 delta (us) |",
+            "|---|---:|---|---|---:|",
+        ]
+        for row in records:
+            lines.append(
+                f"| {row['scenario']} | yes | {row['before_primary_kind']} | "
+                f"{row['after_primary_kind']} | {row['p95_delta_us']} |"
+            )
+        scorecard_path.parent.mkdir(parents=True, exist_ok=True)
+        scorecard_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm", "blocking", "executor", "all"]
 
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
@@ -1258,6 +1359,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Shortcut for --profile release.",
     )
 
+    mitigation_parser = subparsers.add_parser(
+        "mitigation-report",
+        help="Run canonical live-demo policies and write machine-readable before/after evidence.",
+    )
+    mitigation_parser.add_argument("--scenario", action="append", choices=SCENARIOS)
+    mitigation_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    mitigation_parser.add_argument("--out", type=Path, default=Path("target/mitigation-runs.jsonl"))
+    mitigation_parser.add_argument("--summary", type=Path)
+    mitigation_parser.add_argument("--scorecard", type=Path)
+
     matrix_parser = subparsers.add_parser(
         "diagnosis-matrix",
         help="Run baseline/mitigated demo variants in dev and release and print a compact diagnosis table.",
@@ -1341,24 +1452,20 @@ def main(argv: list[str] | None = None) -> None:
         validate_tracing_retention_parity(root_dir, profile=args.profile)
         return
 
-    if args.scenario == "queue":
-        validate_queue(root_dir, profile=args.profile)
-    elif args.scenario == "blocking":
-        validate_blocking(root_dir, profile=args.profile)
-    elif args.scenario == "downstream":
-        validate_downstream(root_dir, profile=args.profile)
-    elif args.scenario == "executor":
-        validate_executor(root_dir, profile=args.profile)
-    elif args.scenario == "cold-start":
-        validate_cold_start(root_dir, profile=args.profile)
-    elif args.scenario == "db-pool":
-        validate_db_pool(root_dir, profile=args.profile)
-    elif args.scenario == "shared-lock":
-        validate_shared_lock(root_dir, profile=args.profile)
-    elif args.scenario == "retry-storm":
-        validate_retry_storm(root_dir, profile=args.profile)
-    else:
-        validate_mixed(root_dir, profile=args.profile)
+    if args.command == "mitigation-report":
+        scenarios = args.scenario or ["queue", "blocking", "downstream", "db-pool"]
+        summary_path = args.summary or args.out.with_name(f"{args.out.stem}-summary.json")
+        run_mitigation_report(
+            root_dir,
+            scenarios,
+            profile=args.profile,
+            out=args.out,
+            summary_path=summary_path,
+            scorecard_path=args.scorecard,
+        )
+        return
+
+    validate_scenario(root_dir, args.scenario, profile=args.profile)
 
 if __name__ == "__main__":
     main()

@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -21,6 +23,49 @@ from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
+    def test_canonical_live_policy_owns_exactly_nine_scenarios(self) -> None:
+        expected = {
+            "queue", "blocking", "executor", "downstream", "mixed",
+            "cold-start", "db-pool", "shared-lock", "retry-storm",
+        }
+        self.assertEqual(expected, set(demo_tool.LIVE_SCENARIO_POLICIES))
+        self.assertEqual(expected, set(demo_tool.SCENARIOS))
+        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["queue"], demo_tool.validate_queue)
+        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["blocking"], demo_tool.validate_blocking)
+        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["executor"], demo_tool.validate_executor)
+        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["downstream"], demo_tool.validate_downstream)
+        self.assertIs(demo_tool.LIVE_SCENARIO_POLICIES["db-pool"], demo_tool.validate_db_pool)
+
+    def test_unknown_live_policy_fails_clearly(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported live-demo scenario: typo"):
+            demo_tool.validate_scenario(REPO_ROOT, "typo")
+
+    @patch("demo_tool._mitigation_record")
+    @patch("demo_tool.validate_scenario")
+    def test_mitigation_reporting_consumes_canonical_evaluation(
+        self, validate_scenario_mock, mitigation_record_mock
+    ) -> None:
+        mitigation_record_mock.return_value = {
+            "scenario": "queue",
+            "before_primary_kind": "application_queue_saturation",
+            "after_primary_kind": "application_queue_saturation",
+            "p95_delta_us": -100,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            demo_tool.run_mitigation_report(
+                root,
+                ["queue"],
+                profile="dev",
+                out=root / "runs.jsonl",
+                summary_path=root / "summary.json",
+                scorecard_path=root / "scorecard.md",
+            )
+            summary = json.loads((root / "summary.json").read_text())
+        validate_scenario_mock.assert_called_once_with(root, "queue", profile="dev")
+        self.assertEqual("scripts/demo_tool.py", summary["policy_owner"])
+        self.assertEqual(1, summary["passed_scenarios"])
+
     def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
         self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))
         self.assertIs(demo_tool.SCENARIO_PATHS, _demo_runner.SCENARIOS)
@@ -620,15 +665,17 @@ class DemoMainRoutingTests(unittest.TestCase):
         )
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
-    @patch("demo_tool.validate_mixed")
+    @patch("demo_tool.validate_scenario")
     def test_main_validate_mixed_dispatches_validate_mixed(
         self,
-        validate_mixed_mock,
+        validate_scenario_mock,
         _repo_root_mock,
     ) -> None:
         demo_tool.main(["validate", "mixed"])
 
-        validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"), profile="dev")
+        validate_scenario_mock.assert_called_once_with(
+            Path("/tmp/tailscope"), "mixed", profile="dev"
+        )
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_downstream")

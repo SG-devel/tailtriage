@@ -33,6 +33,29 @@ def metadata(version: str = "1.2.3") -> dict:
 
 
 class CheckReleaseTests(unittest.TestCase):
+    def test_example_package_content_uses_actual_cargo_listings(self) -> None:
+        calls = []
+
+        def run(argv: list[str]):
+            calls.append(argv)
+            return result(stdout="Cargo.toml\nexamples/public.rs\nsrc/lib.rs\n")
+
+        with patch.object(check_release, "command", side_effect=run):
+            errors = check_release.packaged_example_errors(
+                {"tailtriage-controller", "tailtriage-tokio", "tailtriage-axum"}
+            )
+        self.assertEqual([], errors)
+        self.assertEqual(3, len(calls))
+        self.assertTrue(all(call[-1] == "--list" for call in calls))
+
+    def test_example_package_content_rejects_missing_examples(self) -> None:
+        with patch.object(check_release, "command", return_value=result(stdout="Cargo.toml\nsrc/lib.rs\n")):
+            errors = check_release.packaged_example_errors({"tailtriage-controller"})
+        self.assertEqual(
+            ["Cargo package tailtriage-controller contains no examples/** entries"],
+            errors,
+        )
+
     def test_classification_and_deterministic_dependency_order(self) -> None:
         packages = metadata()["packages"]
         publishable = [package for package in packages if check_release.is_publishable(package)]
