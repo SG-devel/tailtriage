@@ -11,6 +11,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+EXAMPLE_BEARING_PACKAGES = {
+    "tailtriage-controller",
+    "tailtriage-tokio",
+    "tailtriage-axum",
+}
+
 
 def command(argv: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, capture_output=True, text=True)
@@ -114,6 +120,20 @@ def changelog_errors(version: str, text: str) -> list[str]:
     return errors
 
 
+def packaged_example_errors(package_names: set[str]) -> list[str]:
+    """Check actual Cargo package listings for the public example boundary."""
+    errors = []
+    for name in sorted(EXAMPLE_BEARING_PACKAGES & package_names):
+        argv = ["cargo", "package", "--locked", "-p", name, "--list"]
+        result = command(argv)
+        if result.returncode != 0:
+            errors.append(failed_command(argv, result))
+            continue
+        if not any(line.strip().startswith("examples/") for line in result.stdout.splitlines()):
+            errors.append(f"Cargo package {name} contains no examples/** entries")
+    return errors
+
+
 def check(version: str, changelog: Path = Path("CHANGELOG.md")) -> int:
     errors: list[str] = []
     status_command = ["git", "status", "--porcelain"]
@@ -163,6 +183,14 @@ def check(version: str, changelog: Path = Path("CHANGELOG.md")) -> int:
     if errors:
         print("Release preflight failed:", file=sys.stderr)
         for error in errors:
+            print(f"- {error}", file=sys.stderr)
+        return 1
+
+
+    example_errors = packaged_example_errors({package["name"] for package in publishable})
+    if example_errors:
+        print("Release preflight failed:", file=sys.stderr)
+        for error in example_errors:
             print(f"- {error}", file=sys.stderr)
         return 1
 

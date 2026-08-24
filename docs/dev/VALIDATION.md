@@ -12,11 +12,11 @@ Pre-generated and synthetic Reports validate Report fields, warnings, evidence, 
 | --- | --- | --- | --- |
 | Analyzer rule correctness | Explicit evidence selects the intended diagnosis | Typed Rust tests | Normal CI |
 | Artifact pipeline regression | Representative committed artifacts pass through real intake and analyzer paths | Diagnostic corpus and integrity lock | Normal CI |
-| Live workload behavior | Real demos produce expected signals and preserve integration behavior | Bounded demo smoke/parity checks plus repeated-run and mitigation matrices | CI smoke/parity; local/manual repeated runs |
+| Live workload behavior | Real demos produce expected signals and preserve integration behavior | Bounded demo smoke/parity checks plus repeated-run matrix and canonical live-demo mitigation reporting | CI smoke/parity; local/manual repeated runs |
 
 The diagnostic manifest and benchmark own corpus classification and accounting. The analyzer fixture lock and integrity checker protect committed analyzer artifacts. Typed analyzer tests own diagnosis-rule coverage.
 
-Real workloads are validated in two ways: bounded demo smoke and parity checks may run in CI, while repeated-run and mitigation matrices remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
+Real workloads are validated in two ways: bounded demo smoke and parity checks may run in CI, while repeated-run matrix and canonical live-demo mitigation reporting remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
@@ -35,7 +35,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
 | `scripts/generate_diagnostic_scorecard.py` | Local/manual deterministic scorecard generation with provenance | No, local/manual | Local outputs only |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
-| `scripts/run_mitigation_matrix.py` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
+| `scripts/demo_tool.py mitigation-report` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/measure_runtime_cost.py` | Runtime-cost operational validation | Manual/local; bounded smoke runs in CI | No |
 | `scripts/measure_collector_limits.py` | Collector-limit operational validation | Manual/local; bounded smoke runs in CI | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
@@ -79,7 +79,7 @@ checker enforces mechanically verifiable syntax and configuration, not provenanc
 | Unit/helper tests | Yes | script/helper correctness checks for validation tooling | end-to-end diagnostic behavior by itself |
 | Deterministic corpus | Yes in normal CI | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
-| Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
+| Live-demo mitigation | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
 | Runtime-cost measurement | Yes (bounded hard-gated smoke in CI) + manual/local deeper runs | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
 | Collector-limit stress | Yes (bounded smoke profile) | bounded collector-pressure characterization with retained/truncation/drop evidence and measured onset/resource behavior | zero drops under all load; analyzer warning or diagnosis downgrade behavior |
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
@@ -115,8 +115,8 @@ It writes raw JSONL run records plus summary JSON (and optional Markdown scoreca
 
 This repeated-run validation is manual/local (not mandatory CI). Publishable repeated-run outputs are generated locally and are not committed by default. Results are machine/workload scoped.
 
-## Mitigation matrix validation (manual/local)
-`scripts/run_mitigation_matrix.py` runs paired baseline/mitigated controlled demo scenarios and compares latency plus evidence movement for targeted mitigations.
+## Live-demo mitigation validation (manual/local)
+`scripts/demo_tool.py mitigation-report` runs paired baseline/mitigated controlled demo scenarios and compares latency plus evidence movement for targeted mitigations.
 
 It writes JSONL pair records, summary JSON, and optional scorecard Markdown under `target/` paths. Generated outputs are local/manual and are not committed by default.
 
@@ -147,7 +147,7 @@ This page owns the profile meanings and invocation policy:
 | Profile | Intended audience and scope |
 |---|---|
 | `smoke` | Local fast pass over one bounded scenario per live validation track, deterministic diagnostics, docs contracts, and Cargo completion checks. |
-| `ci` | Contributor/CI-shaped deterministic and script-test coverage without the full repeated-run and mitigation matrices. |
+| `ci` | Contributor/CI-shaped deterministic and script-test coverage without the full repeated-run matrix and canonical live-demo mitigation reporting. |
 | `full` | Manual/local repeated-run, mitigation, runtime-cost, and one complete default collector-limit matrix repeat. Diagnostic and runtime-cost tracks default to five repetitions. Outputs remain machine/workload/profile scoped. |
 | `publish` | The same substantive validation depth as `full`, using a release-artifact directory. It is credential-free and check-only: it does **not** publish crates; the manual procedure is owned solely by [RELEASING.md](RELEASING.md). |
 

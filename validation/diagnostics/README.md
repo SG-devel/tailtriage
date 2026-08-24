@@ -24,7 +24,7 @@ Add a committed analyzer fixture only when it protects an artifact-format, impor
 
 The diagnostic manifest and benchmark own corpus classification and accounting. The analyzer fixture lock and integrity checker protect committed analyzer artifacts. Typed analyzer tests own diagnosis-rule coverage.
 
-Bounded demo smoke and parity checks may run in CI. Repeated-run and mitigation matrices remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
+Bounded demo smoke and parity checks may run in CI. Repeated-run matrices and live-demo mitigation reporting remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
 Run `python3 scripts/check_diagnostic_fixture_integrity.py` to check the committed lock. For an intentional analyzer-fixture change, run `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`, review the byte and shape changes, and commit the updated lock with the manually edited fixture. Refresh modifies only the lock.
 
@@ -52,11 +52,11 @@ python3 scripts/diagnostic_benchmark.py \
 ## Validation tracks
 - deterministic corpus benchmark: `scripts/diagnostic_benchmark.py`
 - repeated-run controlled matrix runner: `scripts/run_diagnostic_matrix.py`
-- mitigation matrix runner: `scripts/run_mitigation_matrix.py`
+- live-demo mitigation reporting: `scripts/demo_tool.py mitigation-report`
 
 The deterministic corpus checks fixture-labeled contract behavior. The repeated-run runner checks repeated-run stability for selected controlled demo workloads.
 
-Validation tracks currently include deterministic corpus benchmark, adversarial synthetic coverage (inside the corpus), repeated-run diagnostic matrix, mitigation matrix workflows, and operational validation for runtime cost and collector limits. Operational validation now has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`; diagnostics references them but is not the only operational validation location. Generated operational outputs remain in local selected artifact directories and are not committed by default.
+Validation tracks currently include deterministic corpus benchmark, adversarial synthetic coverage (inside the corpus), repeated-run diagnostic matrix, live-demo mitigation reporting, and operational validation for runtime cost and collector limits. Operational validation now has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`; diagnostics references them but is not the only operational validation location. Generated operational outputs remain in local selected artifact directories and are not committed by default.
 
 ## Unified runner orchestration
 

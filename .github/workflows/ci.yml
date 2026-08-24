@@ -229,8 +229,6 @@ jobs:
           python3 scripts/demo_tool.py validate db-pool --profile release
           python3 scripts/demo_tool.py validate shared-lock --profile release
           python3 scripts/demo_tool.py validate retry-storm --profile release
-      - name: Smoke-check controller public example
-        run: python3 scripts/smoke_controller_example.py
       - name: Validate tracing parity across all demos
         run: python3 scripts/demo_tool.py validate-tracing-parity all --profile release
       - name: Validate tracing retention parity (tiny limits)
