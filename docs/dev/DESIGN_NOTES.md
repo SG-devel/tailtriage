@@ -28,7 +28,7 @@ The design should be judged by whether it:
 | Capture model      | Artifact-based analysis                      | Reproducible and testable                       | Extra workflow step                  |
 | Workspace          | Multiple crates                              | Dependency and responsibility separation        | More complexity                      |
 | CLI                | First-class analyzer                         | Useful for validation and offline investigation | Extra public interface               |
-| Collector behavior | Bounded retained event vectors with truncation summaries | Avoid unbounded artifact growth for retained evidence | Pending request bookkeeping is not capture-limited |
+| Collector behavior | Request capacity bounds completed-retained plus pending admissions; refused requests are inert; retained child/runtime evidence is independently bounded | Avoid unbounded retained evidence | Limits, truncation, and refusal can weaken evidence and must remain visible |
 | Overhead claims    | Machine/workload scoped                      | Credible measurement                            | Less marketable                      |
 | Validation         | Controlled demos first                       | Known injected causes                           | Synthetic limits                     |
 | AI usage           | AI-assisted implementation under specs/tests | Productivity without abandoning ownership       | Requires clear ownership and review  |
@@ -285,12 +285,12 @@ The project is split into multiple crates rather than one monolithic crate.
 
 The responsibilities are different enough to justify separation:
 
-* `tailtriage-core`: data model, direct capture lifecycle, run building, sinks, retention summaries, and shared lifecycle semantics,
+* `tailtriage-core`: data model, direct capture lifecycle, run building, sinks, retention summaries, shared lifecycle semantics, generic completed-`Run` inspection, strict validation, and deterministic permissive normalization,
 * `tailtriage-tokio`: optional Tokio runtime sampling and Tokio primitive helper instrumentation,
 * `tailtriage-axum`: Axum middleware/extractor ergonomics over the same request-context model,
 * `tailtriage-controller`: repeated bounded capture windows for long-lived services,
-* `tailtriage-analyzer`: the diagnosis engine, report model, strict artifact validation APIs, and text/JSON report rendering,
-* `tailtriage-cli`: command-line artifact loading, tracing JSONL import, and analyzer/report execution,
+* `tailtriage-analyzer`: diagnosis and scoring, analyzer configuration, typed `Report` generation, and text/JSON `Report` rendering,
+* `tailtriage-cli`: command-line saved-artifact policy and loading, tracing JSONL import, and analyzer/report execution,
 * `tailtriage-tracing`: optional `tracing` intake that converts `tt.*` spans into standard `Run` artifacts,
 * `tailtriage`: top-level onboarding facade with feature-gated integrations.
 
@@ -418,19 +418,17 @@ Retained event vectors and runtime snapshots should use capture limits and expos
 
 An investigation tool should not create unbounded artifact growth from retained request, queue, stage, in-flight, or runtime evidence. Bounded retained evidence reduces operational risk and keeps artifacts reviewable.
 
-### Current limitation
+### Bounded-state contract
 
-Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
-
-`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity. Documentation and operations guidance must therefore avoid claiming that all live state is capture-limited or that shutdown currently establishes a final lifecycle boundary.
+Request capacity bounds completed-retained plus pending admissions, and refused requests are inert. Configured limits independently bound retained queue, stage, in-flight, and runtime evidence. Finalization seals the collector against later admissions and evidence mutations.
 
 ### Tradeoff
 
-Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound. Operators should still use bounded capture windows and care during long or high-cardinality captures.
+Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Operators should choose request and evidence limits appropriate to the capture window and workload.
 
 ### Why this is acceptable
 
-Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Refused admissions and dropped retained evidence must remain visible through lifecycle and truncation metadata.
 
 ---
 
@@ -743,41 +741,20 @@ Core Run integrity contract:
 
 - `tailtriage-core` owns generic Run inspection through `inspect_run`, strict rejection through `validate_run_strict`, and deterministic permissive normalization through `normalize_run_permissive`.
 - Strict validation rejects unsupported schema versions, blank required metadata/event strings, inverted wall-clock or run-relative intervals, partial run-relative intervals, duration mismatches beyond the shared 2,000 microsecond tolerance, duplicated completed request IDs, orphan or ambiguous request-scoped children, children of excluded parents, and precise child intervals outside precise parent request intervals.
-- Permissive normalization keeps duration fields authoritative, clears invalid optional run-relative offsets instead of repairing or clipping them, excludes every duplicated completed request rather than selecting first- or last-wins, excludes children of duplicated/excluded/missing parents, and retains duration-only legacy evidence with deterministic precision warnings.
+- Permissive normalization keeps duration fields authoritative, clears invalid optional run-relative offsets instead of repairing or clipping them, excludes every duplicated completed request rather than selecting first- or last-wins, excludes children of duplicated/excluded/missing parents, and retains duration-only evidence with deterministic precision warnings.
 - Canonical core issue-code summaries are surfaced by analyzer, CLI, tracing import, and native lifecycle output where appropriate; suspects remain evidence-ranked leads, not proof of root cause.
 - Native capture owns lifecycle, retention, and artifact construction; tracing owns `tt.*` source parsing, raw retention, semantic limits, JSONL decoding, and line/source warnings; the CLI owns file reading, JSON decoding, schema-envelope errors, command-specific minimum-request requirements, output formatting, stderr, and exit behavior; the analyzer owns diagnostic scoring, evidence quality, report rendering, and non-validation analyzer warnings.
 - Strict entry points validate the original unnormalized candidate and reject error-level core findings. Warning-only missing optional precision does not reject.
-- Current tracing provenance keeps retained source spans private through normalization and writes completed-span JSONL directly from retained original sources. Prompt 05 owns public tracing API simplification; Prompt 06 owns compatibility-mode removal and stable-wrapper-only input.
+- Tracing provenance keeps retained source spans private through normalization and writes completed-span JSONL directly from retained original sources. Stable JSONL intake accepts only the `tailtriage.tracing-span.v1` wrapper.
 
 
 
 ### Partial queue and stage events
 
-Completed queue and stage JSON remains wire-compatible: schema version stays `2`, older schema-v2 JSON without `completed` reads as completed evidence, and completed events omit `completed` when serialized. The Rust structs now include `completed: bool`, which is an intentional pre-1.0 source break for external exhaustive `StageEvent` and `QueueEvent` struct literals. Prefer `StageEvent::new(...)` and `QueueEvent::new(...)`; constructors default to completed evidence and `into_partial()` should be used only when intentionally constructing partial evidence.
+Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
 
 Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
 
-Migration example:
-
-```rust
-# use tailtriage_core::StageEvent;
-// Old exhaustive struct literal (now must include `completed`).
-let _old = StageEvent {
-    request_id: "req".into(),
-    stage: "db".into(),
-    started_at_unix_ms: 1,
-    started_at_run_us: None,
-    finished_at_unix_ms: 2,
-    finished_at_run_us: None,
-    latency_us: 10,
-    success: true,
-    completed: true,
-};
-
-// Recommended: constructors default to completed evidence.
-let completed = StageEvent::new("req", "db", 1, 2, 10, true);
-let partial = completed.clone().into_partial();
-```
 
 
 ## Partial queue/stage evidence

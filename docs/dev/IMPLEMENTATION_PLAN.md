@@ -51,9 +51,9 @@ A change is out of scope when it mainly adds adjacent platform capabilities or c
 
 Make validation easy to understand, truthful, and reproducible.
 
-Near-term tasks:
+Ongoing responsibilities:
 
-- remove PR-history wording from public validation docs
+- keep public validation docs present-tense and stable, not PR-history oriented
 - keep deterministic, repeated-run, mitigation, runtime-cost, and collector-limit validation clearly separated
 - make CI/manual/release status explicit for each validation path
 - add generated metrics to scorecards where available
@@ -64,7 +64,7 @@ Near-term tasks:
 
 Improve deterministic validation without turning fixtures into marketing claims.
 
-Near-term tasks:
+Ongoing responsibilities:
 
 - keep adversarial sparse/missing/truncated/mixed cases small and reviewable
 - require next-check substrings where next-check behavior is part of the contract
@@ -76,7 +76,7 @@ Near-term tasks:
 
 Gather reproducible artifacts and concrete user pain points.
 
-Near-term tasks:
+Ongoing responsibilities:
 
 - collect anonymized real-service artifacts when available
 - compare user interpretation against intended report semantics
@@ -87,7 +87,7 @@ Near-term tasks:
 
 Improve ergonomics where they reduce real triage friction.
 
-Near-term tasks:
+Ongoing responsibilities:
 
 - improve diagnosis wording and next-check clarity when users misread results
 - keep lifecycle, truncation, and confidence behavior explicit
@@ -98,7 +98,7 @@ Near-term tasks:
 
 Keep public docs synchronized.
 
-Near-term tasks:
+Ongoing responsibilities:
 
 - keep `README.md`, `docs/README.md`, crate READMEs, demos, and examples aligned
 - keep validation docs present-tense and stable, not PR-history oriented
@@ -108,7 +108,7 @@ Near-term tasks:
 
 Keep the optional tracing intake path clear for teams already using Rust `tracing`.
 
-Near-term tasks:
+Ongoing responsibilities:
 
 - keep docs aligned to the implemented tracing-intake path:
   - `TracingSession` as the primary live setup
@@ -124,19 +124,6 @@ Current scope notes:
 - OTel/OTLP remains out of scope
 - runtime-pressure evidence still requires runtime snapshots / Tokio sampler coupling
 
-## Near-term sequencing
-
-Before the next public promotion or release:
-
-1. update repository guidance for validation docs and scorecards
-2. update the product spec with the validation contract
-3. update this implementation plan with validation-presentation work
-4. clean `VALIDATION.md` public wording
-5. fix stale diagnostic-validation wording
-6. add generated metric summaries to the deterministic scorecard
-7. clarify which validation profiles run in CI
-8. run docs contract validation and relevant validation scripts
-
 ## Quality gates for changes
 
 For scoped work, completion requires:
@@ -146,9 +133,9 @@ For scoped work, completion requires:
 3. formatting/lint/tests passing per repository requirements
 4. no quiet scope expansion
 
-## Explicit anti-goals in this phase
+## Explicit project anti-goals
 
-Do not use this phase to turn `tailtriage` into:
+Do not use these workstreams to turn `tailtriage` into:
 
 - a telemetry backend
 - a distributed tracing platform

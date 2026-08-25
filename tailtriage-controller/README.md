@@ -129,18 +129,8 @@ They do not mutate a generation that is already active. Each active generation
 keeps one immutable activation snapshot, and admitted requests remain bound to it
 until completion even across disarm and re-enable.
 
-Pre-1.0 source migration:
-
-```rust,ignore
-// Old result-returning call:
-controller.try_reload_template(template)?;
-// New canonical call:
-controller.reload_template(template)?;
-```
-
-The former panicking `reload_template(template)` behavior and the synonymous
-`try_reload_template` method were removed. Callers of either old form now handle
-or propagate the `Result` returned by `reload_template`.
+`reload_template(template)` returns a `Result`; callers handle or propagate validation errors.
+Replacement is transactional, so an invalid template leaves the current template unchanged.
 
 ## Run-end policies
 

@@ -155,13 +155,14 @@ Important operational constraints:
 
 Start conservatively.
 
-Worker count remains optional in schema-v2 artifacts, so older artifacts may omit
-it. A zero value is invalid: strict validation rejects it, while permissive
+`worker_count` is optional in schema-v2 artifacts and may be absent. A zero value
+is invalid: strict validation rejects it, while permissive
 normalization clears only the invalid field and retains the runtime snapshot and
 typed validation finding. Complete, consistent, positive worker-count evidence
-enables per-worker runnable-queue scoring. Historical absence preserves legacy
-absolute-depth scoring; partial, inconsistent, or invalid evidence uses that
-fallback without inventing a worker count and limits confidence as documented.
+enables normalized per-worker runnable-queue scoring. An unavailable worker count
+uses absolute-depth fallback without a worker-related confidence cap; partial,
+inconsistent, or invalid worker evidence uses the fallback with the documented
+confidence limits and without inventing a worker count.
 When local queue depth is missing, normalized runnable-queue evidence is a lower
 bound. See the [executor-pressure reference](diagnostics.md#executor-pressure)
 for the scoring and confidence details.
@@ -190,7 +191,7 @@ Treat tracing-based reports the same way as other reports: evidence-ranked suspe
 
 Run JSON schema version 2 is the current Run JSON schema version. `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged. Active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version.
 
-CLI Run-artifact analysis is strict by default. Error-level canonical core findings stop report generation before stdout; warning-only findings remain accepted. `--allow-ambiguous-artifact` explicitly requests canonical permissive normalization, discloses every original issue on stderr, and analyzes normalized evidence only. The former `--strict-artifact` option is removed: strict scripts should omit it, while scripts relying on the former permissive default must add `--allow-ambiguous-artifact`. Tracing import `--strict` remains a separate malformed/incomplete `tt.*` parser/import policy. Analyzer library defaults remain permissive, and core exposes explicit strict and permissive APIs. Reports provide evidence-ranked suspects and next checks as triage leads, not proof of root cause.
+CLI Run-artifact analysis is strict by default. Error-level canonical core findings stop report generation before stdout; warning-only findings remain accepted. `--allow-ambiguous-artifact` explicitly requests canonical permissive normalization, discloses every original issue on stderr, and analyzes normalized evidence only. Tracing import `--strict` is a separate malformed/incomplete `tt.*` parser/import policy and does not control saved-Run validation. Analyzer library defaults remain permissive, and core exposes explicit strict and permissive APIs. Reports provide evidence-ranked suspects and next checks as triage leads, not proof of root cause.
 
 Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly. These rankings remain triage leads, not proof of root cause.
 
@@ -217,6 +218,22 @@ Use:
 * [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
 
 when establishing local operational expectations.
+
+### Input resource boundaries
+
+Tracing completed-span JSONL has a fixed 8 MiB maximum serialized JSON object size per record;
+the newline is excluded from that ceiling. The importer and completed-span writer share this
+ceiling. There is no aggregate stream byte ceiling and no public tuning knob, so a long valid
+stream can consume CPU and I/O in proportion to its length.
+
+Canonical Run JSON is decoded through the typed streaming path rather than first retaining a
+whole-file `String` or generic `Value`. It has no arbitrary whole-document byte ceiling, and a
+very large otherwise-valid Run may allocate typed state in proportion to its contents. Tailtriage
+therefore does not claim universal hostile-input memory safety.
+
+### Review artifacts before sharing
+
+Run, Report, and validation artifacts can contain operational or environment metadata, including host/PID, routes, queue/stage/in-flight labels, warnings, service or run identifiers, paths, and workflow-specific details. Review artifacts and, where appropriate, redact sensitive values before sharing them outside the intended trust boundary. Tailtriage does not automatically sanitize these artifacts. Structured JSON remains lossless data; human-readable output visibly escapes artifact-controlled control characters at human-output sinks.
 
 ## Capture limits and truncation
 
@@ -417,31 +434,10 @@ Overlap-safe queue and same-name stage attribution use request-scoped bounded at
 
 ### Partial queue and stage events
 
-Completed queue and stage JSON remains wire-compatible: schema version stays `2`, older schema-v2 JSON without `completed` reads as completed evidence, and completed events omit `completed` when serialized. The Rust structs now include `completed: bool`, which is an intentional pre-1.0 source break for external exhaustive `StageEvent` and `QueueEvent` struct literals. Prefer `StageEvent::new(...)` and `QueueEvent::new(...)`; constructors default to completed evidence and `into_partial()` should be used only when intentionally constructing partial evidence.
+Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
 
 Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
 
-Migration example:
-
-```rust
-# use tailtriage_core::StageEvent;
-// Old exhaustive struct literal (now must include `completed`).
-let _old = StageEvent {
-    request_id: "req".into(),
-    stage: "db".into(),
-    started_at_unix_ms: 1,
-    started_at_run_us: None,
-    finished_at_unix_ms: 2,
-    finished_at_run_us: None,
-    latency_us: 10,
-    success: true,
-    completed: true,
-};
-
-// Recommended: constructors default to completed evidence.
-let completed = StageEvent::new("req", "db", 1, 2, 10, true);
-let partial = completed.clone().into_partial();
-```
 
 
 ## Partial queue/stage evidence

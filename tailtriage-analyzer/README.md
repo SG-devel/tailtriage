@@ -59,21 +59,11 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
 - analyzer library default analysis is permissive: it analyzes core-normalized evidence and surfaces stable core issue-code warnings for excluded, repaired, or precision-limited completed-Run evidence; `tailtriage_core::validate_run_strict` rejects error-level generic core integrity failures when explicitly composed before analysis. The saved-artifact CLI independently enforces strict validation by default.
 
-## Migrating to 0.4
-
-The 0.4 API has one checked analysis operation and separate renderers:
-
-- `try_analyze_run(...)` becomes `analyze_run(...)?`.
-- The former `analyze_run(...) -> Report` becomes `analyze_run(...) -> Result<Report, AnalyzeConfigError>`.
-- `Analyzer` methods become `analyze_run(...)`; reuse `AnalyzeOptions` directly.
-- `analyze_run_json*` / `try_analyze_run_json*` become `analyze_run(...)?` followed by `render_json*(&report)?`.
-- Analyzer-owned strict wrappers become `tailtriage_core::validate_run_strict(...)?` followed by `analyze_run(...)?`.
-
 ## Request ID contract
 
 `request_id` is the per-run tailtriage identity of one completed logical request/work item. It must be unique among completed requests in one `Run`; stage and queue events must reuse that ID only for the same logical request. Duplicate completed IDs make request-scoped queue attribution, route breakdowns, temporal segmentation, and downstream-stage matching ambiguous.
 
-Use `tailtriage_core::validate_run_strict` before `analyze_run` when you want to reject error-level generic core integrity failures before producing evidence-ranked suspects and next checks. Default analysis remains backward-compatible and warns instead of failing; missing optional run-relative precision is a warning-only legacy compatibility limitation.
+Use `tailtriage_core::validate_run_strict` before `analyze_run` when you want to reject error-level generic core integrity failures before producing evidence-ranked suspects and next checks. Default analysis is permissive and warns instead of failing; missing optional run-relative precision is a warning-only limitation.
 
 Users remain responsible for meaningful instrumentation and request-boundary semantics. The analyzer cannot know whether an external trace ID, retry ID, fanout ID, or batch ID identifies the correct logical request; convert repeating external IDs into unique tailtriage request IDs before analysis.
 
@@ -148,16 +138,6 @@ Report transparency behavior:
 - `warnings[]` and `evidence_quality` describe interpretation limits.
 - `route_breakdowns` and `temporal_segments`, when present, are supporting context only and do not override the global `primary_suspect`.
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON.
-
-## Migration note
-
-```rust
-// Old pre-0.1.x API was hosted in the CLI crate.
-// Use the analyzer crate directly for in-process analysis/report APIs.
-
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
-```
-
 
 ## Partial queue/stage evidence
 

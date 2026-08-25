@@ -147,12 +147,12 @@ No such series means no executor candidate.
 
 | Worker evidence classification | Exact condition | Scoring and confidence behavior |
 | --- | --- | --- |
-| historical absence | every relevant snapshot lacks `worker_count` | exact legacy compatibility scoring; no worker-related cap |
+| worker count unavailable | every relevant snapshot lacks `worker_count` | absolute-depth fallback scoring; no worker-related cap |
 | complete | every relevant snapshot has the same nonzero count | normalized scoring |
 | complete, local lower bound | complete worker count but any relevant snapshot lacks `local_queue_depth` | normalized scoring; missing local contributes zero for that snapshot; Medium cap |
-| partial | nonzero counts and missing counts are mixed | legacy scoring; Medium cap |
-| inconsistent | more than one nonzero count occurs | legacy scoring; Medium cap |
-| invalid zero | any relevant snapshot supplies zero | legacy scoring; Medium cap |
+| partial | nonzero counts and missing counts are mixed | absolute-depth fallback scoring; Medium cap |
+| inconsistent | more than one nonzero count occurs | absolute-depth fallback scoring; Medium cap |
+| invalid zero | any relevant snapshot supplies zero | absolute-depth fallback scoring; Medium cap |
 
 #### Worker-normalized mode
 
@@ -189,7 +189,7 @@ number of normalized snapshots. There is no soft cap. `alive_tasks` and the
 separate global/local p95 values can appear as descriptive evidence, but do not
 add independent normalized contributions.
 
-#### Legacy compatibility mode
+#### Absolute-depth fallback
 
 Eligibility is global queue p95 `P` at least
 `executor.min_global_queue_p95_for_signal` (default 1). Let `L` be p95 of all

@@ -98,7 +98,7 @@ If your service already builds a subscriber in startup code, compose `session.la
 
 - Imported or live tracing evidence is converted to normal tailtriage Run timing fields.
 - Live tracing samples finish wall time when the span closes.
-- Newer live tracing output includes run-relative monotonic offsets for request, stage, and queue spans when those offsets are available; these offsets improve temporal grouping inside a captured run.
+- Live tracing output includes run-relative monotonic offsets for request, stage, and queue spans when those offsets are available; these offsets improve temporal grouping inside a captured run.
 - Imported JSONL may omit run-relative offsets. Missing offsets remain supported: core emits the warning-only `precise_interval_validation_unavailable` finding, retains the duration evidence unchanged, and does not check the authoritative duration against coarse Unix-ms bounds as a generic validation fallback.
 - `duration_us` remains the authoritative elapsed-time evidence when supplied or recorded by live tracing.
 - Complete run-relative offsets provide optional precision for temporal grouping and precise parent/child containment. Partial offsets, inverted run-relative offsets, and duration-versus-offset mismatches beyond the shared core `2_000` microsecond tolerance are error-level core findings.
@@ -150,7 +150,13 @@ Stable completed-span JSONL records use this wrapper:
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
 The simple library import APIs (`import_jsonl_reader` / `import_jsonl_path`) accept only this wrapper shape and return an error for any non-empty non-wrapper JSON record.
-Only `tailtriage.tracing-span.v1` wrapper records are accepted for tracing JSONL file import. Pre-stable/internal JSONL must be regenerated with the current writer or converted externally before import.
+Only `tailtriage.tracing-span.v1` wrapper records are accepted for tracing JSONL file import. Unsupported input must be converted externally to that supported wrapper format.
+
+Each serialized JSON object has a fixed 8 MiB maximum; the JSONL newline is excluded from that
+per-object ceiling. The importer and completed-span writer use the same ceiling. There is no
+aggregate stream byte ceiling and no public tuning knob for the fixed per-object limit, so a long
+valid stream can consume CPU and I/O in proportion to its length. This is not a universal
+hostile-input memory-safety guarantee.
 
 Close-event/fmt-like tracing log envelopes are not supported import input.
 Ordinary tracing log JSON (for example `tracing_subscriber::fmt().json()` output) is unsupported and rejected by import.
@@ -244,20 +250,9 @@ For `TracingSession`, runtime snapshot retention also uses the same core capture
 `TracingSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
 
 
-## Live tracing session migration
+## Live tracing session behavior
 
-Use `TracingSession` as the sole current live entry point for capture-to-Run workflows.
-
-| Old usage | Final usage |
-| --- | --- |
-| `TracingRecorder::builder(...)` | `TracingSession::builder(...)` |
-| `TracingIntakeSession::builder(...)` | `TracingSession::builder(...)` |
-| `TracingTokioSession::builder(...).start()` | `TracingSession::builder(...).sampler_interval(...).build()` |
-| `recorder_limits(...)` | `limits(...)` |
-| synchronous `shutdown()?` | `shutdown().await?` |
-| deterministic manual mode | `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)?` |
-
-Background runtime sampling is opt-in through `sampler_interval(...)`. Manual runtime collection is opt-in through `manual_runtime_snapshots()`. A plain live session still captures request, stage, and queue evidence without runtime collection, and `record_runtime_snapshot(...)?` returns a configuration error when runtime collection is not enabled. Manual snapshots may coexist with background sampling.
+`TracingSession` is the live entry point. Configure evidence retention with `limits(...)`; opt into background runtime sampling with `sampler_interval(...)`, or deterministic/manual runtime evidence with `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)`. A plain live session captures request, stage, and queue evidence without runtime collection. `record_runtime_snapshot(...)` returns a configuration error when runtime collection is not enabled, and manual snapshots may coexist with background sampling. Finish with async `shutdown().await?`.
 
 Run JSON remains the complete persisted artifact. Completed-span JSONL preserves retained original tracing sources for completed spans, but omits runtime snapshots and other Run-only state. Each output file is an independent transaction.
 

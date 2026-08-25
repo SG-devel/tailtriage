@@ -53,7 +53,7 @@ Each mode is executed as a separate process; this keeps process-global tracing s
 
 ## CI smoke policy
 
-CI runs one bounded runtime-cost smoke on the Ubuntu extended release leg:
+Operational validation runs one bounded runtime-cost smoke:
 
 ```bash
 python3 scripts/measure_runtime_cost.py \

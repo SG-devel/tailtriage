@@ -29,6 +29,7 @@ CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
 DOCS_INDEX_EXCLUDED_MARKDOWN = {".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/feature_request.md", ".github/pull_request_template.md", "AGENTS.md", "docs/README.md", "validation/collector-limits/README.md", "validation/collector-limits/latest/scorecard.md", "validation/diagnostics/README.md", "validation/diagnostics/latest/scorecard.md", "validation/runtime-cost/README.md", "validation/runtime-cost/latest/scorecard.md"}
 RUSTDOC_INCLUDE_CRATE_LIBS = tuple(REPO_ROOT / crate / "src" / "lib.rs" for crate in ("tailtriage", "tailtriage-core", "tailtriage-controller", "tailtriage-tokio", "tailtriage-axum", "tailtriage-analyzer", "tailtriage-cli", "tailtriage-tracing"))
+PUBLISHED_CRATE_READMES = tuple(REPO_ROOT / crate / "README.md" for crate in ("tailtriage", "tailtriage-core", "tailtriage-controller", "tailtriage-tokio", "tailtriage-axum", "tailtriage-tracing", "tailtriage-analyzer", "tailtriage-cli"))
 DIAGNOSTIC_BENCHMARK_CI_ARGS = ("--manifest validation/diagnostics/manifest.json", "--min-top1 0.75", "--min-top2 0.90", "--max-high-confidence-wrong 0")
 
 
@@ -65,6 +66,15 @@ def extract_all_fenced_blocks(markdown: str, *, fence: str) -> list[str]:
 
 def markdown_links(markdown: str) -> set[str]:
     return set(re.findall(r"\[[^\]]+\]\(([^)]+)\)", markdown))
+
+
+def markdown_reference_destinations(markdown: str) -> set[str]:
+    """Return destinations from ordinary Markdown reference definitions."""
+    pattern = re.compile(
+        r"^[ \t]{0,3}\[[^\]]+\]:[ \t]*(?:<([^>]+)>|(\S+))(?:[ \t]+.*)?$",
+        re.MULTILINE,
+    )
+    return {angle or bare for angle, bare in pattern.findall(markdown)}
 
 
 def resolve_local_markdown_destination(
@@ -326,28 +336,6 @@ def validate_analyzer_config_example_contract(*, config_path: Path = ANALYZER_CO
         raise ValueError(f"invalid TOML in {config_path}: {exc}") from exc
 
 
-def _strip_allowed_analyzer_migration_note(text: str) -> str:
-    """Allow old API token only in the dedicated migration-note example block."""
-    marker = "## Migration note"
-    marker_index = text.find(marker)
-    if marker_index < 0:
-        return text
-
-    migration_section = text[marker_index:]
-    migration_block_pattern = re.compile(r"```rust\n(.*?)\n```", re.DOTALL)
-    block_match = migration_block_pattern.search(migration_section)
-    if block_match is None:
-        return text
-
-    block = block_match.group(1)
-    if "tailtriage_cli::analyze" not in block:
-        return text
-
-    start = marker_index + block_match.start(1)
-    end = marker_index + block_match.end(1)
-    return text[:start] + text[end:]
-
-
 def validate_cli_not_presented_as_library_analyzer_api() -> None:
     paths = (
         README_PATH,
@@ -356,38 +344,49 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
         DIAGNOSTICS_PATH,
         ARCHITECTURE_PATH,
         REPO_ROOT / "tailtriage-cli" / "README.md",
-    REPO_ROOT / "tailtriage-tracing" / "README.md",
+        REPO_ROOT / "tailtriage-tracing" / "README.md",
         REPO_ROOT / "tailtriage-analyzer" / "README.md",
     )
     banned_tokens = ("tailtriage_cli::analyze",)
     hits: list[str] = []
     for path in paths:
         text = path.read_text(encoding="utf-8")
-        scan_text = text
-        if path == REPO_ROOT / "tailtriage-analyzer" / "README.md":
-            scan_text = _strip_allowed_analyzer_migration_note(text)
         lowered = text.lower()
         if "tailtriage-cli" in lowered and "library analyzer api" in lowered:
             rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
             hits.append(f"{rel} presents tailtriage-cli as library analyzer API")
         for token in banned_tokens:
-            if token in scan_text:
+            if token in text:
                 rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
                 hits.append(f"{rel} contains banned token: {token}")
     if hits:
         raise ValueError("CLI/library analyzer contract violation:\n" + "\n".join(hits))
 
 
-def validate_published_crate_readmes_are_self_contained(paths: tuple[Path, ...]) -> None:
-    """Reject repository-only documentation links from published crate READMEs."""
-    failures = []
+def validate_published_crate_readmes_are_self_contained(
+    paths: tuple[Path, ...] = PUBLISHED_CRATE_READMES,
+) -> None:
+    """Require every package README and keep its local links inside that package."""
+    failures: list[str] = []
     for path in paths:
-        if "../docs/" in path.read_text(encoding="utf-8"):
-            rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
-            failures.append(str(rel))
+        if not path.is_file():
+            failures.append(f"missing {path}")
+            continue
+        package_dir = path.parent.resolve()
+        text = path.read_text(encoding="utf-8")
+        links = markdown_links(text) | markdown_reference_destinations(text)
+        for link in links:
+            path_text = link.split("#", 1)[0]
+            if not path_text or urlsplit(path_text).scheme:
+                continue
+            destination = (path.parent / path_text).resolve()
+            try:
+                destination.relative_to(package_dir)
+            except ValueError:
+                failures.append(f"{path}: {link}")
     if failures:
         raise ValueError(
-            "published crate READMEs must not use repository-relative ../docs/ links: "
+            "published crate READMEs must exist and local links must stay inside the package: "
             + ", ".join(failures)
         )
 
@@ -683,7 +682,7 @@ def main() -> int:
     validate_root_readme_docs_link()
     validate_analyzer_config_example_contract()
     validate_cli_not_presented_as_library_analyzer_api()
-    validate_published_crate_readmes_are_self_contained((REPO_ROOT / "tailtriage-analyzer" / "README.md", REPO_ROOT / "tailtriage-cli" / "README.md"))
+    validate_published_crate_readmes_are_self_contained()
     validate_diagnostic_benchmark_ci_contract()
     validate_sampler_integration_boundary()
     validate_manual_release_boundary()

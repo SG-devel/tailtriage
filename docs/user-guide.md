@@ -215,7 +215,7 @@ tailtriage analyze tailtriage-run.json --format json
 
 Saved Run artifacts are strictly validated by default. Error-level core integrity findings stop report generation before stdout is written; warning-only findings remain accepted and visible through the Report contract. If an older or ambiguous artifact must be triaged, add `--allow-ambiguous-artifact`. That explicit path emits every original core issue to stderr and analyzes only evidence retained by canonical core permissive normalization.
 
-The former `--strict-artifact` option is removed: use the command with no policy flag for strict behavior. A script that relied on the former permissive default must now add `--allow-ambiguous-artifact`. Tracing import `--strict` is separate and controls malformed or incomplete `tt.*` input during conversion, not saved Run validation. In-process analyzer APIs remain permissive by default; core callers can choose `inspect_run`, `validate_run_strict`, or `normalize_run_permissive` explicitly.
+Saved Run analysis is strict by default. Use `--allow-ambiguous-artifact` to select permissive canonical core normalization. Tracing import `--strict` is separate and controls malformed or incomplete `tt.*` input during conversion, not saved Run validation. In-process analyzer APIs remain permissive by default; core callers can choose `inspect_run`, `validate_run_strict`, or `normalize_run_permissive` explicitly.
 
 ### Decide next check
 
@@ -436,22 +436,11 @@ Semantics notes:
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)
 
-## Live tracing session migration
+## Live tracing session
 
-Use `TracingSession` as the current live tracing entry point. Older names may appear in changelog history, but current setup should use the unified session builder.
+`TracingSession` is the live tracing entry point. A plain session captures request, stage, and queue evidence. Background runtime sampling is opt-in through `sampler_interval(...)`; compiling Tokio support does not automatically start it. Manual runtime collection is opt-in through `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)`, and manual recording without runtime collection returns a configuration error. Finish with async `shutdown().await?`.
 
-| Old usage | Final usage |
-| --- | --- |
-| `TracingRecorder::builder(...)` | `TracingSession::builder(...)` |
-| `TracingIntakeSession::builder(...)` | `TracingSession::builder(...)` |
-| `TracingTokioSession::builder(...).start()` | `TracingSession::builder(...).sampler_interval(...).build()` |
-| `recorder_limits(...)` | `limits(...)` |
-| synchronous `shutdown()?` | `shutdown().await?` |
-| deterministic manual mode | `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)?` |
-
-A plain live session still captures request, stage, and queue evidence. Background runtime sampling is opt-in through `sampler_interval(...)`; compiling Tokio support does not automatically start runtime sampling. Manual runtime collection is opt-in through `manual_runtime_snapshots()`, and manual recording without runtime collection returns a configuration error. Manual snapshots may coexist with background sampling.
-
-Run JSON is the complete persisted artifact. Completed-span JSONL output contains retained original tracing source records and preserves the retained original source identity for replayable tracing evidence, but it omits runtime snapshots and other Run-only state. Each output file is an independent transaction, so completed-span JSONL and Run JSON are written, flushed, and renamed separately.
+Run JSON is the complete persisted artifact. Completed-span JSONL contains retained original tracing source records but omits runtime snapshots and other Run-only state. Each output file is an independent transaction.
 
 ### Request completion, cancellation, and shutdown lifecycle
 
@@ -462,28 +451,6 @@ Strict lifecycle shutdown with pending requests returns a retryable lifecycle er
 
 ### Partial queue and stage events
 
-Completed queue and stage JSON remains wire-compatible: schema version stays `2`, older schema-v2 JSON without `completed` reads as completed evidence, and completed events omit `completed` when serialized. The Rust structs now include `completed: bool`, which is an intentional pre-1.0 source break for external exhaustive `StageEvent` and `QueueEvent` struct literals. Prefer `StageEvent::new(...)` and `QueueEvent::new(...)`; constructors default to completed evidence and `into_partial()` should be used only when intentionally constructing partial evidence.
+Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
 
 Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
-
-Migration example:
-
-```rust
-# use tailtriage_core::StageEvent;
-// Old exhaustive struct literal (now must include `completed`).
-let _old = StageEvent {
-    request_id: "req".into(),
-    stage: "db".into(),
-    started_at_unix_ms: 1,
-    started_at_run_us: None,
-    finished_at_unix_ms: 2,
-    finished_at_run_us: None,
-    latency_us: 10,
-    success: true,
-    completed: true,
-};
-
-// Recommended: constructors default to completed evidence.
-let completed = StageEvent::new("req", "db", 1, 2, 10, true);
-let partial = completed.clone().into_partial();
-```
