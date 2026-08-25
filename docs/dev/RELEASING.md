@@ -22,19 +22,30 @@ This is the authoritative procedure for a manual `tailtriage` release. Release t
      --profile-mode release
    ```
 
-6. Run the release preflight checker (`0.4.0` is an example, not permanent policy):
+6. Prove that the Cargo-produced package material works in an outside-workspace consumer:
+
+   ```bash
+   python3 scripts/check_package_consumer.py
+   ```
+
+   This creates `.crate` archives for all eight product packages, extracts them into a temporary
+   standalone project outside the repository workspace, and patches internal packages only to
+   other extracted archive contents. It runs offline without publication credentials. This is a
+   package-consumption proof, not proof of publication or registry availability.
+
+7. Run the release preflight checker (`0.4.0` is an example, not permanent policy):
 
    ```bash
    VERSION=0.4.0
    python3 scripts/check_release.py --version "$VERSION"
    ```
 
-7. Review the detected packages, publication order, Cargo packaging result, and generated manual commands.
-8. Manually publish one package at a time in the generated order.
-9. Verify each exact crate version publicly before continuing.
-10. Create and push an annotated tag only after every intended package is published. Tag signing is optional unless policy changes later.
-11. Create a draft GitHub Release manually.
-12. Review and publish the GitHub Release manually.
+8. Review the detected packages, publication order, Cargo packaging result, and generated manual commands.
+9. Manually publish one package at a time in the generated order.
+10. Verify each exact crate version publicly before continuing.
+11. Create and push an annotated tag only after every intended package is published. Tag signing is optional unless policy changes later.
+12. Create a draft GitHub Release manually.
+13. Review and publish the GitHub Release manually.
 
 Repository tooling does not publish crates. Generated publication commands are inert instructions only, and no crates.io credential belongs in repository tooling or GitHub Actions. Tags must not be pushed for an incomplete release. GitHub Release creation and publication remain manual.
 
