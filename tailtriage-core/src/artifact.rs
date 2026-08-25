@@ -171,7 +171,7 @@ mod tests {
         ));
     }
 
-    // TT-TEST: S02 primary
+    // TT-TEST: support
     #[test]
     fn deep_json_fails_under_normal_recursion_protection() {
         let nesting_depth = 256;

@@ -44,7 +44,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'README directive'):
                     validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
-    # TT-TEST: M02 primary
+    # TT-TEST: support
     def test_residual_public_api_cleanup_contract_accepts_private_cli_internals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -56,7 +56,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
-    # TT-TEST: M02 primary
+    # TT-TEST: support
     def test_residual_public_api_cleanup_contract_rejects_cli_helper_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -68,6 +68,10 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 with self.assertRaisesRegex(ValueError, 'removed residual public API'):
                     validate_docs_contracts.validate_residual_public_api_cleanup()
+
+    # TT-TEST: M02 primary
+    def test_actual_repository_residual_public_api_cleanup_contract(self) -> None:
+        validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M01 primary
     def test_markdown_examples_validate_against_contract(self) -> None:
