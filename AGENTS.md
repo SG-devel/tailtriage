@@ -321,6 +321,19 @@ Before considering a task done, run:
 - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
 - `cargo test --workspace --all-targets --all-features --locked`
 - `python3 scripts/validate_docs_contracts.py`
+- `python3 scripts/validate_invariant_proofs.py`
+
+## Invariant-proof maintenance
+
+`docs/dev/INVARIANT_PROOF_MATRIX.md` owns stable invariant semantics and proof-boundary
+classification. Every repository-owned Rust/Python executable test carries an adjacent `TT-TEST`
+classification: primary and secondary markers use stable registry IDs, while ordinary
+non-invariant proof coverage uses `TT-TEST: support`. File, module, and class markers do not count.
+Add or move a test together with its classification, and add, remove, or rename an invariant ID
+together with its concrete marker updates. Do not create fake invariants for ordinary support
+coverage. Never change a primary merely because implementation changed; first decide whether the
+invariant changed. Run `python3 scripts/validate_invariant_proofs.py` before considering work
+complete. Volatile audit SHAs, counts, and timings do not belong in living docs.
 
 If a task touches benchmarks or performance-sensitive code, also include:
 
