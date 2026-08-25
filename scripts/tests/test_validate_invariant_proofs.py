@@ -54,7 +54,25 @@ class InvariantProofValidatorTests(unittest.TestCase):
 
     # TT-TEST: support
     def test_unknown_and_malformed_rejected(self):
-        self.rejected("unknown-id", rust="// TT-TEST: B01 primary\n#[test]\nfn proof() {}\n"); self.rejected("malformed-marker", rust="// TT-TEST: A01 PRIMARY\n#[test]\nfn proof() {}\n")
+        self.rejected("unknown-id", rust="// TT-TEST: B01 primary\n#[test]\nfn proof() {}\n")
+        malformed = (
+            "// TT-TEST: A01 PRIMARY",
+            "//TT-TEST: A01 primary",
+            "//  TT-TEST: A01 primary",
+            "// TT-TEST:  A01 primary",
+            "// TT-TEST: A01  primary",
+            "// TT-TEST: A01 primary ",
+        )
+        for marker in malformed:
+            with self.subTest(marker=marker):
+                self.rejected("malformed-marker", rust=f"{marker}\n#[test]\nfn proof() {{}}\n")
+        for marker in (
+            "#TT-TEST: A01 primary",
+            "#  TT-TEST: A01 primary",
+            "# TT-TEST:  A01 primary",
+        ):
+            with self.subTest(marker=marker):
+                self.rejected("malformed-marker", python=f"{marker}\ndef test_proof(): pass\n")
 
     # TT-TEST: support
     def test_duplicate_conflict_and_support_mix_rejected(self):
@@ -66,7 +84,7 @@ class InvariantProofValidatorTests(unittest.TestCase):
 
     # TT-TEST: support
     def test_python_primary_secondary_support_and_top_level(self):
-        py="# TT-TEST: A01 primary\ndef test_one(): pass\nclass C:\n # TT-TEST: P03 secondary\n def test_two(self): pass\n # TT-TEST: support\n async def test_three(self): pass\n"; self.assertEqual(validate_repository(self.root(python=py)).python_tests,3)
+        py="# TT-TEST: A01 primary\n@decorator(\n    \"value\",\n)\ndef test_one(): pass\nclass C:\n # TT-TEST: P03 secondary\n def test_two(self): pass\n # TT-TEST: support\n async def test_three(self): pass\n"; summary = validate_repository(self.root(python=py)); self.assertEqual((summary.python_tests, summary.primary_markers, summary.secondary_markers, summary.support_tests), (3, 1, 1, 1))
 
     # TT-TEST: support
     def test_python_method_missing_and_class_marker_rejected(self):
@@ -74,7 +92,9 @@ class InvariantProofValidatorTests(unittest.TestCase):
 
     # TT-TEST: support
     def test_python_string_ignored_and_orphan_rejected(self):
-        self.rejected("orphan-marker", python='x="# TT-TEST: B01 primary"\n# TT-TEST: A01 primary\nx=1\n')
+        summary = validate_repository(self.root(python='x="# TT-TEST: B01 primary"\n# TT-TEST: A01 primary\ndef test_real(): pass\n'))
+        self.assertEqual((summary.python_tests, summary.primary_markers), (1, 1))
+        self.rejected("orphan-marker", python="# TT-TEST: A01 primary\nx=1\n")
 
     # TT-TEST: support
     def test_rust_raw_string_marker_is_ignored(self):

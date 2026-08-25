@@ -13,7 +13,9 @@ from pathlib import Path
 COMMAND_OWNED_IDS = {"P03"}
 HEADER = ["ID", "Invariant / contract", "Behavior owner", "Primary proof boundary", "Secondary boundary / non-claim", "Proof class / cadence"]
 EXCLUDED = {".git", "target", ".venv", "venv"}
-MARKER = re.compile(r"^\s*(?://|#)\s*TT-TEST:\s*(support|([A-Z][0-9]{2})\s+(primary|secondary))\s*$")
+MARKER = re.compile(
+    r"^(?://|#) TT-TEST: (support|([A-Z][0-9]{2}) (primary|secondary))$"
+)
 
 
 class ValidationError(Exception):
@@ -138,8 +140,10 @@ def scan_python(path: Path, ids: set[str], primary: dict[str, int]):
     tests = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")]
     used: set[int] = set(); p = s = support = 0
     for node in tests:
-        decorator_lines = {d.lineno for d in node.decorator_list}
-        marker_rows = _adjacent_markers(lines, comments, node.lineno, decorator_lines)
+        first_declaration_line = min(
+            [node.lineno] + [decorator.lineno for decorator in node.decorator_list]
+        )
+        marker_rows = _adjacent_markers(lines, comments, first_declaration_line)
         parsed = [(row, _parse_marker(path, row, comment)) for row, comment in marker_rows]
         parsed = [(row, value) for row, value in parsed if value]
         used.update(row for row, _ in parsed)
@@ -238,7 +242,7 @@ def validate_repository(root: Path) -> Summary:
 
 def main() -> int:
     try: validate_repository(Path(__file__).resolve().parents[1])
-    except (OSError, ValidationError) as error:
+    except (OSError, UnicodeError, ValidationError) as error:
         print(error, file=sys.stderr); return 1
     print("invariant proof linkage is valid"); return 0
 
