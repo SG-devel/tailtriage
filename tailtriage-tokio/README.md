@@ -168,16 +168,13 @@ When the sampler is running, the run artifact can include runtime snapshots such
 - `blocking_queue_depth`
 - `remote_schedule_count`
 
-Worker count is captured in ordinary builds: current-thread runtimes report one,
+`worker_count` is optional schema-v2 runtime evidence. Current-thread runtimes report one,
 and configured multi-thread runtimes report their configured worker count when it
 fits in `u32`. Some other fields depend on Tokio build/runtime capabilities.
-Worker count remains optional so historical artifacts can omit it. Complete,
-consistent, positive values let downstream analysis normalize runnable queue
+Complete, consistent, positive values let downstream analysis normalize runnable queue
 pressure per worker; missing, partial, inconsistent, or invalid evidence retains
 fallback scoring rather than assuming a count. Missing local queue depth makes
-normalized runnable-queue evidence a lower bound. See the
-[executor-pressure reference](../docs/diagnostics.md#executor-pressure) for
-analysis details.
+normalized runnable-queue evidence a lower bound.
 
 ### Start with inherited mode defaults
 
@@ -369,28 +366,6 @@ When used alongside `tailtriage-tracing`, runtime-pressure evidence still depend
 
 ### Partial queue and stage events
 
-Completed queue and stage JSON remains wire-compatible: schema version stays `2`, older schema-v2 JSON without `completed` reads as completed evidence, and completed events omit `completed` when serialized. The Rust structs now include `completed: bool`, which is an intentional pre-1.0 source break for external exhaustive `StageEvent` and `QueueEvent` struct literals. Prefer `StageEvent::new(...)` and `QueueEvent::new(...)`; constructors default to completed evidence and `into_partial()` should be used only when intentionally constructing partial evidence.
+Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
 
 Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
-
-Migration example:
-
-```rust
-# use tailtriage_core::StageEvent;
-// Old exhaustive struct literal (now must include `completed`).
-let _old = StageEvent {
-    request_id: "req".into(),
-    stage: "db".into(),
-    started_at_unix_ms: 1,
-    started_at_run_us: None,
-    finished_at_unix_ms: 2,
-    finished_at_run_us: None,
-    latency_us: 10,
-    success: true,
-    completed: true,
-};
-
-// Recommended: constructors default to completed evidence.
-let completed = StageEvent::new("req", "db", 1, 2, 10, true);
-let partial = completed.clone().into_partial();
-```

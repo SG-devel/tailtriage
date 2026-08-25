@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Consolidated the unreleased 0.4 live tracing API onto `TracingSession` as the single live entry
+  point, replacing the interim recorder, intake-session, and Tokio-session surfaces.
+
 - Removed the deprecated no-op `scripts/validate_all.py --include-cargo` compatibility flag. Cargo completion checks already run by default; omit the flag, or use `--skip-cargo` when intentionally running only the non-Cargo validation tracks.
 
 - Removed residual compatibility-only public APIs before 0.4.0. Migrate `controller.try_begin_request(route)` and `controller.try_begin_request_with(route, options)` to `controller.begin_request(route)` and `controller.begin_request_with(route, options)`; callers that truly need an admission branch can match `ControllerRequestHandle::{Active, Inert}`. Migrate `RuntimeSampler::start(run, interval)?` to `RuntimeSampler::builder(run).interval(interval).start()?`. The `crate_name()` smoke helpers in `tailtriage-tokio` and `tailtriage-axum` were removed without replacement because they were not product behavior. The `tailtriage-cli` command-line package and library documentation target remain supported, but its artifact loader, analyzer-option builder/error, and analyzer-options help renderer are now internal CLI plumbing: use `tailtriage-analyzer` for in-process analysis, `tailtriage-core` for generic Run validation/normalization, and invoke the CLI for saved-artifact command policy.

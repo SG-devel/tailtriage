@@ -117,13 +117,3 @@ This is intentionally a high-level owner map, not a provenance audit.
 
 Detailed source, consumer, generator/refresh command, mutation policy, lineage, and disposition are
 documented in the [fixture and scenario lineage map](FIXTURE_LINEAGE.md).
-
-## Intentionally unresolved work
-
-This page describes **current ownership**, not permanent 0.4 stability promises. It does not
-resolve reconsiderable pre-1.0 compatibility paths.
-
-- **Phase 25:** scenario and fixture lineage, followed by demo/example/workload simplification.
-- **Phase 26:** package, feature, public API, command-surface, and documentation simplification.
-- **Phase 27:** invariant-proof ownership, test consolidation, validation simplification, and CI
-  simplification.

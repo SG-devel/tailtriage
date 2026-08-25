@@ -68,6 +68,10 @@ Optimize docs for:
 
 ## Documentation contract
 
+Published crate READMEs are current-state, self-contained package artifacts. Migration, upgrade,
+and release history belongs in `CHANGELOG.md`; essential package use and constraints must not
+depend on mutable or repository-relative documentation outside the package.
+
 Markdown files directly under `docs/` are user-facing product documentation. The `docs/dev/`
 subtree contains repository-development, contributor, and maintainer documentation.
 

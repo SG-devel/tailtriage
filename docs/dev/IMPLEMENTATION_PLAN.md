@@ -124,19 +124,6 @@ Current scope notes:
 - OTel/OTLP remains out of scope
 - runtime-pressure evidence still requires runtime snapshots / Tokio sampler coupling
 
-## Near-term sequencing
-
-Before the next public promotion or release:
-
-1. update repository guidance for validation docs and scorecards
-2. update the product spec with the validation contract
-3. update this implementation plan with validation-presentation work
-4. clean `VALIDATION.md` public wording
-5. fix stale diagnostic-validation wording
-6. add generated metric summaries to the deterministic scorecard
-7. clarify which validation profiles run in CI
-8. run docs contract validation and relevant validation scripts
-
 ## Quality gates for changes
 
 For scoped work, completion requires:

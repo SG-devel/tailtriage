@@ -244,20 +244,9 @@ For `TracingSession`, runtime snapshot retention also uses the same core capture
 `TracingSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
 
 
-## Live tracing session migration
+## Live tracing session behavior
 
-Use `TracingSession` as the sole current live entry point for capture-to-Run workflows.
-
-| Old usage | Final usage |
-| --- | --- |
-| `TracingRecorder::builder(...)` | `TracingSession::builder(...)` |
-| `TracingIntakeSession::builder(...)` | `TracingSession::builder(...)` |
-| `TracingTokioSession::builder(...).start()` | `TracingSession::builder(...).sampler_interval(...).build()` |
-| `recorder_limits(...)` | `limits(...)` |
-| synchronous `shutdown()?` | `shutdown().await?` |
-| deterministic manual mode | `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)?` |
-
-Background runtime sampling is opt-in through `sampler_interval(...)`. Manual runtime collection is opt-in through `manual_runtime_snapshots()`. A plain live session still captures request, stage, and queue evidence without runtime collection, and `record_runtime_snapshot(...)?` returns a configuration error when runtime collection is not enabled. Manual snapshots may coexist with background sampling.
+`TracingSession` is the live entry point. Configure evidence retention with `limits(...)`; opt into background runtime sampling with `sampler_interval(...)`, or deterministic/manual runtime evidence with `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)`. A plain live session captures request, stage, and queue evidence without runtime collection. `record_runtime_snapshot(...)` returns a configuration error when runtime collection is not enabled, and manual snapshots may coexist with background sampling. Finish with async `shutdown().await?`.
 
 Run JSON remains the complete persisted artifact. Completed-span JSONL preserves retained original tracing sources for completed spans, but omits runtime snapshots and other Run-only state. Each output file is an independent transaction.
 
