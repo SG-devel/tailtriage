@@ -68,6 +68,15 @@ def markdown_links(markdown: str) -> set[str]:
     return set(re.findall(r"\[[^\]]+\]\(([^)]+)\)", markdown))
 
 
+def markdown_reference_destinations(markdown: str) -> set[str]:
+    """Return destinations from ordinary Markdown reference definitions."""
+    pattern = re.compile(
+        r"^[ \t]{0,3}\[[^\]]+\]:[ \t]*(?:<([^>]+)>|(\S+))(?:[ \t]+.*)?$",
+        re.MULTILINE,
+    )
+    return {angle or bare for angle, bare in pattern.findall(markdown)}
+
+
 def resolve_local_markdown_destination(
     document: Path, destination: str, *, repo_root: Path = REPO_ROOT
 ) -> Path | None:
@@ -364,7 +373,9 @@ def validate_published_crate_readmes_are_self_contained(
             failures.append(f"missing {path}")
             continue
         package_dir = path.parent.resolve()
-        for link in markdown_links(path.read_text(encoding="utf-8")):
+        text = path.read_text(encoding="utf-8")
+        links = markdown_links(text) | markdown_reference_destinations(text)
+        for link in links:
             path_text = link.split("#", 1)[0]
             if not path_text or urlsplit(path_text).scheme:
                 continue

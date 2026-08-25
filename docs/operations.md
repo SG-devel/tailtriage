@@ -155,13 +155,14 @@ Important operational constraints:
 
 Start conservatively.
 
-Worker count remains optional in schema-v2 artifacts, so older artifacts may omit
-it. A zero value is invalid: strict validation rejects it, while permissive
+`worker_count` is optional in schema-v2 artifacts and may be absent. A zero value
+is invalid: strict validation rejects it, while permissive
 normalization clears only the invalid field and retains the runtime snapshot and
 typed validation finding. Complete, consistent, positive worker-count evidence
-enables per-worker runnable-queue scoring. Historical absence preserves legacy
-absolute-depth scoring; partial, inconsistent, or invalid evidence uses that
-fallback without inventing a worker count and limits confidence as documented.
+enables normalized per-worker runnable-queue scoring. An unavailable worker count
+uses absolute-depth fallback without a worker-related confidence cap; partial,
+inconsistent, or invalid worker evidence uses the fallback with the documented
+confidence limits and without inventing a worker count.
 When local queue depth is missing, normalized runnable-queue evidence is a lower
 bound. See the [executor-pressure reference](diagnostics.md#executor-pressure)
 for the scoring and confidence details.
@@ -217,6 +218,18 @@ Use:
 * [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
 
 when establishing local operational expectations.
+
+### Input resource boundaries
+
+Tracing completed-span JSONL has a fixed 8 MiB maximum serialized JSON object size per record;
+the newline is excluded from that ceiling. The importer and completed-span writer share this
+ceiling. There is no aggregate stream byte ceiling and no public tuning knob, so a long valid
+stream can consume CPU and I/O in proportion to its length.
+
+Canonical Run JSON is decoded through the typed streaming path rather than first retaining a
+whole-file `String` or generic `Value`. It has no arbitrary whole-document byte ceiling, and a
+very large otherwise-valid Run may allocate typed state in proportion to its contents. Tailtriage
+therefore does not claim universal hostile-input memory safety.
 
 ### Review artifacts before sharing
 

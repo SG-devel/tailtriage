@@ -160,7 +160,7 @@ Finalization timestamps:
 - Unix millisecond timestamps are wall-clock anchors for log correlation, artifact readability, and coarse temporal grouping.
 - Wall-clock timestamps can be coarse and can move if the system clock changes.
 - Analyzer scoring uses duration fields for latency, queue wait, and stage duration.
-- Temporal segmentation prefers run-relative monotonic offsets when present and falls back to Unix-ms wall-clock anchors for older or imported artifacts without complete run-relative timing.
+- Temporal segmentation prefers run-relative monotonic offsets when present and falls back to Unix-ms wall-clock anchors for artifacts without complete run-relative timing.
 
 ## Capture modes
 
@@ -173,6 +173,13 @@ Override limits with:
 
 - `capture_limits(...)` (full override)
 - `capture_limits_override(...)` (field-level override)
+
+`max_requests` bounds completed-retained requests plus currently pending admitted requests. Once
+that capacity is exhausted, refused request instrumentation and completion are inert and create no
+child evidence. Configured request, queue, stage, in-flight, and runtime evidence limits
+independently bound their retained or live evidence as implemented. Reaching a limit is surfaced
+through the existing drop, truncation, and limits-hit accounting rather than silently expanding
+collector state.
 
 ## Advanced: assembling completed run artifacts
 
@@ -217,7 +224,7 @@ Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-toki
 
 ## Run validation
 
-`tailtriage-core` exposes `inspect_run`, `validate_run_strict`, and `normalize_run_permissive` as the canonical generic completed-`Run` integrity APIs. Strict validation checks the original unnormalized candidate and rejects error-level integrity issues; warning-only missing run-relative precision remains accepted. Permissive normalization retains duration-authoritative evidence where possible, clears invalid optional run-relative offsets without rewriting durations, excludes ambiguous duplicated requests and invalid request-scoped child evidence deterministically, and provides stable issue-code summaries for analyzer, CLI, tracing, and native lifecycle surfaces. `RuntimeSnapshot::worker_count` is optional schema-v2 evidence: older artifacts may omit it, positive values round-trip, zero fails strict validation, and permissive normalization clears only the zero value while retaining the snapshot. The analyzer uses complete, consistent, positive worker evidence to normalize executor runnable-queue scoring per worker; missing, partial, inconsistent, or invalid evidence preserves historical/fallback scoring with the documented confidence policy. Exhaustive Rust `RuntimeSnapshot` literals must specify `worker_count: None` when the value is unknown.
+`tailtriage-core` exposes `inspect_run`, `validate_run_strict`, and `normalize_run_permissive` as the canonical generic completed-`Run` integrity APIs. Strict validation checks the original unnormalized candidate and rejects error-level integrity issues; warning-only missing run-relative precision remains accepted. Permissive normalization retains duration-authoritative evidence where possible, clears invalid optional run-relative offsets without rewriting durations, excludes ambiguous duplicated requests and invalid request-scoped child evidence deterministically, and provides stable issue-code summaries for analyzer, CLI, tracing, and native lifecycle surfaces. `RuntimeSnapshot::worker_count` is optional schema-v2 evidence and may be absent; positive values round-trip, zero fails strict validation, and permissive normalization clears only the zero value while retaining the snapshot. The analyzer uses complete, consistent, positive worker evidence to normalize executor runnable-queue scoring per worker; missing, partial, inconsistent, or invalid evidence uses absolute-depth fallback scoring with the documented confidence policy. Exhaustive Rust `RuntimeSnapshot` literals must specify `worker_count: None` when the value is unknown.
 
 ### Request completion, cancellation, and shutdown lifecycle
 

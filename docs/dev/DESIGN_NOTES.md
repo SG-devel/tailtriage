@@ -28,7 +28,7 @@ The design should be judged by whether it:
 | Capture model      | Artifact-based analysis                      | Reproducible and testable                       | Extra workflow step                  |
 | Workspace          | Multiple crates                              | Dependency and responsibility separation        | More complexity                      |
 | CLI                | First-class analyzer                         | Useful for validation and offline investigation | Extra public interface               |
-| Collector behavior | Bounded retained event vectors with truncation summaries | Avoid unbounded artifact growth for retained evidence | Pending request bookkeeping is not capture-limited |
+| Collector behavior | Request capacity bounds completed-retained plus pending admissions; refused requests are inert; retained child/runtime evidence is independently bounded | Avoid unbounded retained evidence | Limits, truncation, and refusal can weaken evidence and must remain visible |
 | Overhead claims    | Machine/workload scoped                      | Credible measurement                            | Less marketable                      |
 | Validation         | Controlled demos first                       | Known injected causes                           | Synthetic limits                     |
 | AI usage           | AI-assisted implementation under specs/tests | Productivity without abandoning ownership       | Requires clear ownership and review  |
@@ -285,12 +285,12 @@ The project is split into multiple crates rather than one monolithic crate.
 
 The responsibilities are different enough to justify separation:
 
-* `tailtriage-core`: data model, direct capture lifecycle, run building, sinks, retention summaries, and shared lifecycle semantics,
+* `tailtriage-core`: data model, direct capture lifecycle, run building, sinks, retention summaries, shared lifecycle semantics, generic completed-`Run` inspection, strict validation, and deterministic permissive normalization,
 * `tailtriage-tokio`: optional Tokio runtime sampling and Tokio primitive helper instrumentation,
 * `tailtriage-axum`: Axum middleware/extractor ergonomics over the same request-context model,
 * `tailtriage-controller`: repeated bounded capture windows for long-lived services,
-* `tailtriage-analyzer`: the diagnosis engine, report model, strict artifact validation APIs, and text/JSON report rendering,
-* `tailtriage-cli`: command-line artifact loading, tracing JSONL import, and analyzer/report execution,
+* `tailtriage-analyzer`: diagnosis and scoring, analyzer configuration, typed `Report` generation, and text/JSON `Report` rendering,
+* `tailtriage-cli`: command-line saved-artifact policy and loading, tracing JSONL import, and analyzer/report execution,
 * `tailtriage-tracing`: optional `tracing` intake that converts `tt.*` spans into standard `Run` artifacts,
 * `tailtriage`: top-level onboarding facade with feature-gated integrations.
 

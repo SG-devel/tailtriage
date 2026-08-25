@@ -271,13 +271,21 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 validate_docs_contracts.validate_published_crate_readmes_are_self_contained((readme,))
 
     # TT-TEST: M01 secondary
+    def test_published_readme_rejects_repository_only_reference_link(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme = Path(tmp_dir) / 'README.md'
+            readme.write_text('[guide][g]\n\n[g]: ../docs/user-guide.md\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'local links must stay inside'):
+                validate_docs_contracts.validate_published_crate_readmes_are_self_contained((readme,))
+
+    # TT-TEST: M01 secondary
     def test_published_readme_accepts_anchor_and_package_local_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             package = Path(tmp_dir) / 'crate'
             package.mkdir()
             readme = package / 'README.md'
             guide = package / 'guide.md'
-            readme.write_text('[Section](#section) and [guide](guide.md).\n', encoding='utf-8')
+            readme.write_text('[Section](#section), [guide](guide.md), and [reference][local].\n\n[local]: <guide.md> "Guide"\n', encoding='utf-8')
             guide.write_text('# Guide\n', encoding='utf-8')
             validate_docs_contracts.validate_published_crate_readmes_are_self_contained((readme,))
 

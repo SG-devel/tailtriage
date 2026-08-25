@@ -245,7 +245,7 @@ Core Run integrity contract:
 - `tailtriage analyze --allow-ambiguous-artifact` is the explicit permissive escape hatch: it emits every original core issue and analyzes only canonically normalized evidence
 - analyzer library defaults remain permissive, while `tailtriage-core` exposes explicit inspection, strict-validation, and permissive-normalization APIs
 - tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
-- tracing completed-span JSONL import supports the stable wrapper format as the only accepted tracing JSONL file format; pre-stable/internal JSONL must be regenerated with the current writer or converted externally
+- tracing completed-span JSONL import accepts only `tailtriage.tracing-span.v1`; unsupported input must be converted externally into that wrapper format
 
 Artifact/report contract split:
 
