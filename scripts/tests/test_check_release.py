@@ -34,6 +34,20 @@ def metadata(version: str = "1.2.3") -> dict:
 
 class CheckReleaseTests(unittest.TestCase):
     # TT-TEST: support
+    def test_publishability_classification_respects_crates_io_registry_restrictions(self) -> None:
+        cases = [
+            (None, True),
+            (False, False),
+            ([], False),
+            (["crates-io"], True),
+            (["internal", "crates-io"], True),
+            (["internal"], False),
+        ]
+        for publish, expected in cases:
+            with self.subTest(publish=publish):
+                self.assertEqual(expected, check_release.is_publishable({"publish": publish}))
+
+    # TT-TEST: support
     def test_example_package_content_uses_actual_cargo_listings(self) -> None:
         calls = []
 
@@ -63,9 +77,12 @@ class CheckReleaseTests(unittest.TestCase):
         packages = metadata()["packages"]
         publishable = [package for package in packages if check_release.is_publishable(package)]
         order, errors = check_release.publication_order(publishable, "1.2.3")
-        self.assertEqual(["core", "private", "api", "cli"], order)
+        self.assertEqual(["core", "api", "cli"], order)
         self.assertEqual([], errors)
-        self.assertEqual(["demo"], [package["name"] for package in packages if not check_release.is_publishable(package)])
+        self.assertEqual(
+            ["demo", "private"],
+            [package["name"] for package in packages if not check_release.is_publishable(package)],
+        )
 
     # TT-TEST: Z01 secondary
     def test_readiness_failure_suppresses_package_and_publish_commands(self) -> None:
@@ -111,11 +128,11 @@ class CheckReleaseTests(unittest.TestCase):
                 self.assertEqual(0, check_release.check("1.2.3", changelog))
         packages = [call for call in calls if call[:2] == ["cargo", "package"]]
         self.assertEqual(
-            [["cargo", "package", "--locked", "-p", "core", "-p", "private", "-p", "api", "-p", "cli"]], packages
+            [["cargo", "package", "--locked", "-p", "core", "-p", "api", "-p", "cli"]], packages
         )
         printed = output.getvalue()
         self.assertLess(printed.index("cargo publish --locked -p core"), printed.index("cargo publish --locked -p api"))
-        self.assertIn("cargo publish --locked -p private", printed)
+        self.assertNotIn("cargo publish --locked -p private", printed)
         self.assertLess(printed.index("cargo publish --locked -p api"), printed.index("cargo publish --locked -p cli"))
 
     # TT-TEST: Z01 primary
@@ -142,7 +159,7 @@ class CheckReleaseTests(unittest.TestCase):
                 ["git", "status", "--porcelain"],
                 ["git", "rev-parse", "HEAD"],
                 ["cargo", "metadata", "--format-version", "1", "--locked"],
-                ["cargo", "package", "--locked", "-p", "core", "-p", "private", "-p", "api", "-p", "cli"],
+                ["cargo", "package", "--locked", "-p", "core", "-p", "api", "-p", "cli"],
             ],
             calls,
             "successful preflight must execute only readiness checks and packaging",
@@ -176,7 +193,7 @@ class CheckReleaseTests(unittest.TestCase):
                 self.assertEqual(1, check_release.check("1.2.3", changelog))
         printed = output.getvalue()
         self.assertIn(
-            "command ['cargo', 'package', '--locked', '-p', 'core', '-p', 'private', '-p', 'api', '-p', 'cli'] exited with 2",
+            "command ['cargo', 'package', '--locked', '-p', 'core', '-p', 'api', '-p', 'cli'] exited with 2",
             printed,
         )
         self.assertIn("stdout:\npackage stdout", printed)

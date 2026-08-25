@@ -33,7 +33,7 @@ def failed_command(argv: list[str], result: subprocess.CompletedProcess[str]) ->
 
 def is_publishable(package: dict[str, Any]) -> bool:
     allowed = package.get("publish")
-    return allowed is None or bool(allowed)
+    return allowed is None or (isinstance(allowed, list) and "crates-io" in allowed)
 
 
 def version_tuple(version: str) -> tuple[int, int, int] | None:
