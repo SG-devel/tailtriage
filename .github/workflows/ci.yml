@@ -89,6 +89,10 @@ jobs:
         run: python3 scripts/validate_docs_contracts.py
       - name: Validate docs contract helper unit tests
         run: python3 -m unittest scripts.tests.test_validate_docs_contracts
+      - name: Validate invariant proof linkage
+        run: python3 scripts/validate_invariant_proofs.py
+      - name: Validate invariant proof helper unit tests
+        run: python3 -m unittest scripts.tests.test_validate_invariant_proofs
 
   verify:
     name: cargo / ${{ matrix.os }} / ${{ matrix.profile }}

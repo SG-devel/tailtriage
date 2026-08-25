@@ -18,6 +18,13 @@ The diagnostic manifest and benchmark own corpus classification and accounting. 
 
 Real workloads are validated in two ways: bounded demo smoke and parity checks may run in CI, while repeated-run matrix and canonical live-demo mitigation reporting remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
+### Invariant proof linkage
+
+The compact invariant registry owns stable semantics and proof-boundary classes, while adjacent
+`TT-TEST` markers own concrete executable linkage. `scripts/validate_invariant_proofs.py` checks
+mechanical consistency only and runs in the existing `docs contracts` CI job. It neither replaces
+execution of the underlying tests nor proves that a classification is semantically correct.
+
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
 
@@ -33,6 +40,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 |---|---|---:|---:|
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
+| `scripts/validate_invariant_proofs.py` | Mechanical invariant/test linkage consistency | Yes | No |
 | `scripts/generate_diagnostic_scorecard.py` | Local/manual deterministic scorecard generation with provenance | No, local/manual | Local outputs only |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/demo_tool.py mitigation-report` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
@@ -40,7 +48,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/measure_collector_limits.py` | Collector-limit operational validation | Manual/local; bounded smoke runs in CI | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
-Normal CI owns the deterministic diagnostic regression gate and does not publish scorecards or GitHub artifacts. `scripts/generate_diagnostic_scorecard.py` owns local/manual deterministic scorecard generation; its outputs are local evidence unless a maintainer separately archives them.
+Normal CI owns the deterministic diagnostic regression gate and does not publish scorecards or GitHub artifacts. The existing `docs contracts` job owns documentation, source-policy, and invariant-linkage checks. `scripts/generate_diagnostic_scorecard.py` owns local/manual deterministic scorecard generation; its outputs are local evidence unless a maintainer separately archives them.
 
 ### Normal CI ownership and cadence
 

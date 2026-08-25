@@ -17,6 +17,7 @@ class ValidateAllTests(unittest.TestCase):
         names = " ".join(c.name for c in plan)
         self.assertIn("deterministic benchmark", names)
         self.assertIn("docs contract", names)
+        self.assertIn("invariant proofs", names)
         self.assertNotIn("diag matrix smoke", names)
         self.assertIn("mitigation smoke", names)
         self.assertIn("runtime-cost smoke", names)
@@ -33,6 +34,8 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("scripts.tests.test_measure_runtime_cost", joined)
         self.assertIn("scripts.tests.test_measure_collector_limits", joined)
         self.assertIn("scripts.tests.test_validate_docs_contracts", joined)
+        self.assertIn("scripts/validate_invariant_proofs.py", joined)
+        self.assertIn("scripts.tests.test_validate_invariant_proofs", joined)
 
     # TT-TEST: D01 secondary
     def test_ci_plan_deterministic_benchmark_uses_ci_thresholds(self):
