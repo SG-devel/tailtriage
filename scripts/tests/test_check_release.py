@@ -33,6 +33,7 @@ def metadata(version: str = "1.2.3") -> dict:
 
 
 class CheckReleaseTests(unittest.TestCase):
+    # TT-TEST: support
     def test_example_package_content_uses_actual_cargo_listings(self) -> None:
         calls = []
 
@@ -48,6 +49,7 @@ class CheckReleaseTests(unittest.TestCase):
         self.assertEqual(3, len(calls))
         self.assertTrue(all(call[-1] == "--list" for call in calls))
 
+    # TT-TEST: support
     def test_example_package_content_rejects_missing_examples(self) -> None:
         with patch.object(check_release, "command", return_value=result(stdout="Cargo.toml\nsrc/lib.rs\n")):
             errors = check_release.packaged_example_errors({"tailtriage-controller"})
@@ -56,6 +58,7 @@ class CheckReleaseTests(unittest.TestCase):
             errors,
         )
 
+    # TT-TEST: Z01 primary
     def test_classification_and_deterministic_dependency_order(self) -> None:
         packages = metadata()["packages"]
         publishable = [package for package in packages if check_release.is_publishable(package)]
@@ -64,6 +67,7 @@ class CheckReleaseTests(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(["demo"], [package["name"] for package in packages if not check_release.is_publishable(package)])
 
+    # TT-TEST: Z01 secondary
     def test_readiness_failure_suppresses_package_and_publish_commands(self) -> None:
         calls: list[list[str]] = []
 
@@ -85,6 +89,7 @@ class CheckReleaseTests(unittest.TestCase):
         self.assertIn("worktree is not clean:\n M some/file\n?? another/file", output.getvalue())
         self.assertNotIn("cargo publish", output.getvalue())
 
+    # TT-TEST: Z01 primary
     def test_success_packages_once_and_prints_publication_order(self) -> None:
         calls: list[list[str]] = []
 
@@ -113,6 +118,7 @@ class CheckReleaseTests(unittest.TestCase):
         self.assertIn("cargo publish --locked -p private", printed)
         self.assertLess(printed.index("cargo publish --locked -p api"), printed.index("cargo publish --locked -p cli"))
 
+    # TT-TEST: Z01 primary
     def test_successful_preflight_executes_checks_and_package_but_never_publish(self) -> None:
         calls: list[list[str]] = []
 
@@ -151,6 +157,7 @@ class CheckReleaseTests(unittest.TestCase):
         )
         self.assertIn("cargo publish --locked -p core", output.getvalue())
 
+    # TT-TEST: Z01 secondary
     def test_packaging_failure_suppresses_publication_commands(self) -> None:
         def run(argv: list[str]):
             if argv[:2] == ["git", "status"]:

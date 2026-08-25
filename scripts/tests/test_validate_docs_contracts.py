@@ -15,13 +15,16 @@ import validate_docs_contracts
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    # TT-TEST: support
     def test_run_end_policy_variants_include_expected_kinds(self) -> None:
         kinds = validate_docs_contracts.extract_run_end_policy_kinds_from_source()
         self.assertEqual(kinds, {'continue_after_limits_hit', 'auto_seal_on_limits_hit'})
 
+    # TT-TEST: M01 primary
     def test_crate_rustdocs_include_readmes_contract(self) -> None:
         validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
+    # TT-TEST: M01 secondary
     def test_crate_rustdocs_include_readmes_contract_fails_when_missing_include(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -37,6 +40,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'README directive'):
                     validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
+    # TT-TEST: M02 primary
     def test_residual_public_api_cleanup_contract_accepts_private_cli_internals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -48,6 +52,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
+    # TT-TEST: M02 primary
     def test_residual_public_api_cleanup_contract_rejects_cli_helper_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -60,12 +65,15 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'removed residual public API'):
                     validate_docs_contracts.validate_residual_public_api_cleanup()
 
+    # TT-TEST: M01 primary
     def test_markdown_examples_validate_against_contract(self) -> None:
         validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation(self) -> None:
         validate_docs_contracts.validate_analyzer_ownership_navigation()
 
+    # TT-TEST: M01 secondary
     def test_analyzer_ownership_navigation_rejects_missing_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -74,6 +82,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'missing analyzer ownership links'):
                 validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={path: ('analyzer-guide.md',)}, repo_root=repo_root)
 
+    # TT-TEST: M01 secondary
     def test_analyzer_ownership_navigation_accepts_exact_relative_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -84,6 +93,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             target.write_text('# Diagnostics\n', encoding='utf-8')
             validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={source: ('diagnostics.md',)}, repo_root=repo_root)
 
+    # TT-TEST: M01 secondary
     def test_analyzer_ownership_navigation_accepts_fragment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -93,6 +103,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             target.write_text('# Diagnostics\n', encoding='utf-8')
             validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={source: ('diagnostics.md',)}, repo_root=repo_root)
 
+    # TT-TEST: M01 secondary
     def test_analyzer_ownership_navigation_rejects_prefix_lookalike(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -103,6 +114,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'missing analyzer ownership links'):
                 validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={source: ('diagnostics.md',)}, repo_root=repo_root)
 
+    # TT-TEST: M01 secondary
     def test_analyzer_ownership_navigation_rejects_missing_local_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -111,6 +123,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'not an existing file'):
                 validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={source: ('diagnostics.md',)}, repo_root=repo_root)
 
+    # TT-TEST: M01 secondary
     def test_analyzer_ownership_navigation_rejects_repository_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = Path(tmp_dir)
@@ -122,15 +135,19 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'escapes repository root'):
                 validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={source: ('../outside.md',)}, repo_root=repo_root)
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract(self) -> None:
         validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_root_readme_docs_link(self) -> None:
         validate_docs_contracts.validate_root_readme_docs_link()
 
+    # TT-TEST: M01 primary
     def test_analyzer_config_example_contract(self) -> None:
         validate_docs_contracts.validate_analyzer_config_example_contract()
 
+    # TT-TEST: M01 secondary
     def test_analyzer_config_example_contract_rejects_malformed_toml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / 'analyzer-config.toml'
@@ -138,15 +155,18 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'invalid TOML'):
                 validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
+    # TT-TEST: support
     def test_analyzer_config_example_contract_does_not_require_schema_groups(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / 'analyzer-config.toml'
             path.write_text('syntactically_valid = true\n', encoding='utf-8')
             validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
+    # TT-TEST: M02 secondary
     def test_sampler_integration_boundary_contract_validates(self) -> None:
         validate_docs_contracts.validate_sampler_integration_boundary()
 
+    # TT-TEST: M01 secondary
     def test_docs_index_contract_checks_deliberate_developer_doc_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -158,6 +178,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', repo_root), mock.patch.object(validate_docs_contracts, 'DOCS_INDEX_PATH', docs_index_path), mock.patch.object(validate_docs_contracts, 'DEV_DOCS_DIR', docs_dir / 'dev'), mock.patch.object(validate_docs_contracts, 'DOCS_INDEX_EXCLUDED_MARKDOWN', {'docs/README.md'}), self.assertRaisesRegex(ValueError, 'dead local Markdown links'):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 secondary
     def test_docs_index_contract_rejects_repository_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = Path(tmp_dir)
@@ -171,6 +192,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', repo_root), mock.patch.object(validate_docs_contracts, 'DOCS_INDEX_PATH', docs_index_path), self.assertRaisesRegex(ValueError, 'escapes repository root'):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: support
     def test_manual_release_boundary_rejects_executable_release_script_mutation(self) -> None:
         prohibited_cases = {'cargo publish': ('command(["cargo", "publish", "--locked"])\n', 'cargo publish'), 'cargo login': ('command(["cargo", "login"])\n', 'cargo registry login'), 'git commit': ('command(["git", "commit", "-m", "automated"])\n', 'git commit'), 'git tag': ('command(["git", "tag", "v0.4.0"])\n', 'git tag creation'), 'git push': ('command(["git", "push", "origin", "main"])\n', 'git push'), 'GitHub Release': ('command(["gh", "release", "create", "v0.4.0"])\n', 'GitHub Release publication')}
         for label, (source, expected) in prohibited_cases.items():
@@ -182,6 +204,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root), self.assertRaisesRegex(ValueError, f'executes prohibited {expected}'):
                     validate_docs_contracts.validate_manual_release_boundary(workflow_paths=(), release_script_paths=(script,))
 
+    # TT-TEST: support
     def test_manual_release_boundary_rejects_workflow_mutation_commands(self) -> None:
         prohibited_cases = {'cargo publish': ('cargo publish --locked', 'cargo publish'), 'cargo toolchain publish': ('cargo +stable publish --locked', 'cargo publish'), 'wrapped env cargo publish': ('env FOO=bar cargo publish --locked', 'cargo publish'), 'wrapped command cargo publish': ('command cargo publish --locked', 'cargo publish'), 'cargo login': ('cargo login', 'cargo registry login'), 'git commit': ('git commit -m automated', 'git commit'), 'git tag': ('git tag v0.4.0', 'git tag creation'), 'git push': ('git push origin main', 'git push'), 'git config tag': ('git -c user.name=bot tag v0.4.0', 'git tag creation'), 'wrapped git push': ('env FOO=bar git push origin main', 'git push'), 'GitHub Release': ('gh release create v0.4.0', 'GitHub Release publication')}
         for label, (command, expected) in prohibited_cases.items():
@@ -193,6 +216,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root), self.assertRaisesRegex(ValueError, f'executes prohibited {expected}'):
                     validate_docs_contracts.validate_manual_release_boundary(workflow_paths=(workflow,), release_script_paths=())
 
+    # TT-TEST: support
     def test_manual_release_boundary_rejects_release_actions_and_credentials(self) -> None:
         prohibited_cases = {'release action': ('steps:\n  - uses: softprops/action-gh-release@v2\n', 'invokes GitHub Release automation'), 'registry credentials': ('env:\n  CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}\n', 'configures registry publication credentials'), 'registry-specific credentials': ('env:\n  CARGO_REGISTRY_PRIVATE_TOKEN: ${{ secrets.PRIVATE_TOKEN }}\n', 'configures registry publication credentials')}
         for label, (source, expected) in prohibited_cases.items():
@@ -204,6 +228,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root), self.assertRaisesRegex(ValueError, expected):
                     validate_docs_contracts.validate_manual_release_boundary(workflow_paths=(workflow,), release_script_paths=())
 
+    # TT-TEST: support
     def test_manual_release_boundary_rejects_contents_write_permissions(self) -> None:
         prohibited_cases = {'workflow': 'permissions:\n  contents: write\njobs: {}\n', 'job': 'jobs:\n  release:\n    permissions:\n      contents: write\n    steps: []\n', 'workflow write-all': 'permissions: write-all\njobs: {}\n', 'job write-all': 'jobs:\n  validate:\n    permissions: write-all\n    steps: []\n'}
         for label, source in prohibited_cases.items():
@@ -215,6 +240,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root), self.assertRaisesRegex(ValueError, 'prohibited (?:contents: write|permissions: write-all) permission'):
                     validate_docs_contracts.validate_manual_release_boundary(workflow_paths=(workflow,), release_script_paths=())
 
+    # TT-TEST: support
     def test_manual_release_boundary_ignores_inert_command_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -225,12 +251,14 @@ class ValidateDocsContractsTests(unittest.TestCase):
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 validate_docs_contracts.validate_manual_release_boundary(workflow_paths=(workflow,), release_script_paths=(script,))
 
+    # TT-TEST: support
     def test_diagnostic_benchmark_ci_uses_executable_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             workflow = Path(tmp_dir) / 'ci.yml'
             workflow.write_text('jobs:\n  test:\n    steps:\n      - name: benchmark\n        run: python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --min-top1 0.75 --min-top2 0.90 --max-high-confidence-wrong 0\n', encoding='utf-8')
             validate_docs_contracts.validate_diagnostic_benchmark_ci_contract(workflow_path=workflow)
 
+    # TT-TEST: M01 secondary
     def test_published_readme_rejects_repository_only_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             readme = Path(tmp_dir) / 'README.md'
