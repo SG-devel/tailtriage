@@ -29,9 +29,13 @@ def run(argv: list[str], *, cwd: Path = REPO_ROOT) -> None:
     subprocess.run(argv, cwd=cwd, check=True)
 
 
+def metadata_command() -> list[str]:
+    return ["cargo", "metadata", "--format-version", "1", "--locked", "--offline"]
+
+
 def cargo_metadata() -> dict[str, Any]:
     result = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--locked"],
+        metadata_command(),
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,

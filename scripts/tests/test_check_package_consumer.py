@@ -31,6 +31,16 @@ class CheckPackageConsumerTests(unittest.TestCase):
 
     # TT-TEST: support
     def test_package_command_is_locked_offline_no_verify_and_dirty_is_opt_in(self) -> None:
+        metadata = check_package_consumer.metadata_command()
+        self.assertEqual(["cargo", "metadata"], metadata[:2])
+        format_version = metadata.index("--format-version")
+        self.assertEqual("1", metadata[format_version + 1])
+        self.assertIn("--locked", metadata)
+        self.assertIn("--offline", metadata)
+        self.assertNotIn("publish", metadata)
+        for network_or_login_argument in ("--registry", "login", "--token"):
+            self.assertNotIn(network_or_login_argument, metadata)
+
         command = check_package_consumer.package_command()
         self.assertEqual(["cargo", "package"], command[:2])
         self.assertTrue({"--locked", "--offline", "--no-verify"}.issubset(command))
