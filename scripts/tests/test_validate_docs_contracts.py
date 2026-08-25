@@ -15,6 +15,10 @@ import validate_docs_contracts
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    # TT-TEST: Z02 primary
+    def test_actual_repository_manual_release_boundary_is_non_mutating(self) -> None:
+        validate_docs_contracts.validate_manual_release_boundary()
+
     # TT-TEST: support
     def test_run_end_policy_variants_include_expected_kinds(self) -> None:
         kinds = validate_docs_contracts.extract_run_end_policy_kinds_from_source()

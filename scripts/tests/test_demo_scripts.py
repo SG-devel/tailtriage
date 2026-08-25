@@ -23,6 +23,36 @@ from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
+    # TT-TEST: F05 primary
+    def test_committed_demo_report_pairs_satisfy_all_nine_canonical_policies(self) -> None:
+        fixture_pairs: dict[str, dict[str, Path]] = {}
+
+        for fixture_rel, generated_rel in check_demo_fixture_drift._scenario_specs():
+            if generated_rel.name not in {"before-analysis.json", "after-analysis.json"}:
+                continue
+            scenario = generated_rel.parent.name
+            variant = generated_rel.name.removesuffix("-analysis.json")
+            fixture_pairs.setdefault(scenario, {})[variant] = REPO_ROOT / fixture_rel
+
+        self.assertEqual(set(fixture_pairs), set(demo_tool.LIVE_SCENARIO_POLICIES))
+
+        for scenario in demo_tool.SCENARIOS:
+            with self.subTest(scenario=scenario):
+                pair = fixture_pairs[scenario]
+                self.assertEqual(set(pair), {"before", "after"})
+                before = _demo_runner.load_report_json(pair["before"])
+                after = _demo_runner.load_report_json(pair["after"])
+                result = demo_tool.evaluate_live_scenario(
+                    scenario,
+                    before,
+                    after,
+                    profile="dev",
+                )
+                self.assertTrue(
+                    result["policy_passed"],
+                    msg=f"{scenario}: {result['failed_expectations']}",
+                )
+
     # TT-TEST: support
     def test_canonical_live_policy_owns_exactly_nine_scenarios(self) -> None:
         expected = {
