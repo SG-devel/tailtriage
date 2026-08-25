@@ -125,6 +125,10 @@ class WorkflowSecurityTests(unittest.TestCase):
             valid.replace("  workflow_dispatch:\n", ""),
             valid.replace("  workflow_dispatch:\n", "    workflow_dispatch:\n"),
             valid.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n"),
+            valid.replace(
+                "  workflow_dispatch:\n",
+                "\nmetadata:\n  workflow_dispatch:\n",
+            ),
         )
         for source in invalid:
             with self.subTest(source=source):
@@ -156,6 +160,19 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertTrue(
                     check_workflow_security.ci_source_policy_errors(ci_source(rust_with=rust_with))
                 )
+        no_rust_step = ci_source().replace(
+            f"      - uses: dtolnay/rust-toolchain@{SHA}\n"
+            "        with:\n"
+            "          toolchain: stable\n",
+            "      - run: cargo check\n",
+        )
+        self.assertTrue(check_workflow_security.ci_source_policy_errors(no_rust_step))
+        decoy_rust_step = no_rust_step.replace(
+            "permissions:\n",
+            f"metadata:\n  steps:\n    - uses: dtolnay/rust-toolchain@{SHA}\n"
+            "      with:\n        toolchain: stable\n\npermissions:\n",
+        )
+        self.assertTrue(check_workflow_security.ci_source_policy_errors(decoy_rust_step))
 
     # TT-TEST: support
     def test_cargo_deny_policy_requires_inputs_on_the_installer_step(self) -> None:
@@ -174,6 +191,18 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertTrue(
                     check_workflow_security.cargo_deny_policy_errors(installer_source(with_values))
                 )
+        decoy_installer = f"""metadata:
+  steps:
+    - uses: taiki-e/install-action@{SHA}
+      with:
+        tool: cargo-deny@0.20.2
+        fallback: none
+jobs:
+  test:
+    steps:
+      - run: cargo check
+"""
+        self.assertTrue(check_workflow_security.cargo_deny_policy_errors(decoy_installer))
 
     # TT-TEST: support
     def test_named_action_step_layout_is_accepted(self) -> None:

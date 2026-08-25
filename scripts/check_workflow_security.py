@@ -25,9 +25,11 @@ class ActionStep:
 
 
 def action_steps(text: str) -> list[ActionStep]:
-    """Read action steps and their own immediate scalar ``with`` values."""
+    """Read action steps below top-level ``jobs -> job -> steps`` mappings."""
     lines = text.splitlines()
     steps: list[ActionStep] = []
+    in_jobs = False
+    job_indent: int | None = None
     steps_indent: int | None = None
     step: ActionStep | None = None
     step_indent: int | None = None
@@ -38,8 +40,21 @@ def action_steps(text: str) -> list[ActionStep]:
         if not content or content.startswith("#"):
             continue
         indent = len(raw) - len(content)
+        if indent == 0:
+            in_jobs = content == "jobs:"
+            job_indent = None
+            steps_indent = None
+            step = None
+            continue
+        if not in_jobs:
+            continue
+        if indent == 2:
+            job_indent = indent if content.endswith(":") else None
+            steps_indent = None
+            step = None
+            continue
         if steps_indent is None:
-            if content == "steps:" and indent >= 4:
+            if job_indent is not None and content == "steps:" and indent == job_indent + 2:
                 steps_indent = indent
             continue
         if indent <= steps_indent:
@@ -47,7 +62,7 @@ def action_steps(text: str) -> list[ActionStep]:
             step = None
             step_indent = None
             with_indent = None
-            if content == "steps:" and indent >= 4:
+            if job_indent is not None and content == "steps:" and indent == job_indent + 2:
                 steps_indent = indent
             continue
         if indent == steps_indent + 2 and content.startswith("-"):
@@ -97,12 +112,22 @@ def ci_source_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
     errors: list[str] = []
     lines = text.splitlines()
 
-    dispatch_indexes = [
+    on_indexes = [
         index
         for index, line in enumerate(lines)
-        if len(line) - len(line.lstrip()) == 2 and line.strip() == "workflow_dispatch:"
+        if len(line) - len(line.lstrip()) == 0 and line.strip() == "on:"
     ]
-    if len(dispatch_indexes) != 1:
+    dispatch_indexes: list[int] = []
+    if len(on_indexes) == 1:
+        for index in range(on_indexes[0] + 1, len(lines)):
+            line = lines[index]
+            content = line.strip()
+            indent = len(line) - len(line.lstrip())
+            if content and indent == 0:
+                break
+            if indent == 2 and content == "workflow_dispatch:":
+                dispatch_indexes.append(index)
+    if len(on_indexes) != 1 or len(dispatch_indexes) != 1:
         errors.append(f"{name}: workflow_dispatch must be one top-level event")
     else:
         start = dispatch_indexes[0]
@@ -147,6 +172,8 @@ def ci_source_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
     rust_steps = [
         step for step in action_steps(text) if step.uses and step.uses.startswith("dtolnay/rust-toolchain@")
     ]
+    if not rust_steps:
+        errors.append(f"{name}: at least one dtolnay/rust-toolchain action step is required")
     for step in rust_steps:
         if step.with_values.get("toolchain") != "stable":
             errors.append(
