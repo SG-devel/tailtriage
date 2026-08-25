@@ -64,6 +64,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
             }
         return row
 
+    # TT-TEST: O01 primary
     def test_mode_matrix_preserves_unsaturated_saturated_and_sampler_scenarios(self) -> None:
         self.assertEqual(
             measure_runtime_cost.UNSATURATED_CORE_MODES,
@@ -94,10 +95,12 @@ class RuntimeCostSummaryTests(unittest.TestCase):
             ),
         )
 
+    # TT-TEST: support
     def test_safe_ratio_handles_zero_denominator(self) -> None:
         self.assertIsNone(measure_runtime_cost.safe_ratio(10.0, 0.0))
         self.assertEqual(measure_runtime_cost.safe_ratio(10.0, 2.0), 5.0)
 
+    # TT-TEST: O01 primary
     def test_summary_includes_required_overhead_headings_and_drop_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             raw_path = Path(tmp) / "runtime-cost-raw.jsonl"
@@ -159,6 +162,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
             self.assertEqual(drop_summary["limit_reached_rounds"], 4)
             self.assertGreater(drop_summary["dropped_requests"]["mean"], 0)
 
+    # TT-TEST: O01 secondary
     def test_sanity_fails_on_parity_latency_ratio(self) -> None:
         summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
@@ -179,6 +183,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             measure_runtime_cost._validate_sanity(summary)
 
+    # TT-TEST: O01 secondary
     def test_sanity_fails_on_parity_throughput_ratio(self) -> None:
         summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
@@ -199,6 +204,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             measure_runtime_cost._validate_sanity(summary)
 
+    # TT-TEST: O01 secondary
     def test_sanity_passes_for_reasonable_tracing_ratios(self) -> None:
         summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
@@ -218,6 +224,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         summary["absolute_metrics"]["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 1
         measure_runtime_cost._validate_sanity(summary)
 
+    # TT-TEST: support
     def test_parity_warning_for_latency_above_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
             "tracing_light_vs_core_light_latency_p95": 1.03,
@@ -229,6 +236,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         })
         self.assertTrue(any("tracing_light p95 is 1.03x native" in w for w in warnings))
 
+    # TT-TEST: support
     def test_parity_no_warning_for_latency_at_or_below_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
             "tracing_light_vs_core_light_latency_p95": 1.02,
@@ -240,6 +248,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         })
         self.assertEqual(warnings, [])
 
+    # TT-TEST: support
     def test_parity_warning_for_throughput_below_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
             "tracing_light_vs_core_light_latency_p95": 1.0,
@@ -251,6 +260,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         })
         self.assertTrue(any("tracing_light throughput is 0.97x native" in w for w in warnings))
 
+    # TT-TEST: support
     def test_parity_no_warning_for_throughput_at_or_above_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
             "tracing_light_vs_core_light_latency_p95": 1.0,

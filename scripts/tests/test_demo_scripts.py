@@ -23,6 +23,7 @@ from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
+    # TT-TEST: support
     def test_canonical_live_policy_owns_exactly_nine_scenarios(self) -> None:
         expected = {
             "queue", "blocking", "executor", "downstream", "mixed",
@@ -31,10 +32,12 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(expected, set(demo_tool.LIVE_SCENARIO_POLICIES))
         self.assertEqual(expected, set(demo_tool.SCENARIOS))
 
+    # TT-TEST: D02 secondary
     def test_unknown_live_policy_fails_clearly(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported live-demo scenario: typo"):
             demo_tool.validate_scenario(REPO_ROOT, "typo")
 
+    # TT-TEST: D02 primary
     @patch("demo_tool._load_and_evaluate")
     @patch("demo_tool._run_scenario")
     def test_mitigation_reporting_preserves_pass_and_failure(self, run_mock, evaluate_mock) -> None:
@@ -65,6 +68,7 @@ class DemoWrapperTests(unittest.TestCase):
             "secondary_suspects": secondary or [], "p95_latency_us": p95,
             "p95_queue_share_permille": queue, "p95_service_share_permille": service}
 
+    # TT-TEST: D02 primary
     def test_queue_strong_movement_and_ratio_policy(self):
         before=self._report("application_queue_saturation", p95=1000, queue=700)
         after=self._report("application_queue_saturation", score=70, p95=940, queue=600)
@@ -73,6 +77,7 @@ class DemoWrapperTests(unittest.TestCase):
         after["p95_queue_share_permille"]=700
         self.assertIn("queue_share_decreases", demo_tool.evaluate_live_scenario("queue", before, after)["failed_expectations"])
 
+    # TT-TEST: D02 primary
     def test_target_score_and_high_confidence_wrong_fail_structurally(self):
         for scenario, target in (("queue", "application_queue_saturation"), ("blocking", "blocking_pool_pressure"), ("downstream", "downstream_stage_dominates")):
             evidence=["Blocking queue depth p95 is 10"] if scenario == "blocking" else []
@@ -84,6 +89,7 @@ class DemoWrapperTests(unittest.TestCase):
             self.assertIn("high_confidence_wrong_after", result["failed_expectations"])
             self.assertIn("targeted_score_nonworsening", result["expected_checks"])
 
+    # TT-TEST: D02 primary
     def test_required_queue_and_blocking_evidence_movement(self):
         db_before=self._report("application_queue_saturation", queue=600)
         db_after=self._report("application_queue_saturation", p95=500, queue=600)
@@ -92,6 +98,7 @@ class DemoWrapperTests(unittest.TestCase):
         after=self._report("blocking_pool_pressure", score=20, p95=500, evidence=["Blocking queue depth p95 is 10"])
         self.assertIn("blocking_depth_decreases", demo_tool.evaluate_live_scenario("blocking", before, after)["failed_expectations"])
 
+    # TT-TEST: D02 primary
     def test_executor_and_extended_semantics_remain(self):
         executor=self._report("executor_pressure_suspected", evidence=["Blocking queue depth p95 is 4"])
         result=demo_tool.evaluate_live_scenario("executor", executor, self._report("executor_pressure_suspected", p95=500))
@@ -99,6 +106,7 @@ class DemoWrapperTests(unittest.TestCase):
         retry=self._report("downstream_stage_dominates", service=950)
         self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", retry, self._report("downstream_stage_dominates", score=70, p95=500, service=800))["policy_passed"])
 
+    # TT-TEST: D02 primary
     def test_shared_lock_compares_actual_primary_scores(self):
         before = self._report(
             "application_queue_saturation",
@@ -115,6 +123,7 @@ class DemoWrapperTests(unittest.TestCase):
         lower_replacement = self._report("executor_pressure_suspected", score=70, p95=500)
         self.assertTrue(demo_tool.evaluate_live_scenario("shared-lock", before, lower_replacement)["policy_passed"])
 
+    # TT-TEST: D02 primary
     def test_retry_storm_compares_actual_primary_scores(self):
         before = self._report("downstream_stage_dominates", score=80, service=950)
         unchanged = self._report("downstream_stage_dominates", score=70, p95=500)
@@ -127,6 +136,7 @@ class DemoWrapperTests(unittest.TestCase):
         lower_replacement = self._report("executor_pressure_suspected", score=80, p95=500)
         self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", before, lower_replacement)["policy_passed"])
 
+    # TT-TEST: D02 primary
     def test_cold_start_primary_score_nonincrease_passes(self):
         before = self._report(
             "application_queue_saturation", score=80, p95=20_000, queue=700,
@@ -135,6 +145,7 @@ class DemoWrapperTests(unittest.TestCase):
         after = self._report("executor_pressure_suspected", score=80, p95=19_500, queue=700)
         self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, after)["policy_passed"])
 
+    # TT-TEST: D02 primary
     def test_cold_start_score_increase_requires_material_latency_improvement(self):
         before = self._report(
             "application_queue_saturation", score=80, p95=20_000, queue=700,
@@ -144,6 +155,7 @@ class DemoWrapperTests(unittest.TestCase):
         result = demo_tool.evaluate_live_scenario("cold-start", before, after)
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
+    # TT-TEST: D02 primary
     def test_cold_start_changed_primary_requires_material_queue_improvement(self):
         before = self._report(
             "application_queue_saturation", score=80, p95=20_000, queue=700,
@@ -156,6 +168,7 @@ class DemoWrapperTests(unittest.TestCase):
         explained = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=600)
         self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, explained)["policy_passed"])
 
+    # TT-TEST: D02 primary
     def test_cold_start_score_increase_retains_queue_worsening_tolerance(self):
         before = self._report(
             "application_queue_saturation", score=80, p95=20_000, queue=700,
@@ -168,6 +181,7 @@ class DemoWrapperTests(unittest.TestCase):
         result = demo_tool.evaluate_live_scenario("cold-start", before, worsened)
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
+    # TT-TEST: D02 primary
     def test_cold_start_target_disappearance_does_not_bypass_score_rule(self):
         before = self._report(
             "application_queue_saturation", score=80, p95=20_000, queue=700,
@@ -178,6 +192,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertNotIn("application_queue_saturation", [after["primary_suspect"]["kind"]])
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
+    # TT-TEST: support
     def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
         self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))
         self.assertIs(demo_tool.SCENARIO_PATHS, _demo_runner.SCENARIOS)
@@ -194,6 +209,7 @@ class DemoWrapperTests(unittest.TestCase):
                 demo_dir / "artifacts",
             )
 
+    # TT-TEST: support
     def test_fixture_refresh_owns_only_canonical_contracts(self) -> None:
         owned = [path.as_posix() for path, _ in check_demo_fixture_drift._scenario_specs()]
         self.assertEqual(len(owned), 19)
@@ -204,6 +220,7 @@ class DemoWrapperTests(unittest.TestCase):
             ["demos/downstream_service/fixtures/before-after-comparison.json"],
         )
 
+    # TT-TEST: support
     def test_demo_tool_help_runs(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(SCRIPTS_DIR / "demo_tool.py"), "--help"],
@@ -219,39 +236,46 @@ class DemoWrapperTests(unittest.TestCase):
         )
         self.assertIn("usage:", completed.stdout)
 
+    # TT-TEST: support
     def test_parse_args_accepts_mixed_scenario(self) -> None:
         args = parse_args(["run", "mixed", "baseline"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "mixed")
         self.assertEqual(args.mode, "baseline")
 
+    # TT-TEST: support
     def test_parse_args_accepts_cold_start_scenario(self) -> None:
         args = parse_args(["validate", "cold-start"])
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "cold-start")
 
 
+    # TT-TEST: support
     def test_parse_args_accepts_db_pool_scenario(self) -> None:
         args = parse_args(["run", "db-pool", "mitigated"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "db-pool")
         self.assertEqual(args.mode, "mitigated")
 
+    # TT-TEST: support
     def test_parse_args_accepts_downstream_mode(self) -> None:
         args = parse_args(["run", "downstream", "after"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "downstream")
         self.assertEqual(args.mode, "after")
 
+    # TT-TEST: support
     def test_parse_args_accepts_retry_storm_scenario(self) -> None:
         args = parse_args(["validate", "retry-storm"])
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "retry-storm")
 
+    # TT-TEST: support
     def test_parse_args_accepts_release_shortcut(self) -> None:
         args = parse_args(["validate", "queue", "--release"])
         self.assertEqual(args.profile, "release")
 
+    # TT-TEST: support
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
             "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
@@ -260,6 +284,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"application_queue_saturation"}))
 
+    # TT-TEST: support
     def test_has_suspect_kind_checks_primary_and_secondary(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation"},
@@ -270,6 +295,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"blocking_pool_pressure"}))
 
+    # TT-TEST: support
     def test_suspect_score_reads_secondary_kind_score(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
@@ -278,6 +304,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(suspect_score(report, "executor_pressure_suspected"), 70)
         self.assertIsNone(suspect_score(report, "blocking_pool_pressure"))
 
+    # TT-TEST: support
     def test_contains_blocking_depth_evidence_checks_secondary_suspects(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation", "evidence": []},
@@ -290,6 +317,7 @@ class DemoWrapperTests(unittest.TestCase):
         }
         self.assertTrue("blocking queue depth" in demo_tool._evidence_text(report))
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_scenario_executor")
     def test_validate_executor_requires_executor_primary(
@@ -315,42 +343,50 @@ class DemoWrapperTests(unittest.TestCase):
         ):
             demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
 
+    # TT-TEST: support
     def test_parse_args_accepts_diagnosis_matrix(self) -> None:
         args = parse_args(["diagnosis-matrix", "--scenario", "queue", "--scenario", "executor"])
         self.assertEqual(args.command, "diagnosis-matrix")
         self.assertEqual(args.scenario, ["queue", "executor"])
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity(self) -> None:
         args = parse_args(["validate-tracing-parity", "queue", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "queue")
         self.assertEqual(args.profile, "dev")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_retry_storm(self) -> None:
         args = parse_args(["validate-tracing-parity", "retry-storm"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "retry-storm")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_blocking(self) -> None:
         args = parse_args(["validate-tracing-parity", "blocking", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "blocking")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_executor(self) -> None:
         args = parse_args(["validate-tracing-parity", "executor", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "executor")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_all(self) -> None:
         args = parse_args(["validate-tracing-parity", "all", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "all")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_retention_parity(self) -> None:
         args = parse_args(["validate-tracing-retention-parity", "--profile", "release"])
         self.assertEqual(args.command, "validate-tracing-retention-parity")
         self.assertEqual(args.profile, "release")
 
+    # TT-TEST: support
     @patch("demo_tool._require_equal")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -380,6 +416,7 @@ class DemoWrapperTests(unittest.TestCase):
             self.assertEqual(extra_args[extra_args.index("--max-queues") + 1], "3")
         self.assertTrue(require_equal_mock.called)
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_and_analyze")
     @patch("demo_tool._tracing_parity_config")
@@ -427,6 +464,7 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -484,6 +522,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertIn("after-investigation-native-run.json", artifact_basenames)
         self.assertIn("after-investigation-tracing-run.json", artifact_basenames)
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -533,6 +572,7 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -580,6 +620,7 @@ class DemoWrapperTests(unittest.TestCase):
         with patch.object(Path, "exists", return_value=True):
             demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -630,6 +671,7 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
 
+    # TT-TEST: support
     def test_parity_failure_message_contains_scenario_field_expected_actual(self) -> None:
         with self.assertRaisesRegex(
             SystemExit,
@@ -644,6 +686,7 @@ class DemoWrapperTests(unittest.TestCase):
                 actual="investigation",
             )
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_scenario_downstream")
     def test_validate_downstream_uses_downstream_context(
@@ -668,6 +711,7 @@ class DemoWrapperTests(unittest.TestCase):
 
 
 class DemoMainRoutingTests(unittest.TestCase):
+    # TT-TEST: support
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_queue")
     def test_main_run_queue_baseline_dispatches_queue_scenario(
@@ -683,6 +727,7 @@ class DemoMainRoutingTests(unittest.TestCase):
             profile="dev",
         )
 
+    # TT-TEST: support
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.validate_scenario")
     def test_main_validate_mixed_dispatches_validate_mixed(
@@ -696,6 +741,7 @@ class DemoMainRoutingTests(unittest.TestCase):
             Path("/tmp/tailscope"), "mixed", profile="dev"
         )
 
+    # TT-TEST: support
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_downstream")
     def test_main_run_downstream_baseline_dispatches_downstream_scenario(
