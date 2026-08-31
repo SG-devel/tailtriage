@@ -3529,7 +3529,24 @@ mod tests {
                 .build()
                 .expect("run should build"),
         );
-        let (controller, _) = test_controller_with_run("concurrent-terminal-shutdown", run);
+        let (controller, runtime) = test_controller_with_run("concurrent-terminal-shutdown", run);
+        let gate_attempts = Arc::new(AtomicU64::new(0));
+        let (second_gate_tx, second_gate_rx) = mpsc::channel();
+        {
+            let mut hooks = runtime.finalization_test_hooks.lock().expect("hooks lock");
+            hooks.before_gate = Some({
+                let gate_attempts = Arc::clone(&gate_attempts);
+                let second_gate_tx = Mutex::new(Some(second_gate_tx));
+                Arc::new(move || {
+                    let attempt = gate_attempts.fetch_add(1, Ordering::AcqRel) + 1;
+                    if attempt == 2 {
+                        if let Some(tx) = second_gate_tx.lock().expect("second gate lock").take() {
+                            tx.send(()).expect("second gate receiver should exist");
+                        }
+                    }
+                })
+            });
+        }
 
         let first_controller = controller.clone();
         let first = std::thread::spawn(move || first_controller.shutdown());
@@ -3548,6 +3565,9 @@ mod tests {
                 .expect("result receiver should exist");
             result
         });
+        second_gate_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second shutdown should reach the finalization gate");
         assert!(
             second_result_rx
                 .recv_timeout(Duration::from_millis(100))
