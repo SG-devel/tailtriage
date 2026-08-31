@@ -147,6 +147,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Direct shutdown returns core `ShutdownError`: unfinished strict-lifecycle work is retryable, while
+sink persistence/serialization failures are nested under `ShutdownError::Sink`. A successful
+direct shutdown records `RunEndReason::Shutdown` unless more specific provenance already exists.
+
 Analyze the saved **Run artifact** at the command line:
 
 ```bash
@@ -170,6 +174,10 @@ The Run artifact is captured evidence and CLI input; Report JSON is analyzer out
 ## Controller capture windows
 
 Choose `TailtriageController` when a long-lived service needs repeated arm, collect, disarm, and re-arm windows. Start with builder defaults; use TOML when operational settings must be repeatable. The [controller README](tailtriage-controller/README.md) owns its configuration and reload contract, while the [operations guide](docs/operations.md) owns production capture choices.
+
+Controller `disable()` is reversible; controller `shutdown()` is terminal and permanently rejects
+future enable/reload operations. Generation finalization failures use
+`GenerationFinalizationError`, while direct capture shutdown uses core `ShutdownError`.
 
 ## Operations and validation
 

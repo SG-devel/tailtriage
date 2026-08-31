@@ -289,6 +289,8 @@ Important semantics:
 - drop does not auto-finish
 - `shutdown()` does not fabricate completion/outcome
 - `strict_lifecycle(true)` can fail shutdown when unfinished requests remain
+- direct shutdown distinguishes retryable `ShutdownError::UnfinishedRequests { count }` from sink persistence/serialization failure in `ShutdownError::Sink(...)`
+- successful direct shutdown records `RunEndReason::Shutdown` unless a more specific reason was already set
 
 ## 5) Direct capture vs controller
 
@@ -300,6 +302,10 @@ Use **controller** (`TailtriageController`) when your service is long-lived and 
 - collect
 - disable/finalize
 - re-enable later
+
+Controller `disable()` remains reversible. Controller `shutdown()` is terminal: status becomes
+`GenerationState::Shutdown`, new requests are inert, and `enable()` plus config/template reloads are
+rejected. Both operations use `GenerationFinalizationError` for generation finalization failures.
 
 Minimal controller window example:
 

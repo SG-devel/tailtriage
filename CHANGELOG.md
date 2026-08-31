@@ -4,6 +4,13 @@
 
 ### Changed
 
+- Split direct shutdown failures into `ShutdownError::UnfinishedRequests` and
+  `ShutdownError::Sink`, narrowing `SinkError` to sink-produced failures. Consolidated controller
+  `DisableError`/`ShutdownError` into `GenerationFinalizationError`, renamed status
+  `last_finalize_error` to `last_finalization_error`, and made controller `shutdown()` terminal.
+  Use reversible `disable()` for capture-window disarm; post-shutdown enable/reload is rejected and
+  status is `GenerationState::Shutdown`.
+
 - Consolidated the unreleased 0.4 live tracing API onto `TracingSession` as the single live entry
   point, replacing the interim recorder, intake-session, and Tokio-session surfaces.
 
