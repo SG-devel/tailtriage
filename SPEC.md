@@ -105,6 +105,9 @@ Controller semantics:
 - one active generation at a time
 - requests admitted to a generation stay bound to that generation
 - disabled/closing admissions return inert wrappers
+- `disable()` is reversible; `shutdown()` permanently prevents future generations
+- terminal controller status is `GenerationState::Shutdown`; generation finalization failures use
+  `GenerationFinalizationError`
 
 ### 5.5 Controller TOML config contract
 

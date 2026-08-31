@@ -13,6 +13,42 @@ use crate::{
     StageTimer, UnfinishedRequestSample,
 };
 
+/// Errors emitted while finalizing a direct capture run.
+#[derive(Debug)]
+pub enum ShutdownError {
+    /// Strict lifecycle validation found requests that have not completed yet.
+    UnfinishedRequests {
+        /// Number of unfinished requests observed at this shutdown attempt.
+        count: usize,
+    },
+    /// The configured sink failed to serialize or persist the finalized run.
+    Sink(SinkError),
+}
+
+impl std::fmt::Display for ShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnfinishedRequests { count } => write!(f, "strict lifecycle validation failed: {count} unfinished request(s) remained at shutdown"),
+            Self::Sink(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ShutdownError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::UnfinishedRequests { .. } => None,
+            Self::Sink(error) => Some(error),
+        }
+    }
+}
+
+impl From<SinkError> for ShutdownError {
+    fn from(error: SinkError) -> Self {
+        Self::Sink(error)
+    }
+}
+
 /// Per-run collector that records request events and writes the final artifact.
 pub struct Tailtriage {
     pub(crate) state: CollectorStateCell,
@@ -398,16 +434,16 @@ impl Tailtriage {
     /// metadata warnings and unfinished-request samples, then the artifact is written.
     ///
     /// With `strict_lifecycle(true)`, unfinished requests cause an early
-    /// retryable [`SinkError::Lifecycle`] return and the artifact is not written
+    /// retryable [`ShutdownError::UnfinishedRequests`] return and the artifact is not written
     /// or attempted. Once an eligible shutdown reaches the sink, finalization is
     /// terminal and repeated calls replay that terminal result without a second
     /// sink write.
     ///
     /// # Errors
     ///
-    /// Returns [`SinkError`] if lifecycle validation fails in strict mode, or if
+    /// Returns [`ShutdownError`] if lifecycle validation fails in strict mode, or if
     /// serialization or writing fails.
-    pub fn shutdown(&self) -> Result<(), SinkError> {
+    pub fn shutdown(&self) -> Result<(), ShutdownError> {
         let candidate = {
             let mut state = lock_state(&self.state.mutex);
             loop {
@@ -418,15 +454,15 @@ impl Tailtriage {
                     }
                     CollectorPhase::Closed(TerminalShutdown::Success) => return Ok(()),
                     CollectorPhase::Closed(TerminalShutdown::Failure(message)) => {
-                        return Err(prior_sink_failure(message.as_str()));
+                        return Err(ShutdownError::Sink(prior_sink_failure(message.as_str())));
                     }
                 }
             }
 
             let pending_count = state.pending_requests.len();
             if pending_count > 0 && self.strict_lifecycle {
-                return Err(SinkError::Lifecycle {
-                    unfinished_count: pending_count,
+                return Err(ShutdownError::UnfinishedRequests {
+                    count: pending_count,
                 });
             }
 
@@ -441,6 +477,9 @@ impl Tailtriage {
                 })
                 .collect::<Vec<_>>();
             state.pending_requests.clear();
+            if state.run.metadata.run_end_reason.is_none() {
+                state.run.metadata.run_end_reason = Some(RunEndReason::Shutdown);
+            }
             let finalized_at = unix_time_ms();
             state.run.metadata.finalized_at_unix_ms = Some(finalized_at);
             if pending_count > 0 {
@@ -464,11 +503,10 @@ impl Tailtriage {
         let mut state = lock_state(&self.state.mutex);
         state.phase = CollectorPhase::Closed(terminal);
         self.state.closed.notify_all();
-        result
+        result.map_err(ShutdownError::Sink)
     }
 
-    /// Sets the run-end reason if not already set.
-    pub fn set_run_end_reason_if_absent(&self, reason: RunEndReason) {
+    pub(crate) fn set_run_end_reason_if_absent(&self, reason: RunEndReason) {
         let mut state = lock_state(&self.state.mutex);
         if matches!(state.phase, CollectorPhase::Open)
             && state.run.metadata.run_end_reason.is_none()

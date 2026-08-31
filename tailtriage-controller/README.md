@@ -53,6 +53,10 @@ A controller owns a **template** plus at most one **active generation**.
 - If no captured requests are still in flight, the generation finalizes immediately.
 - Otherwise the generation enters **closing** and finalizes after its already-admitted captured requests drain.
 - The next `enable()` creates a new generation with a new artifact path.
+- `shutdown()` is terminal: it stops admissions, finalizes the current generation, and permanently rejects later `enable()` and reload operations.
+- `disable()` and `shutdown()` report active-generation failures through `GenerationFinalizationError`, whose source is the core `ShutdownError`.
+- After retryable unfinished-request shutdown, admitted work may finish and trigger automatic finalization; call `shutdown()` again to authoritatively replay the stored success or terminal failure without another sink write.
+- `status()` reports the simple `GenerationState::Shutdown` marker after shutdown; detailed persistence results remain in the returned `GenerationFinalizationError`.
 
 Requests started while the controller is disabled or closing are **inert**:
 

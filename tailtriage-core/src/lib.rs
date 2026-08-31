@@ -41,7 +41,7 @@ mod validation;
 pub use artifact::{decode_run_json_path, RunJsonDecodeError};
 pub use collector::{
     OwnedRequestCompletion, OwnedRequestHandle, OwnedStartedRequest, RequestCompletion,
-    RequestHandle, RuntimeSamplerRegistrationError, StartedRequest, Tailtriage,
+    RequestHandle, RuntimeSamplerRegistrationError, ShutdownError, StartedRequest, Tailtriage,
 };
 pub use config::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveCoreConfig,
@@ -67,7 +67,14 @@ pub use validation::{
 /// Internal integration hooks for sibling crates in this workspace.
 #[doc(hidden)]
 pub mod __internal {
-    use crate::{EffectiveTokioSamplerConfig, RuntimeSamplerRegistrationError, Tailtriage};
+    use crate::{
+        EffectiveTokioSamplerConfig, RunEndReason, RuntimeSamplerRegistrationError, Tailtriage,
+    };
+
+    /// Sets controller-owned run-end provenance without exposing live mutation publicly.
+    pub fn set_run_end_reason_if_absent(tailtriage: &Tailtriage, reason: RunEndReason) {
+        tailtriage.set_run_end_reason_if_absent(reason);
+    }
 
     /// Escapes control characters for human-readable output in workspace sibling integrations.
     ///

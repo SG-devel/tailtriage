@@ -85,6 +85,13 @@ This model is:
 enable -> capture -> disable -> re-enable later
 ```
 
+Use `disable()` for a reversible capture-window boundary. Use controller `shutdown()` only at
+application/process shutdown: its first call permanently prevents future generations, makes new
+requests inert, and changes public status to `GenerationState::Shutdown`. If strict lifecycle
+returns an unfinished-request `GenerationFinalizationError`, already-admitted requests may drain
+and automatically finalize the same generation; call `shutdown()` again for authoritative stored
+success or failure. Replays do not perform another sink write.
+
 Controller capture is usually the better production operational model.
 
 ## Capture mode guidance
@@ -426,7 +433,7 @@ For tracing import and tracing-session operations guidance, see the canonical se
 
 Explicit completion remains preferred whenever the application knows the request outcome. Dropping an admitted unfinished completion token while capture is still open records one completed request with outcome `cancelled`; Drop is non-panicking, including during panic unwinding. If shutdown wins before a held token finishes or drops, that request is recorded only as unfinished metadata and a late finish or Drop is inert. A finalized Run is immutable to late request admission, completion, stage, queue, in-flight, runtime-snapshot, sampler-metadata, and end-reason mutations.
 
-Strict lifecycle shutdown with pending requests returns a retryable lifecycle error, performs no sink attempt, leaves pending requests open, and does not add finalization timestamps, unfinished metadata, or lifecycle warnings. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
+Strict lifecycle shutdown with pending requests returns `ShutdownError::UnfinishedRequests { count }`, performs no sink attempt, leaves pending requests open, and does not add finalization provenance, timestamps, unfinished metadata, or lifecycle warnings. Sink I/O and serialization failures are `ShutdownError::Sink(...)`. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Successful direct shutdown records `RunEndReason::Shutdown` unless a more specific reason is present. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
 
 
 

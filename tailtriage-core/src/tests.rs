@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
-    MemorySink, Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
+    MemorySink, Outcome, RequestOptions, RuntimeSamplerRegistrationError, ShutdownError,
+    Tailtriage,
 };
 
 #[derive(Debug, Default)]
@@ -436,9 +437,7 @@ fn unfinished_requests_still_trigger_strict_lifecycle_errors() {
         .expect_err("unfinished request should fail strict lifecycle mode");
     assert!(matches!(
         err,
-        SinkError::Lifecycle {
-            unfinished_count: 1
-        }
+        ShutdownError::UnfinishedRequests { count: 1 }
     ));
     let run = sink.run.lock().expect("sink lock should succeed");
     assert!(
@@ -516,6 +515,10 @@ fn memory_sink_stores_finalized_run_after_shutdown() {
 
     let run = sink.last_run().expect("run should be stored");
     assert!(run.metadata.finalized_at_unix_ms.is_some());
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
     assert_eq!(run.requests.len(), 1);
 }
 
@@ -1416,9 +1419,7 @@ fn strict_lifecycle_fails_shutdown_with_unfinished_requests() {
     let error = tailtriage.shutdown().expect_err("strict mode should fail");
     assert!(matches!(
         error,
-        SinkError::Lifecycle {
-            unfinished_count: 1
-        }
+        ShutdownError::UnfinishedRequests { count: 1 }
     ));
 }
 
@@ -3352,9 +3353,7 @@ fn strict_shutdown_with_pending_is_side_effect_free_and_retryable_after_drop() {
         .expect_err("strict pending should fail");
     assert!(matches!(
         err,
-        SinkError::Lifecycle {
-            unfinished_count: 1
-        }
+        ShutdownError::UnfinishedRequests { count: 1 }
     ));
     assert!(sink.run.lock().expect("lock").is_none());
     assert_eq!(tailtriage.snapshot(), before);

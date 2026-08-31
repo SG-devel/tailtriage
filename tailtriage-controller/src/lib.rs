@@ -224,7 +224,7 @@ struct ActiveGenerationRuntime {
     closing: AtomicBool,
     inflight_captured: AtomicU64,
     finalize_started: AtomicBool,
-    last_finalize_error: Mutex<Option<String>>,
+    last_finalization_error: Mutex<Option<String>>,
     runtime_sampler: Mutex<Option<RuntimeSampler>>,
     #[cfg(test)]
     finalization_test_hooks: Mutex<FinalizationTestHooks>,
@@ -295,8 +295,8 @@ impl ActiveGenerationRuntime {
             closing: self.closing.load(Ordering::Relaxed),
             inflight_captured_requests: self.inflight_captured.load(Ordering::Relaxed),
             finalization_in_progress: self.finalize_started.load(Ordering::Relaxed),
-            last_finalize_error: self
-                .last_finalize_error
+            last_finalization_error: self
+                .last_finalization_error
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone(),
@@ -304,17 +304,17 @@ impl ActiveGenerationRuntime {
         }
     }
 
-    fn clear_finalize_error(&self) {
+    fn clear_finalization_error(&self) {
         let mut last_error = self
-            .last_finalize_error
+            .last_finalization_error
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *last_error = None;
     }
 
-    fn record_finalize_error(&self, error: &DisableError) {
+    fn record_finalization_error(&self, error: &GenerationFinalizationError) {
         let mut last_error = self
-            .last_finalize_error
+            .last_finalization_error
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *last_error = Some(error.to_string());
@@ -353,14 +353,14 @@ impl TailtriageController {
     ///
     #[must_use]
     pub fn status(&self) -> TailtriageControllerStatus {
-        let template = self
-            .inner
-            .template
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let lifecycle = self
             .inner
             .lifecycle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let template = self
+            .inner
+            .template
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
@@ -387,6 +387,14 @@ impl TailtriageController {
         &self,
         next_template: TailtriageControllerTemplate,
     ) -> Result<(), ReloadTemplateError> {
+        let lifecycle = self
+            .inner
+            .lifecycle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
+            return Err(ReloadTemplateError::ControllerShutdown);
+        }
         let resolved = resolve_controller_template(next_template, None)
             .map_err(ReloadTemplateError::Validate)?;
         let mut template = self
@@ -395,6 +403,7 @@ impl TailtriageController {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *template = Arc::new(resolved);
+        drop(lifecycle);
         Ok(())
     }
 
@@ -409,6 +418,14 @@ impl TailtriageController {
     /// loading/parsing/validating the TOML file fails.
     ///
     pub fn reload_config(&self) -> Result<(), ReloadConfigError> {
+        let lifecycle = self
+            .inner
+            .lifecycle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
+            return Err(ReloadConfigError::ControllerShutdown);
+        }
         let (config_path, service_name) = {
             let template = self
                 .inner
@@ -432,6 +449,7 @@ impl TailtriageController {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *template = Arc::new(resolved);
+        drop(lifecycle);
 
         Ok(())
     }
@@ -452,18 +470,18 @@ impl TailtriageController {
     /// `interval_ms = 0`).
     ///
     pub fn enable(&self) -> Result<ActiveGenerationState, EnableError> {
+        let mut lifecycle = self
+            .inner
+            .lifecycle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         let template = self
             .inner
             .template
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-
-        let mut lifecycle = self
-            .inner
-            .lifecycle
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let next_generation = match *lifecycle {
             ControllerLifecycle::Disabled { next_generation }
@@ -475,6 +493,7 @@ impl TailtriageController {
                     generation_id: active.state.generation_id,
                 });
             }
+            ControllerLifecycle::Shutdown { .. } => return Err(EnableError::ControllerShutdown),
         };
 
         let runtime = Self::construct_generation(&self.inner, &template, next_generation)?;
@@ -518,7 +537,7 @@ impl TailtriageController {
                 closing: false,
                 inflight_captured_requests: 0,
                 finalization_in_progress: false,
-                last_finalize_error: None,
+                last_finalization_error: None,
                 activation_config: ControllerActivationTemplate {
                     sink_template: template.sink_template.clone(),
                     selected_mode: template.selected_mode,
@@ -537,7 +556,7 @@ impl TailtriageController {
             closing: AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
             finalize_started: AtomicBool::new(false),
-            last_finalize_error: Mutex::new(None),
+            last_finalization_error: Mutex::new(None),
             runtime_sampler: Mutex::new(None),
             #[cfg(test)]
             finalization_test_hooks: Mutex::new(FinalizationTestHooks::default()),
@@ -597,9 +616,9 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`DisableError::Finalize`] when final artifact writing fails.
+    /// Returns [`GenerationFinalizationError::Finalize`] when final artifact writing fails.
     ///
-    pub fn disable(&self) -> Result<DisableOutcome, DisableError> {
+    pub fn disable(&self) -> Result<DisableOutcome, GenerationFinalizationError> {
         let active = {
             let lifecycle = self
                 .inner
@@ -608,8 +627,13 @@ impl TailtriageController {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
 
             let ControllerLifecycle::Active { ref active, .. } = *lifecycle else {
+                if matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
+                    return Ok(DisableOutcome::AlreadyShutdown);
+                }
                 if let ControllerLifecycle::TerminalFailed { ref message, .. } = *lifecycle {
-                    return Err(DisableError::Finalize(Self::prior_finalize_error(message)));
+                    return Err(GenerationFinalizationError::Finalize(
+                        Self::prior_finalization_error(message),
+                    ));
                 }
                 return Ok(DisableOutcome::AlreadyDisabled);
             };
@@ -658,7 +682,8 @@ impl TailtriageController {
             match *lifecycle {
                 ControllerLifecycle::Active { ref active, .. } => Some(Arc::clone(active)),
                 ControllerLifecycle::Disabled { .. }
-                | ControllerLifecycle::TerminalFailed { .. } => None,
+                | ControllerLifecycle::TerminalFailed { .. }
+                | ControllerLifecycle::Shutdown { .. } => None,
             }
         };
 
@@ -776,29 +801,43 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`ShutdownError::Finalize`] if artifact writing fails.
+    /// Returns [`GenerationFinalizationError::Finalize`] if artifact writing fails.
     ///
-    pub fn shutdown(&self) -> Result<(), ShutdownError> {
+    pub fn shutdown(&self) -> Result<(), GenerationFinalizationError> {
         let maybe_active = {
-            let lifecycle = self
+            let mut lifecycle = self
                 .inner
                 .lifecycle
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match *lifecycle {
-                ControllerLifecycle::Active { ref active, .. } => Some(Arc::clone(active)),
-                ControllerLifecycle::Disabled { .. } => None,
-                ControllerLifecycle::TerminalFailed { ref message, .. } => {
-                    return Err(ShutdownError::Finalize(DisableError::Finalize(
-                        Self::prior_finalize_error(message),
-                    )));
+            let (active, next_generation) = match &*lifecycle {
+                ControllerLifecycle::Active {
+                    active,
+                    next_generation,
                 }
-            }
+                | ControllerLifecycle::TerminalFailed {
+                    active,
+                    next_generation,
+                    ..
+                } => (Some(Arc::clone(active)), *next_generation),
+                ControllerLifecycle::Disabled { next_generation } => (None, *next_generation),
+                ControllerLifecycle::Shutdown { active, .. } => {
+                    return active
+                        .as_ref()
+                        .and_then(Self::replay_generation_result)
+                        .unwrap_or(Ok(()));
+                }
+            };
+            *lifecycle = ControllerLifecycle::Shutdown {
+                active: active.clone(),
+                next_generation,
+            };
+            active
         };
 
         if let Some(active) = maybe_active {
             Self::close_generation_admissions(&active, RunEndReason::Shutdown);
-            Self::finalize_generation(&self.inner, &active).map_err(ShutdownError::Finalize)?;
+            Self::finalize_generation(&self.inner, &active)?;
         }
 
         Ok(())
@@ -832,7 +871,7 @@ impl TailtriageController {
         active: &Arc<ActiveGenerationRuntime>,
         reason: RunEndReason,
     ) -> u64 {
-        active.run.set_run_end_reason_if_absent(reason);
+        tailtriage_core::__internal::set_run_end_reason_if_absent(&active.run, reason);
         active.accepting_new.store(false, Ordering::Release);
         active.closing.store(true, Ordering::Release);
         active.inflight_captured.load(Ordering::Acquire)
@@ -841,7 +880,7 @@ impl TailtriageController {
     fn finalize_generation(
         inner: &Arc<ControllerInner>,
         active: &Arc<ActiveGenerationRuntime>,
-    ) -> Result<(), DisableError> {
+    ) -> Result<(), GenerationFinalizationError> {
         #[cfg(test)]
         {
             let hook = active
@@ -888,14 +927,22 @@ impl TailtriageController {
                     if matches!(*result, GenerationFinalizationResult::Pending) {
                         *result = GenerationFinalizationResult::TerminalFailure(message.clone());
                     }
-                    return Err(DisableError::Finalize(Self::prior_finalize_error(message)));
+                    return Err(GenerationFinalizationError::Finalize(
+                        Self::prior_finalization_error(message),
+                    ));
+                }
+                ControllerLifecycle::Shutdown {
+                    active: Some(ref current_active),
+                    next_generation,
+                } if current_active.state.generation_id == active.state.generation_id => {
+                    next_generation
                 }
                 _ => return Ok(()),
             }
         };
 
         active.finalize_started.store(true, Ordering::Release);
-        active.clear_finalize_error();
+        active.clear_finalization_error();
         Self::stop_runtime_sampler(active);
         match active.run.shutdown() {
             Ok(()) => {
@@ -919,10 +966,13 @@ impl TailtriageController {
             }
             Err(source) => {
                 active.finalize_started.store(false, Ordering::Release);
-                let retryable = matches!(source, tailtriage_core::SinkError::Lifecycle { .. });
+                let retryable = matches!(
+                    source,
+                    tailtriage_core::ShutdownError::UnfinishedRequests { .. }
+                );
                 let canonical_message = source.to_string();
-                let error = DisableError::Finalize(source);
-                active.record_finalize_error(&error);
+                let error = GenerationFinalizationError::Finalize(source);
+                active.record_finalization_error(&error);
                 if !retryable {
                     Self::publish_terminal_failure(
                         inner,
@@ -999,7 +1049,7 @@ impl TailtriageController {
 
     fn replay_generation_result(
         active: &Arc<ActiveGenerationRuntime>,
-    ) -> Option<Result<(), DisableError>> {
+    ) -> Option<Result<(), GenerationFinalizationError>> {
         match active
             .finalization_result
             .lock()
@@ -1008,17 +1058,17 @@ impl TailtriageController {
         {
             GenerationFinalizationResult::Success => Some(Ok(())),
             GenerationFinalizationResult::TerminalFailure(message) => Some(Err(
-                DisableError::Finalize(Self::prior_finalize_error(&message)),
+                GenerationFinalizationError::Finalize(Self::prior_finalization_error(&message)),
             )),
             GenerationFinalizationResult::Pending => None,
         }
     }
 
-    fn prior_finalize_error(message: &str) -> tailtriage_core::SinkError {
+    fn prior_finalization_error(message: &str) -> tailtriage_core::ShutdownError {
         let controller_display = format!("failed to finalize generation: {message}");
-        tailtriage_core::SinkError::Io(std::io::Error::other(ReplayedGenerationFinalization {
-            controller_display,
-        }))
+        tailtriage_core::ShutdownError::Sink(tailtriage_core::SinkError::Io(std::io::Error::other(
+            ReplayedGenerationFinalization { controller_display },
+        )))
     }
 
     fn stop_runtime_sampler(active: &Arc<ActiveGenerationRuntime>) {
@@ -1441,6 +1491,8 @@ pub enum GenerationState {
     },
     /// Controller currently owns one active generation.
     Active(Box<ActiveGenerationState>),
+    /// Shutdown was requested; no future generation can be created.
+    Shutdown,
 }
 
 /// Metadata for one active generation.
@@ -1465,7 +1517,7 @@ pub struct ActiveGenerationState {
     /// Strict lifecycle errors are retryable because no sink attempt occurred.
     /// Sink-attempted failures are terminal for that core generation and are
     /// reported here without scheduling another sink write.
-    pub last_finalize_error: Option<String>,
+    pub last_finalization_error: Option<String>,
     /// Effective activation settings fixed for this generation.
     pub activation_config: ControllerActivationTemplate,
 }
@@ -1501,6 +1553,10 @@ enum ControllerLifecycle {
         next_generation: u64,
         message: String,
     },
+    Shutdown {
+        active: Option<Arc<ActiveGenerationRuntime>>,
+        next_generation: u64,
+    },
 }
 
 impl ControllerLifecycle {
@@ -1513,6 +1569,7 @@ impl ControllerLifecycle {
             Self::TerminalFailed { active, .. } => {
                 GenerationState::Active(Box::new(active.snapshot()))
             }
+            Self::Shutdown { .. } => GenerationState::Shutdown,
         }
     }
 }
@@ -1696,6 +1753,8 @@ impl std::error::Error for ControllerBuildError {}
 /// Errors emitted while reloading controller TOML config.
 #[derive(Debug)]
 pub enum ReloadConfigError {
+    /// The controller has entered its terminal shutdown state.
+    ControllerShutdown,
     /// Reload requested but no config path is configured.
     MissingConfigPath,
     /// Loading/parsing TOML config failed.
@@ -1707,6 +1766,9 @@ pub enum ReloadConfigError {
 impl std::fmt::Display for ReloadConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ControllerShutdown => {
+                write!(f, "controller has shut down; config cannot be reloaded")
+            }
             Self::MissingConfigPath => write!(f, "controller has no config_path; cannot reload"),
             Self::Load(err) => write!(f, "failed to reload controller config: {err}"),
             Self::Validate(err) => {
@@ -1719,7 +1781,7 @@ impl std::fmt::Display for ReloadConfigError {
 impl std::error::Error for ReloadConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::MissingConfigPath => None,
+            Self::ControllerShutdown | Self::MissingConfigPath => None,
             Self::Load(err) => Some(err),
             Self::Validate(err) => Some(err),
         }
@@ -1729,6 +1791,8 @@ impl std::error::Error for ReloadConfigError {
 /// Errors emitted while replacing controller activation templates directly.
 #[derive(Debug)]
 pub enum ReloadTemplateError {
+    /// The controller has entered its terminal shutdown state.
+    ControllerShutdown,
     /// Template failed controller-owned validation.
     Validate(BuildError),
 }
@@ -1736,6 +1800,9 @@ pub enum ReloadTemplateError {
 impl std::fmt::Display for ReloadTemplateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ControllerShutdown => {
+                write!(f, "controller has shut down; template cannot be reloaded")
+            }
             Self::Validate(err) => write!(f, "template is invalid: {err}"),
         }
     }
@@ -1744,6 +1811,7 @@ impl std::fmt::Display for ReloadTemplateError {
 impl std::error::Error for ReloadTemplateError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::ControllerShutdown => None,
             Self::Validate(err) => Some(err),
         }
     }
@@ -1752,6 +1820,8 @@ impl std::error::Error for ReloadTemplateError {
 /// Errors emitted when enabling/arming controller capture.
 #[derive(Debug)]
 pub enum EnableError {
+    /// The controller has entered its terminal shutdown state.
+    ControllerShutdown,
     /// Another generation is already active.
     AlreadyActive {
         /// ID of the active generation blocking a new start.
@@ -1768,6 +1838,7 @@ pub enum EnableError {
 impl std::fmt::Display for EnableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ControllerShutdown => write!(f, "controller has shut down and cannot be enabled"),
             Self::AlreadyActive { generation_id } => {
                 write!(f, "generation {generation_id} is already active")
             }
@@ -1799,15 +1870,17 @@ impl std::error::Error for ReplayedGenerationFinalization {}
 
 /// Errors emitted while disarming and finalizing generation artifacts.
 #[derive(Debug)]
-pub enum DisableError {
+pub enum GenerationFinalizationError {
     /// Artifact writing failed during generation finalization.
-    Finalize(tailtriage_core::SinkError),
+    Finalize(tailtriage_core::ShutdownError),
 }
 
-impl std::fmt::Display for DisableError {
+impl std::fmt::Display for GenerationFinalizationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Finalize(tailtriage_core::SinkError::Io(err)) => {
+            Self::Finalize(tailtriage_core::ShutdownError::Sink(
+                tailtriage_core::SinkError::Io(err),
+            )) => {
                 if let Some(replay) = err
                     .get_ref()
                     .and_then(|source| source.downcast_ref::<ReplayedGenerationFinalization>())
@@ -1825,13 +1898,21 @@ impl std::fmt::Display for DisableError {
     }
 }
 
-impl std::error::Error for DisableError {}
+impl std::error::Error for GenerationFinalizationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Finalize(source) => Some(source),
+        }
+    }
+}
 
 /// Outcome of calling [`TailtriageController::disable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisableOutcome {
     /// Controller was already disarmed.
     AlreadyDisabled,
+    /// Controller was already in its terminal shutdown state.
+    AlreadyShutdown,
     /// Active generation is closing and will finalize once in-flight requests drain.
     Closing {
         /// Active generation ID.
@@ -1845,23 +1926,6 @@ pub enum DisableOutcome {
         generation_id: u64,
     },
 }
-
-/// Errors emitted during process shutdown finalization.
-#[derive(Debug)]
-pub enum ShutdownError {
-    /// Active generation could not be finalized.
-    Finalize(DisableError),
-}
-
-impl std::fmt::Display for ShutdownError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Finalize(err) => write!(f, "shutdown finalization failed: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for ShutdownError {}
 
 fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64) -> PathBuf {
     match template {
@@ -2020,7 +2084,7 @@ mod tests {
                 closing: false,
                 inflight_captured_requests: 0,
                 finalization_in_progress: false,
-                last_finalize_error: None,
+                last_finalization_error: None,
                 activation_config: activation_config.clone(),
             },
             artifact_path,
@@ -2032,7 +2096,7 @@ mod tests {
             closing: std::sync::atomic::AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
             finalize_started: std::sync::atomic::AtomicBool::new(false),
-            last_finalize_error: Mutex::new(None),
+            last_finalization_error: Mutex::new(None),
             runtime_sampler: Mutex::new(None),
             finalization_test_hooks: Mutex::new(super::FinalizationTestHooks::default()),
             admission_test_hooks: Mutex::new(super::AdmissionTestHooks::default()),
@@ -2491,8 +2555,8 @@ mod tests {
         let status = controller.status();
         let active = match status.generation {
             GenerationState::Active(active) => active,
-            disabled @ GenerationState::Disabled { .. } => {
-                panic!("expected active generation after build, got {disabled:?}")
+            other => {
+                panic!("expected active generation after build, got {other:?}")
             }
         };
         assert_eq!(active.generation_id, 1);
@@ -2995,6 +3059,46 @@ mod tests {
         fs::remove_file(first.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: G01 primary
+    #[test]
+    fn shutdown_is_terminal_and_rejects_future_generation_mutation() {
+        let output = test_output("terminal-shutdown");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+        let template = controller.status().template;
+
+        controller
+            .shutdown()
+            .expect("disabled shutdown should succeed");
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Shutdown
+        ));
+        assert!(matches!(
+            controller.enable(),
+            Err(EnableError::ControllerShutdown)
+        ));
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::AlreadyShutdown)
+        ));
+        assert!(matches!(
+            controller.reload_template(template),
+            Err(ReloadTemplateError::ControllerShutdown)
+        ));
+        assert!(matches!(
+            controller.reload_config(),
+            Err(ReloadConfigError::ControllerShutdown)
+        ));
+        assert!(controller.shutdown().is_ok());
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Shutdown
+        ));
+    }
+
     // TT-TEST: G02 primary
     #[test]
     fn request_completion_remains_bound_to_original_generation_after_reenable() {
@@ -3311,7 +3415,7 @@ mod tests {
         controller.shutdown().expect("shutdown should succeed");
         assert!(matches!(
             controller.status().generation,
-            GenerationState::Disabled { next_generation: 2 }
+            GenerationState::Shutdown
         ));
         assert!(active.artifact_path.exists());
 
@@ -3342,6 +3446,48 @@ mod tests {
         assert!(!run_after.contains("req-post-shutdown"));
 
         started.completion.finish_ok();
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    // TT-TEST: C07 secondary
+    // TT-TEST: G03 primary
+    #[test]
+    fn terminal_strict_shutdown_auto_finalizes_after_admitted_request_drains() {
+        let output = test_output("terminal-strict-drain");
+        let controller = TailtriageController::builder("checkout-service")
+            .strict_lifecycle(true)
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request("/checkout");
+
+        assert!(matches!(
+            controller.shutdown(),
+            Err(super::GenerationFinalizationError::Finalize(
+                tailtriage_core::ShutdownError::UnfinishedRequests { count: 1 }
+            ))
+        ));
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Shutdown
+        ));
+        assert!(matches!(
+            controller.enable(),
+            Err(EnableError::ControllerShutdown)
+        ));
+        assert!(!active.artifact_path.exists());
+
+        started.completion.finish_ok();
+        assert!(active.artifact_path.exists());
+        controller
+            .shutdown()
+            .expect("stored automatic finalization success should replay");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::AlreadyShutdown)
+        ));
+
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
@@ -3379,7 +3525,7 @@ mod tests {
         assert!(!active_state.accepting_new_admissions);
         assert!(!active_state.finalization_in_progress);
         let first_error = active_state
-            .last_finalize_error
+            .last_finalization_error
             .expect("failed drain finalization should be recorded");
         assert!(
             first_error.contains("failed to finalize generation"),
@@ -3388,7 +3534,10 @@ mod tests {
 
         let disable_retry = controller.disable();
         assert!(
-            matches!(disable_retry, Err(super::DisableError::Finalize(_))),
+            matches!(
+                disable_retry,
+                Err(super::GenerationFinalizationError::Finalize(_))
+            ),
             "disable should return prior terminal finalization failure"
         );
 
@@ -3396,9 +3545,7 @@ mod tests {
         assert!(
             matches!(
                 shutdown_retry,
-                Err(super::ShutdownError::Finalize(
-                    super::DisableError::Finalize(_)
-                ))
+                Err(super::GenerationFinalizationError::Finalize(_))
             ),
             "shutdown should return prior terminal finalization failure"
         );
@@ -3436,7 +3583,7 @@ mod tests {
         assert!(active_state.closing);
         assert_eq!(active_state.inflight_captured_requests, 0);
         let error = active_state
-            .last_finalize_error
+            .last_finalization_error
             .expect("strict lifecycle error should be reported");
         assert!(
             error.contains("strict lifecycle validation failed"),
@@ -3445,10 +3592,8 @@ mod tests {
 
         assert!(matches!(
             controller.disable(),
-            Err(super::DisableError::Finalize(
-                tailtriage_core::SinkError::Lifecycle {
-                    unfinished_count: 1
-                }
+            Err(super::GenerationFinalizationError::Finalize(
+                tailtriage_core::ShutdownError::UnfinishedRequests { count: 1 }
             ))
         ));
 
@@ -3465,14 +3610,18 @@ mod tests {
     fn disable_error_prefix_collision_formats_original_and_typed_replay_identically() {
         const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
 
-        let original = super::DisableError::Finalize(SinkError::Io(std::io::Error::other(
-            "failed to finalize generation: sentinel",
-        )));
+        let original = super::GenerationFinalizationError::Finalize(
+            tailtriage_core::ShutdownError::Sink(SinkError::Io(std::io::Error::other(
+                "failed to finalize generation: sentinel",
+            ))),
+        );
         assert_eq!(original.to_string(), EXPECTED_DISABLE);
 
-        let replay = super::DisableError::Finalize(TailtriageController::prior_finalize_error(
-            "I/O error while writing run output: failed to finalize generation: sentinel",
-        ));
+        let replay = super::GenerationFinalizationError::Finalize(
+            TailtriageController::prior_finalization_error(
+                "I/O error while writing run output: failed to finalize generation: sentinel",
+            ),
+        );
         assert_eq!(replay.to_string(), EXPECTED_DISABLE);
     }
 
@@ -3481,7 +3630,6 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn blocked_generation_waiter_replays_exact_failure_after_rollover() {
         const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
-        const EXPECTED_SHUTDOWN: &str = "shutdown finalization failed: failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
         const EXPECTED_RAW: &str =
             "I/O error while writing run output: failed to finalize generation: sentinel";
 
@@ -3567,22 +3715,10 @@ mod tests {
             .disable()
             .expect_err("terminal failure should replay through disable");
         assert_eq!(disable_replay.to_string(), EXPECTED_DISABLE);
-        let shutdown_replay = controller
-            .shutdown()
-            .expect_err("terminal failure should replay through shutdown");
-        assert_eq!(shutdown_replay.to_string(), EXPECTED_SHUTDOWN);
-
         let gen2 = controller
             .enable()
-            .expect("terminal failure should allow generation 2");
+            .expect("disable failure does not make the controller terminal");
         assert_eq!(gen2.generation_id, 2);
-        let GenerationState::Active(gen2_status) = controller.status().generation else {
-            panic!("generation 2 should be active");
-        };
-        assert_eq!(gen2_status.generation_id, 2);
-        assert_eq!(gen2_status.last_finalize_error, None);
-        assert!(gen2_status.accepting_new_admissions);
-        assert!(!gen2_status.closing);
 
         return_tx.send(()).expect("owner should return");
         let a_result = finalizer_a.join().expect("finalizer A should join");
@@ -3663,7 +3799,7 @@ mod tests {
         assert_eq!(replay.to_string(), original_display);
         assert!(matches!(
             controller.status().generation,
-            GenerationState::Active(ref active) if active.generation_id == 2 && active.last_finalize_error.is_none()
+            GenerationState::Active(ref active) if active.generation_id == 2 && active.last_finalization_error.is_none()
         ));
 
         let gen2_req = controller.begin_request_with(
@@ -3696,10 +3832,8 @@ mod tests {
 
         assert!(matches!(
             controller.disable(),
-            Err(super::DisableError::Finalize(
-                tailtriage_core::SinkError::Lifecycle {
-                    unfinished_count: 1
-                }
+            Err(super::GenerationFinalizationError::Finalize(
+                tailtriage_core::ShutdownError::UnfinishedRequests { count: 1 }
             ))
         ));
         assert!(matches!(
@@ -3762,13 +3896,13 @@ mod tests {
             panic!("failed drain finalization should keep generation active");
         };
         assert!(!active_before_retry.finalization_in_progress);
-        assert!(active_before_retry.last_finalize_error.is_some());
+        assert!(active_before_retry.last_finalization_error.is_some());
 
         fs::create_dir_all(&output_dir).expect("create output directory for retry should succeed");
 
         assert!(matches!(
             controller.disable(),
-            Err(super::DisableError::Finalize(_))
+            Err(super::GenerationFinalizationError::Finalize(_))
         ));
         assert!(!output_dir.join("artifact-generation-1.json").exists());
 

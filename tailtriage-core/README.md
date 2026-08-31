@@ -145,13 +145,15 @@ req.queue("ingress")
 - Every admitted request must be finished exactly once.
 - Dropping an admitted completion token while capture is open records one request with outcome `cancelled`.
 - Non-strict lifecycle: `shutdown()` writes the artifact and records unfinished-request warnings/metadata.
-- `strict_lifecycle(true)`: unfinished requests cause `shutdown()` to return an error and no artifact is written.
+- `strict_lifecycle(true)`: unfinished requests return `ShutdownError::UnfinishedRequests { count }`; no sink write is attempted, so shutdown can be retried after those requests complete.
+- Sink I/O or serialization failures are returned as `ShutdownError::Sink(SinkError)`.
 
 Finalization timestamps:
 
 - Active `snapshot()` output is not finalized (`metadata.finalized_at_unix_ms == None`).
 - `shutdown()` writes final artifacts with both:
   - `metadata.finalized_at_unix_ms` set to shutdown time
+  - `metadata.run_end_reason` set to `shutdown` unless a more specific integration-owned reason is already present
 - Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version.
 
 ## Timing model
