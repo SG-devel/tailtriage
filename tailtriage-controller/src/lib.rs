@@ -377,6 +377,9 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
+    /// Returns [`ReloadTemplateError::ControllerShutdown`] after the controller enters its
+    /// terminal shutdown state.
+    ///
     /// Direct reload validates controller-owned template structure. It creates no Run,
     /// generation, or runtime sampler; runtime and sampler startup failures remain
     /// [`TailtriageController::enable`] errors.
@@ -413,6 +416,9 @@ impl TailtriageController {
     /// keeps the activation config it started with.
     ///
     /// # Errors
+    ///
+    /// Returns [`ReloadConfigError::ControllerShutdown`] after the controller enters its terminal
+    /// shutdown state.
     ///
     /// Returns [`ReloadConfigError`] when the controller has no `config_path` or when
     /// loading/parsing/validating the TOML file fails.
@@ -457,6 +463,9 @@ impl TailtriageController {
     /// Arms capture by creating a fresh active generation with a bounded run.
     ///
     /// # Errors
+    ///
+    /// Returns [`EnableError::ControllerShutdown`] after the controller enters its terminal
+    /// shutdown state.
     ///
     /// Returns [`EnableError::AlreadyActive`] when another generation is already active.
     ///
@@ -616,7 +625,8 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`GenerationFinalizationError::Finalize`] when final artifact writing fails.
+    /// Returns [`GenerationFinalizationError::Finalize`] when strict lifecycle validation finds
+    /// unfinished requests or when artifact persistence or serialization fails.
     ///
     pub fn disable(&self) -> Result<DisableOutcome, GenerationFinalizationError> {
         let active = {
@@ -795,13 +805,17 @@ impl TailtriageController {
 
     /// Finalizes controller state for process shutdown.
     ///
-    /// Shutdown makes lifecycle behavior explicit: it immediately stops new admissions and
-    /// writes any active generation artifact, even if unfinished requests remain.
-    /// That behavior matches [`tailtriage_core::Tailtriage::shutdown`].
+    /// Shutdown is terminal: it immediately stops new admissions and prevents future generations.
+    /// Repeated calls authoritatively check or replay finalization for the same terminal generation
+    /// and never write its artifact more than once.
     ///
     /// # Errors
     ///
-    /// Returns [`GenerationFinalizationError::Finalize`] if artifact writing fails.
+    /// In strict lifecycle mode, returns [`GenerationFinalizationError::Finalize`] containing
+    /// [`tailtriage_core::ShutdownError::UnfinishedRequests`] before any sink attempt while admitted
+    /// requests remain. That condition can be checked again on the same terminal generation.
+    /// Persistence and serialization failures are reported through
+    /// [`tailtriage_core::ShutdownError::Sink`].
     ///
     pub fn shutdown(&self) -> Result<(), GenerationFinalizationError> {
         let maybe_active = {
@@ -821,17 +835,17 @@ impl TailtriageController {
                     ..
                 } => (Some(Arc::clone(active)), *next_generation),
                 ControllerLifecycle::Disabled { next_generation } => (None, *next_generation),
-                ControllerLifecycle::Shutdown { active, .. } => {
-                    return active
-                        .as_ref()
-                        .and_then(Self::replay_generation_result)
-                        .unwrap_or(Ok(()));
-                }
+                ControllerLifecycle::Shutdown {
+                    active,
+                    next_generation,
+                } => (active.clone(), *next_generation),
             };
-            *lifecycle = ControllerLifecycle::Shutdown {
-                active: active.clone(),
-                next_generation,
-            };
+            if !matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
+                *lifecycle = ControllerLifecycle::Shutdown {
+                    active: active.clone(),
+                    next_generation,
+                };
+            }
             active
         };
 
@@ -1868,10 +1882,11 @@ impl std::fmt::Display for ReplayedGenerationFinalization {
 
 impl std::error::Error for ReplayedGenerationFinalization {}
 
-/// Errors emitted while disarming and finalizing generation artifacts.
+/// Errors emitted while finalizing a generation.
 #[derive(Debug)]
 pub enum GenerationFinalizationError {
-    /// Artifact writing failed during generation finalization.
+    /// Generation finalization found retryable unfinished requests or failed to persist or
+    /// serialize the artifact.
     Finalize(tailtriage_core::ShutdownError),
 }
 
@@ -3469,6 +3484,12 @@ mod tests {
             ))
         ));
         assert!(matches!(
+            controller.shutdown(),
+            Err(super::GenerationFinalizationError::Finalize(
+                tailtriage_core::ShutdownError::UnfinishedRequests { count: 1 }
+            ))
+        ));
+        assert!(matches!(
             controller.status().generation,
             GenerationState::Shutdown
         ));
@@ -3489,6 +3510,68 @@ mod tests {
         ));
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    // TT-TEST: G03 primary
+    #[test]
+    fn concurrent_terminal_shutdown_waits_for_authoritative_finalization_result() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let sink = BlockingPrefixCollisionSink {
+            calls: Arc::clone(&calls),
+            entered_tx: Mutex::new(Some(entered_tx)),
+            release_rx: Mutex::new(release_rx),
+        };
+        let run = Arc::new(
+            Tailtriage::builder("checkout-service")
+                .sink(sink)
+                .build()
+                .expect("run should build"),
+        );
+        let (controller, _) = test_controller_with_run("concurrent-terminal-shutdown", run);
+
+        let first_controller = controller.clone();
+        let first = std::thread::spawn(move || first_controller.shutdown());
+        entered_rx.recv().expect("first shutdown should enter sink");
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Shutdown
+        ));
+
+        let (second_result_tx, second_result_rx) = mpsc::channel();
+        let second_controller = controller.clone();
+        let second = std::thread::spawn(move || {
+            let result = second_controller.shutdown();
+            second_result_tx
+                .send(result.as_ref().copied().map_err(ToString::to_string))
+                .expect("result receiver should exist");
+            result
+        });
+        assert!(
+            second_result_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
+            "second shutdown must wait for the finalization gate"
+        );
+
+        release_tx.send(()).expect("sink should release");
+        let first_error = first
+            .join()
+            .expect("first shutdown thread should join")
+            .expect_err("sink failure should be authoritative");
+        let second_error = second
+            .join()
+            .expect("second shutdown thread should join")
+            .expect_err("second shutdown should replay sink failure");
+        let reported_second = second_result_rx
+            .recv()
+            .expect("second result should be reported")
+            .expect_err("reported result should be a failure");
+
+        assert_eq!(second_error.to_string(), first_error.to_string());
+        assert_eq!(reported_second, first_error.to_string());
+        assert_eq!(calls.load(Ordering::Acquire), 1);
     }
 
     // TT-TEST: G03 primary
