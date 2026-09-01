@@ -4,8 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
-    MemorySink, Outcome, RequestOptions, RuntimeSamplerRegistrationError, ShutdownError,
-    Tailtriage,
+    MemorySink, Outcome, RequestOptions, ShutdownError, Tailtriage,
 };
 
 #[derive(Debug, Default)]
@@ -32,9 +31,19 @@ fn build_for_test(name: &str, filename: &str) -> Tailtriage {
 #[test]
 fn rejects_blank_service_name() {
     let err = Tailtriage::builder("   ")
+        .sink(crate::DiscardSink)
         .build()
         .expect_err("blank service_name should fail");
     assert_eq!(err, BuildError::EmptyServiceName);
+}
+
+// TT-TEST: support
+#[test]
+fn rejects_missing_sink_selection() {
+    let err = Tailtriage::builder("payments")
+        .build()
+        .expect_err("output intent must be explicit");
+    assert_eq!(err, BuildError::MissingSink);
 }
 
 // TT-TEST: C01 primary
@@ -75,9 +84,11 @@ fn generated_request_ids_are_unique() {
 #[test]
 fn generated_default_run_ids_are_unique() {
     let first = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("first build should succeed");
     let second = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("second build should succeed");
 
@@ -91,6 +102,7 @@ fn generated_default_run_ids_are_unique() {
 #[test]
 fn active_snapshot_has_no_finalization_timestamp() {
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("build should succeed");
 
@@ -112,7 +124,7 @@ fn serialized_completed_run_uses_schema_v2_finalization_shape() {
             .finalized_at_unix_ms(2),
     )
     .expect("builder")
-    .finish();
+    .build();
     let serialized = serde_json::to_value(&run).expect("run serializes");
     assert_eq!(serialized["schema_version"], serde_json::json!(2));
     assert_eq!(
@@ -150,7 +162,7 @@ fn runtime_snapshot_worker_count_serde_is_optional_and_schema_v2_compatible() {
 fn serialized_run_has_no_metadata_finished_at_unix_ms() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("builder")
-        .finish();
+        .build();
     let serialized = serde_json::to_value(&run).expect("run serializes");
     assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
@@ -159,6 +171,7 @@ fn serialized_run_has_no_metadata_finished_at_unix_ms() {
 #[test]
 fn explicit_run_id_is_preserved() {
     let run = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .run_id("user-supplied-run-id")
         .build()
         .expect("build should succeed");
@@ -527,6 +540,7 @@ fn memory_sink_stores_finalized_run_after_shutdown() {
 fn memory_sink_last_run_returns_clone_without_clearing() {
     let sink = MemorySink::new();
     let mut run = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("build should succeed")
         .snapshot();
@@ -543,6 +557,7 @@ fn memory_sink_last_run_returns_clone_without_clearing() {
 fn memory_sink_take_run_returns_and_clears() {
     let sink = MemorySink::new();
     let run = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("build should succeed")
         .snapshot();
@@ -556,6 +571,7 @@ fn memory_sink_take_run_returns_and_clears() {
 fn memory_sink_clear_removes_stored_run() {
     let sink = MemorySink::new();
     let run = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("build should succeed")
         .snapshot();
@@ -593,6 +609,7 @@ fn capture_limits_apply_to_all_sections() {
         max_runtime_snapshots: 1,
     };
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .capture_limits(limits)
         .build()
         .expect("build should succeed");
@@ -660,7 +677,8 @@ fn capture_limits_remains_full_override() {
         max_runtime_snapshots: 50,
     };
     let tailtriage = Tailtriage::builder("payments")
-        .investigation()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Investigation)
         .capture_limits_override(CaptureLimitsOverride {
             max_requests: Some(999),
             ..CaptureLimitsOverride::default()
@@ -679,7 +697,8 @@ fn capture_limits_remains_full_override() {
 #[test]
 fn capture_limits_override_applies_selected_fields_on_mode_defaults() {
     let tailtriage = Tailtriage::builder("payments")
-        .investigation()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Investigation)
         .capture_limits_override(CaptureLimitsOverride {
             max_requests: Some(12_345),
             max_runtime_snapshots: Some(88),
@@ -698,12 +717,14 @@ fn capture_limits_override_applies_selected_fields_on_mode_defaults() {
 #[test]
 fn strict_lifecycle_is_unchanged_by_mode() {
     let light = Tailtriage::builder("payments")
-        .light()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Light)
         .strict_lifecycle(true)
         .build()
         .expect("build should succeed");
     let investigation = Tailtriage::builder("payments")
-        .investigation()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Investigation)
         .strict_lifecycle(true)
         .build()
         .expect("build should succeed");
@@ -716,7 +737,8 @@ fn strict_lifecycle_is_unchanged_by_mode() {
 #[test]
 fn selected_mode_and_effective_config_are_preserved_in_metadata() {
     let tailtriage = Tailtriage::builder("payments")
-        .investigation()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Investigation)
         .capture_limits_override(CaptureLimitsOverride {
             max_queues: Some(7),
             ..CaptureLimitsOverride::default()
@@ -725,7 +747,7 @@ fn selected_mode_and_effective_config_are_preserved_in_metadata() {
         .expect("build should succeed");
 
     let snapshot = tailtriage.snapshot();
-    assert_eq!(tailtriage.selected_mode(), CaptureMode::Investigation);
+    assert_eq!(tailtriage.capture_mode(), CaptureMode::Investigation);
     assert_eq!(snapshot.metadata.mode, CaptureMode::Investigation);
     assert_eq!(
         snapshot.metadata.effective_core_config,
@@ -746,6 +768,7 @@ fn selected_mode_and_effective_config_are_preserved_in_metadata() {
 #[test]
 fn runtime_sampler_registration_is_single_start_and_metadata_cannot_be_overwritten() {
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .build()
         .expect("build should succeed");
     let first = EffectiveTokioSamplerConfig {
@@ -769,7 +792,10 @@ fn runtime_sampler_registration_is_single_start_and_metadata_cannot_be_overwritt
     let err = tailtriage
         .register_tokio_runtime_sampler(second)
         .expect_err("duplicate registration should fail");
-    assert_eq!(err, RuntimeSamplerRegistrationError::DuplicateStart);
+    assert_eq!(
+        err,
+        crate::collector::RuntimeSamplerRegistrationError::DuplicateStart
+    );
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(
@@ -782,6 +808,7 @@ fn runtime_sampler_registration_is_single_start_and_metadata_cannot_be_overwritt
 #[test]
 fn limit_hit_flag_is_set_when_truncation_occurs() {
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .capture_limits(CaptureLimits {
             max_requests: 1,
             max_stages: 1,
@@ -804,6 +831,7 @@ fn limit_hit_flag_is_set_when_truncation_occurs() {
 #[test]
 fn saturation_preserves_exact_drop_counts_across_sections() {
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .capture_limits(CaptureLimits {
             max_requests: 1,
             max_stages: 1,
@@ -1058,6 +1086,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
 #[test]
 fn unsaturated_runs_keep_zero_truncation_counters() {
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .capture_limits(CaptureLimits {
             max_requests: 10,
             max_stages: 10,
@@ -1100,11 +1129,13 @@ fn unsaturated_runs_keep_zero_truncation_counters() {
 #[test]
 fn mode_does_not_change_event_types_or_lifecycle_shape() {
     let light = Tailtriage::builder("payments")
-        .light()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Light)
         .build()
         .expect("build should succeed");
     let investigation = Tailtriage::builder("payments")
-        .investigation()
+        .sink(crate::DiscardSink)
+        .mode(CaptureMode::Investigation)
         .build()
         .expect("build should succeed");
 
@@ -1336,14 +1367,14 @@ fn owned_started_request_maps_result_to_request_outcome() {
     ));
 
     let ok_value = tailtriage
-        .begin_request_owned("/owned-result-ok")
+        .begin_owned_request("/owned-result-ok")
         .completion
         .finish_result(Ok::<u8, &'static str>(9))
         .expect("ok result should remain ok");
     assert_eq!(ok_value, 9);
 
     let err = tailtriage
-        .begin_request_owned("/owned-result-err")
+        .begin_owned_request("/owned-result-err")
         .completion
         .finish_result::<u8, _>(Err("boom"))
         .expect_err("err result should remain err");
@@ -1410,6 +1441,7 @@ fn shutdown_warns_with_unfinished_requests() {
 #[test]
 fn strict_lifecycle_fails_shutdown_with_unfinished_requests() {
     let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
         .strict_lifecycle(true)
         .build()
         .expect("build should succeed");
@@ -1500,7 +1532,7 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
             outcome: "ok".into(),
         })
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
 
     assert_eq!(run.schema_version, crate::SCHEMA_VERSION);
     assert_eq!(run.metadata.service_name, "payments");
@@ -1530,7 +1562,7 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
 #[test]
 fn run_builder_rejects_blank_service_name() {
     let err = crate::RunBuilder::new(crate::RunBuilderOptions::new("  ")).expect_err("should fail");
-    assert_eq!(err, BuildError::EmptyServiceName);
+    assert_eq!(err, crate::RunBuilderError::EmptyServiceName);
 }
 
 // TT-TEST: support
@@ -1538,10 +1570,10 @@ fn run_builder_rejects_blank_service_name() {
 fn run_builder_default_run_ids_are_unique() {
     let first = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
-        .finish();
+        .build();
     let second = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
-        .finish();
+        .build();
     assert_ne!(first.metadata.run_id, second.metadata.run_id);
 }
 
@@ -1550,7 +1582,7 @@ fn run_builder_default_run_ids_are_unique() {
 fn run_builder_defaults_host_and_pid_to_none() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
-        .finish();
+        .build();
     assert!(run.metadata.host.is_none());
     assert!(run.metadata.pid.is_none());
 }
@@ -1560,7 +1592,7 @@ fn run_builder_defaults_host_and_pid_to_none() {
 fn run_builder_defaults_start_and_finalization_from_one_timestamp() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
-        .finish();
+        .build();
     assert_eq!(
         run.metadata.finalized_at_unix_ms,
         Some(run.metadata.started_at_unix_ms)
@@ -1576,7 +1608,7 @@ fn run_builder_preserves_explicit_start_and_finalization() {
             .finalized_at_unix_ms(777),
     )
     .expect("ok")
-    .finish();
+    .build();
     assert_eq!(run.metadata.started_at_unix_ms, 100);
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
 }
@@ -1586,7 +1618,7 @@ fn run_builder_preserves_explicit_start_and_finalization() {
 fn run_builder_preserves_explicit_start_with_default_finalization() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").started_at_unix_ms(100))
         .expect("ok")
-        .finish();
+        .build();
     assert!(run.metadata.finalized_at_unix_ms.expect("finalized") >= 100);
 }
 
@@ -1596,7 +1628,7 @@ fn run_builder_preserves_explicit_finalization_with_default_start() {
     let run =
         crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").finalized_at_unix_ms(u64::MAX))
             .expect("ok")
-            .finish();
+            .build();
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(u64::MAX));
 }
 
@@ -1609,7 +1641,7 @@ fn run_builder_allows_equal_timestamp_bounds() {
             .finalized_at_unix_ms(100),
     )
     .expect("ok")
-    .finish();
+    .build();
 
     assert_eq!(run.metadata.started_at_unix_ms, 100);
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(100));
@@ -1627,7 +1659,7 @@ fn run_builder_rejects_finalization_before_start() {
 
     assert_eq!(
         err,
-        BuildError::InvalidFinalizationTime {
+        crate::RunBuilderError::InvalidFinalizationTime {
             started_at_unix_ms: 100,
             finalized_at_unix_ms: 99
         }
@@ -1639,7 +1671,7 @@ fn run_builder_rejects_finalization_before_start() {
 fn run_builder_default_timestamps_produce_valid_finalized_run() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
-        .finish();
+        .build();
 
     assert!(run.metadata.finalized_at_unix_ms.is_some());
     assert!(
@@ -1652,7 +1684,7 @@ fn run_builder_default_timestamps_produce_valid_finalized_run() {
 fn run_builder_strict_lifecycle_in_effective_core_config() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").strict_lifecycle(true))
         .expect("ok")
-        .finish();
+        .build();
     assert!(
         run.metadata
             .effective_core_config
@@ -1667,7 +1699,7 @@ fn run_builder_set_run_end_reason_if_absent_only_sets_once() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
     builder.set_run_end_reason_if_absent(crate::RunEndReason::Shutdown);
     builder.set_run_end_reason_if_absent(crate::RunEndReason::ManualDisarm);
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(
         run.metadata.run_end_reason,
         Some(crate::RunEndReason::Shutdown)
@@ -1680,7 +1712,7 @@ fn run_builder_preserves_lifecycle_warnings() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
     builder.add_lifecycle_warning("warning-1");
     builder.add_lifecycle_warning("warning-2");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(
         run.metadata.lifecycle_warnings,
         vec!["warning-1", "warning-2"]
@@ -1698,7 +1730,7 @@ fn run_builder_preserves_unfinished_requests() {
             route: "/r".into(),
         }],
     });
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.metadata.unfinished_requests.count, 2);
     assert_eq!(run.metadata.unfinished_requests.sample.len(), 1);
 }
@@ -1764,7 +1796,7 @@ fn run_builder_applies_request_limit_and_updates_truncation() {
     builder
         .push_request(test_request_event("req-2"))
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.requests[0].request_id, "req-1");
     assert_eq!(run.truncation.dropped_requests, 1);
@@ -1798,7 +1830,7 @@ fn run_builder_applies_stage_limit_and_updates_truncation() {
     builder
         .push_stage(test_stage_event("req-2", "stage-2"))
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.stages.len(), 1);
     assert_eq!(run.stages[0].stage, "stage-1");
     assert_eq!(run.truncation.dropped_stages, 1);
@@ -1832,7 +1864,7 @@ fn run_builder_applies_queue_limit_and_updates_truncation() {
     builder
         .push_queue(test_queue_event("req-2", "queue-2"))
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.queues.len(), 1);
     assert_eq!(run.queues[0].queue, "queue-1");
     assert_eq!(run.truncation.dropped_queues, 1);
@@ -1873,7 +1905,7 @@ fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
             count: 2,
         })
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.inflight.len(), 1);
     assert_eq!(run.inflight[0].count, 1);
     assert_eq!(run.truncation.dropped_inflight_snapshots, 1);
@@ -1922,7 +1954,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
             remote_schedule_count: Some(6),
         })
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.runtime_snapshots.len(), 1);
     assert_eq!(run.runtime_snapshots[0].at_unix_ms, 9);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
@@ -1976,7 +2008,7 @@ fn run_builder_does_not_report_truncation_within_limits() {
             remote_schedule_count: Some(1),
         })
         .expect("ok");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.stages.len(), 1);
     assert_eq!(run.queues.len(), 1);
@@ -2003,7 +2035,7 @@ fn run_builder_uses_mode_default_limits_when_limits_not_explicit() {
             .push_request(test_request_event(&format!("req-{}", i + 1)))
             .expect("ok");
     }
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.requests.len(), default_limits.max_requests);
     assert_eq!(run.truncation.dropped_requests, 2);
     assert!(run.truncation.limits_hit);
@@ -2039,6 +2071,33 @@ fn run_builder_valid_pushes_return_ok() {
             remote_schedule_count: None,
         })
         .is_ok());
+}
+
+// TT-TEST: V04 secondary
+#[test]
+fn run_builder_rejects_zero_worker_count_before_retention() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let err = builder
+        .push_runtime_snapshot(crate::RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: None,
+            alive_tasks: None,
+            worker_count: Some(0),
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        })
+        .expect_err("zero worker count is intrinsically invalid");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "RuntimeSnapshot",
+            field: "worker_count",
+            reason: "must be greater than zero when present".into(),
+        }
+    );
+    assert!(builder.build().runtime_snapshots.is_empty());
 }
 
 // TT-TEST: support
@@ -2199,7 +2258,7 @@ fn run_builder_accepts_incomplete_run_relative_offsets() {
     queue.waited_until_run_us = None;
     builder.push_queue(queue).expect("queue accepted");
 
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.requests[0].started_at_run_us, None);
     assert_eq!(run.requests[0].finished_at_run_us, None);
     assert_eq!(run.stages[0].started_at_run_us, None);
@@ -2219,7 +2278,7 @@ fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() 
     request.latency_us = 50_000;
 
     builder.push_request(request).expect("push should succeed");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.requests[0].latency_us, 50_000);
 }
@@ -2238,7 +2297,7 @@ fn run_builder_accepts_authoritative_stage_latency_when_timestamps_disagree() {
     stage.latency_us = 50_000;
 
     builder.push_stage(stage).expect("push should succeed");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.stages.len(), 1);
     assert_eq!(run.stages[0].latency_us, 50_000);
 }
@@ -2257,7 +2316,7 @@ fn run_builder_accepts_authoritative_queue_wait_when_timestamps_disagree() {
     queue.wait_us = 50_000;
 
     builder.push_queue(queue).expect("push should succeed");
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.queues.len(), 1);
     assert_eq!(run.queues[0].wait_us, 50_000);
 }
@@ -2670,7 +2729,7 @@ mod run_validation_contract {
             .push_queue(queue("missing-queue-parent"))
             .expect("queue");
 
-        let run = builder.finish();
+        let run = builder.build();
 
         assert!(run.stages.is_empty());
         assert!(run.queues.is_empty());
@@ -3238,7 +3297,7 @@ fn owned_completion_drop_records_cancelled_request() {
             .expect("build"),
     );
     {
-        let started = tailtriage.begin_request_with_owned(
+        let started = tailtriage.begin_owned_request_with(
             "/owned-cancel",
             RequestOptions::new().request_id("req-owned").kind("job"),
         );
@@ -3400,7 +3459,7 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
             .build()
             .expect("build"),
     );
-    let started = tailtriage.begin_request_with_owned(
+    let started = tailtriage.begin_owned_request_with(
         "/held",
         RequestOptions::new().request_id("req-held-unfinished"),
     );
@@ -4097,7 +4156,7 @@ mod prompt09_partial_events {
         assert!(poll_once(&mut fut).is_pending());
         drop(fut);
 
-        let owned_stage = tt.begin_request_with_owned(
+        let owned_stage = tt.begin_owned_request_with(
             "/r",
             RequestOptions::new().request_id("owned-stage-request"),
         );
@@ -4109,7 +4168,7 @@ mod prompt09_partial_events {
         assert!(poll_once(&mut fut).is_pending());
         drop(fut);
 
-        let owned_queue = tt.begin_request_with_owned(
+        let owned_queue = tt.begin_owned_request_with(
             "/r",
             RequestOptions::new().request_id("owned-queue-request"),
         );

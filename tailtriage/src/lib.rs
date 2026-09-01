@@ -41,7 +41,8 @@ mod tests {
     // TT-TEST: P01 primary
     #[test]
     fn core_reexport_exposes_tailtriage() {
-        let _builder = crate::Tailtriage::builder("default-smoke");
+        let _builder =
+            crate::Tailtriage::builder("default-smoke").sink(tailtriage_core::DiscardSink);
     }
 
     // TT-TEST: P01 primary
@@ -50,6 +51,7 @@ mod tests {
     fn tokio_namespace_reexport_compiles() {
         let _builder = crate::tokio::RuntimeSampler::builder(std::sync::Arc::new(
             crate::Tailtriage::builder("tokio-smoke")
+                .sink(tailtriage_core::DiscardSink)
                 .build()
                 .expect("build should succeed"),
         ));

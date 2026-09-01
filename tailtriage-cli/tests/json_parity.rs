@@ -511,6 +511,7 @@ fn canonical_tracing_conversion_matches_core_for_supported_cases() {
 #[test]
 fn native_run_is_strict_valid_and_normalization_idempotent() {
     let tailtriage = Tailtriage::builder("native-svc")
+        .sink(tailtriage_core::DiscardSink)
         .build()
         .expect("tailtriage should build");
     let started = tailtriage.begin_request_with(
@@ -566,6 +567,7 @@ fn native_run_is_strict_valid_and_normalization_idempotent() {
 #[test]
 fn native_derived_missing_precision_keeps_duration_evidence_without_lifecycle_mutation() {
     let tailtriage = Tailtriage::builder("native-svc")
+        .sink(tailtriage_core::DiscardSink)
         .build()
         .expect("tailtriage should build");
     let started = tailtriage.begin_request_with(

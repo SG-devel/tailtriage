@@ -249,8 +249,8 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
             let sink = MemorySink::new();
             let mut b = Tailtriage::builder("runtime_cost_demo").sink(sink.clone());
             b = match mode {
-                CaptureMode::Light => b.light(),
-                CaptureMode::Investigation => b.investigation(),
+                CaptureMode::Light => b.mode(CaptureMode::Light),
+                CaptureMode::Investigation => b.mode(CaptureMode::Investigation),
             };
             if cli.mode.uses_drop_path_limits() {
                 b = b.capture_limits_override(CaptureLimitsOverride {

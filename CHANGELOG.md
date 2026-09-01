@@ -4,6 +4,14 @@
 
 ### Changed
 
+### 0.4 core API migration
+
+- Direct `Tailtriage::builder(...)` capture now requires `.output(...)` or `.sink(...)`; omission returns `BuildError::MissingSink` instead of implicitly writing `tailtriage-run.json`.
+- Replace `.light()` / `.investigation()` with `.mode(CaptureMode::Light)` / `.mode(CaptureMode::Investigation)`, and `selected_mode()` with `capture_mode()`.
+- Replace `begin_request_owned` / `begin_request_with_owned` with `begin_owned_request` / `begin_owned_request_with`.
+- `RunBuilder::new` now returns `RunBuilderError`, and completed assembly uses `RunBuilder::build()` instead of `finish()`. Invalid zero worker counts are rejected by `push_runtime_snapshot` before retention.
+- Core runtime-sampler registration plumbing and the audience-selecting validation-summary helper are no longer supported root APIs; use the Tokio sampler startup errors and the two purpose-specific validation summary functions.
+
 - Split direct shutdown failures into `ShutdownError::UnfinishedRequests` and
   `ShutdownError::Sink`, narrowing `SinkError` to sink-produced failures. Consolidated controller
   `DisableError`/`ShutdownError` into `GenerationFinalizationError`, renamed status

@@ -69,7 +69,7 @@ where
     C: Fn(StatusCode) -> Outcome,
 {
     let route = request_route_label(&request);
-    let started = tailtriage.begin_request_with_owned(route, RequestOptions::new().kind("http"));
+    let started = tailtriage.begin_owned_request_with(route, RequestOptions::new().kind("http"));
 
     request
         .extensions_mut()

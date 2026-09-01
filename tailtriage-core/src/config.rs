@@ -173,7 +173,7 @@ pub(crate) struct Config {
     pub service_version: Option<String>,
     pub run_id: Option<String>,
     pub mode: CaptureMode,
-    pub sink: Arc<dyn RunSink + Send + Sync>,
+    pub sink: Option<Arc<dyn RunSink + Send + Sync>>,
     pub effective_core: EffectiveCoreConfig,
     pub strict_lifecycle: bool,
 }
@@ -196,7 +196,7 @@ impl Config {
             service_version: builder.service_version.clone(),
             run_id: builder.run_id.clone(),
             mode: builder.mode,
-            sink: Arc::clone(&builder.sink),
+            sink: builder.sink.clone(),
             effective_core,
             strict_lifecycle: builder.strict_lifecycle,
         }
@@ -208,26 +208,15 @@ impl Config {
 pub enum BuildError {
     /// Service name was empty.
     EmptyServiceName,
-    /// Finalization timestamp was earlier than start timestamp.
-    InvalidFinalizationTime {
-        /// Start timestamp in unix milliseconds.
-        started_at_unix_ms: u64,
-        /// Finalization timestamp in unix milliseconds.
-        finalized_at_unix_ms: u64,
-    },
+    /// No output path or custom sink was selected.
+    MissingSink,
 }
 
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
-            Self::InvalidFinalizationTime {
-                started_at_unix_ms,
-                finalized_at_unix_ms,
-            } => write!(
-                f,
-                "invalid finalization timestamp: finalized_at_unix_ms ({finalized_at_unix_ms}) must be >= started_at_unix_ms ({started_at_unix_ms})"
-            ),
+            Self::MissingSink => write!(f, "an output path or sink must be selected"),
         }
     }
 }
@@ -241,7 +230,7 @@ pub struct TailtriageBuilder {
     pub(crate) service_version: Option<String>,
     pub(crate) run_id: Option<String>,
     pub(crate) mode: CaptureMode,
-    pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
+    pub(crate) sink: Option<Arc<dyn RunSink + Send + Sync>>,
     pub(crate) capture_limits: Option<CaptureLimits>,
     pub(crate) capture_limits_override: CaptureLimitsOverride,
     pub(crate) strict_lifecycle: bool,
@@ -254,37 +243,26 @@ impl TailtriageBuilder {
             service_version: None,
             run_id: None,
             mode: CaptureMode::Light,
-            sink: Arc::new(LocalJsonSink::new("tailtriage-run.json")),
+            sink: None,
             capture_limits: None,
             capture_limits_override: CaptureLimitsOverride::default(),
             strict_lifecycle: false,
         }
     }
 
-    /// Sets capture mode to [`CaptureMode::Light`].
-    ///
-    /// Light mode is the default and favors lower runtime cost in core-only capture categories with enough signal for first-pass triage.
+    /// Sets the capture mode. [`CaptureMode::Light`] is the default.
     #[must_use]
-    pub fn light(mut self) -> Self {
-        self.mode = CaptureMode::Light;
-        self
-    }
-
-    /// Sets capture mode to [`CaptureMode::Investigation`].
-    ///
-    /// Use this mode when you need more detailed evidence during an incident.
-    #[must_use]
-    pub fn investigation(mut self) -> Self {
-        self.mode = CaptureMode::Investigation;
+    pub fn mode(mut self, mode: CaptureMode) -> Self {
+        self.mode = mode;
         self
     }
 
     /// Writes run output to a local JSON file sink at `output_path`.
     ///
-    /// The default output path is `tailtriage-run.json`.
+    /// An output path or custom sink must be selected before [`Self::build`].
     #[must_use]
     pub fn output(mut self, output_path: impl AsRef<Path>) -> Self {
-        self.sink = Arc::new(LocalJsonSink::new(output_path));
+        self.sink = Some(Arc::new(LocalJsonSink::new(output_path)));
         self
     }
 
@@ -294,7 +272,7 @@ impl TailtriageBuilder {
     where
         S: RunSink + Send + Sync + 'static,
     {
-        self.sink = Arc::new(sink);
+        self.sink = Some(Arc::new(sink));
         self
     }
 
@@ -347,7 +325,15 @@ impl TailtriageBuilder {
     /// # Errors
     ///
     /// Returns [`BuildError::EmptyServiceName`] when the configured service name is blank.
+    /// Returns [`BuildError::MissingSink`] when neither [`Self::output`] nor [`Self::sink`]
+    /// was selected.
     pub fn build(self) -> Result<crate::Tailtriage, BuildError> {
+        if self.service_name.trim().is_empty() {
+            return Err(BuildError::EmptyServiceName);
+        }
+        if self.sink.is_none() {
+            return Err(BuildError::MissingSink);
+        }
         crate::Tailtriage::from_config(Config::from_builder(&self))
     }
 }

@@ -82,7 +82,7 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
     let run = Arc::new(
         Tailtriage::builder("checkout-service")
             .output("tailtriage-run.json")
-            .investigation()
+            .mode(CaptureMode::Investigation)
             .build()?,
     );
 
@@ -186,7 +186,7 @@ use tailtriage_tokio::RuntimeSampler;
 # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 let run = Arc::new(
     Tailtriage::builder("checkout-service")
-        .light()
+        .mode(CaptureMode::Light)
         .output("tailtriage-run.json")
         .build()?,
 );
@@ -209,7 +209,7 @@ use tailtriage_tokio::RuntimeSampler;
 # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 let run = Arc::new(
     Tailtriage::builder("checkout-service")
-        .investigation()
+        .mode(CaptureMode::Investigation)
         .output("tailtriage-run.json")
         .build()?,
 );

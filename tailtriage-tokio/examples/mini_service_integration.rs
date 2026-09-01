@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{RequestOptions, Tailtriage};
+use tailtriage_core::{CaptureMode, RequestOptions, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 
 #[derive(Clone)]
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tailtriage = Arc::new(
         Tailtriage::builder("mini-checkout-service")
             .output(output_path)
-            .investigation()
+            .mode(CaptureMode::Investigation)
             .build()?,
     );
     let requests = [

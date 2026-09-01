@@ -150,11 +150,8 @@ impl TailtriageControllerBuilder {
             },
             loaded,
         )
-        .map_err(|error| match error {
-            BuildError::EmptyServiceName => ControllerBuildError::EmptyServiceName,
-            BuildError::InvalidFinalizationTime { .. } => {
-                unreachable!("pure controller template validation does not validate timestamps")
-            }
+        .map_err(|ControllerTemplateError::EmptyServiceName| {
+            ControllerBuildError::EmptyServiceName
         })?;
 
         let inner = Arc::new(ControllerInner {
@@ -192,10 +189,27 @@ struct ResolvedControllerTemplate {
     public: TailtriageControllerTemplate,
 }
 
+/// Errors emitted by controller activation-template validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControllerTemplateError {
+    /// Service name was empty.
+    EmptyServiceName,
+}
+
+impl std::fmt::Display for ControllerTemplateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+        }
+    }
+}
+
+impl std::error::Error for ControllerTemplateError {}
+
 fn resolve_controller_template(
     mut template: TailtriageControllerTemplate,
     loaded: Option<LoadedControllerConfig>,
-) -> Result<ResolvedControllerTemplate, BuildError> {
+) -> Result<ResolvedControllerTemplate, ControllerTemplateError> {
     if let Some(loaded) = loaded {
         template.service_name = loaded.service_name.unwrap_or(template.service_name);
         let activation = loaded.activation_template;
@@ -207,7 +221,7 @@ fn resolve_controller_template(
         template.run_end_policy = activation.run_end_policy;
     }
     if template.service_name.trim().is_empty() {
-        return Err(BuildError::EmptyServiceName);
+        return Err(ControllerTemplateError::EmptyServiceName);
     }
     Ok(ResolvedControllerTemplate { public: template })
 }
@@ -529,8 +543,8 @@ impl TailtriageController {
             .output(&artifact_path);
 
         builder = match template.selected_mode {
-            CaptureMode::Light => builder.light(),
-            CaptureMode::Investigation => builder.investigation(),
+            CaptureMode::Light => builder.mode(CaptureMode::Light),
+            CaptureMode::Investigation => builder.mode(CaptureMode::Investigation),
         };
         builder = builder.capture_limits_override(template.capture_limits_override);
         builder = builder.strict_lifecycle(template.strict_lifecycle);
@@ -747,7 +761,7 @@ impl TailtriageController {
                         // this gate.
                         let _refused = active
                             .run
-                            .begin_request_with_owned(route.clone(), options.clone());
+                            .begin_owned_request_with(route.clone(), options.clone());
                     } else {
                         // Admission is linearized with every controller closure path by the
                         // generation admission gate. The core pair is created before the
@@ -755,7 +769,7 @@ impl TailtriageController {
                         // the caller until both steps complete.
                         let started = active
                             .run
-                            .begin_request_with_owned(route.clone(), options.clone());
+                            .begin_owned_request_with(route.clone(), options.clone());
                         // Request capacity is monotonic for a run: pending requests become
                         // retained requests without releasing a slot. Controller-owned
                         // production admissions are serialized here, while core independently
@@ -1774,7 +1788,7 @@ pub enum ReloadConfigError {
     /// Loading/parsing TOML config failed.
     Load(ConfigLoadError),
     /// Parsed config produced an invalid activation template.
-    Validate(BuildError),
+    Validate(ControllerTemplateError),
 }
 
 impl std::fmt::Display for ReloadConfigError {
@@ -1808,7 +1822,7 @@ pub enum ReloadTemplateError {
     /// The controller has entered its terminal shutdown state.
     ControllerShutdown,
     /// Template failed controller-owned validation.
-    Validate(BuildError),
+    Validate(ControllerTemplateError),
 }
 
 impl std::fmt::Display for ReloadTemplateError {
@@ -4219,7 +4233,7 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
         assert!(matches!(
             controller.reload_template(invalid),
             Err(ReloadTemplateError::Validate(
-                super::BuildError::EmptyServiceName
+                super::ControllerTemplateError::EmptyServiceName
             ))
         ));
         assert_eq!(controller.status(), before);
@@ -4306,7 +4320,7 @@ kind = "continue_after_limits_hit"
         assert!(matches!(
             controller.reload_config(),
             Err(ReloadConfigError::Validate(
-                super::BuildError::EmptyServiceName
+                super::ControllerTemplateError::EmptyServiceName
             ))
         ));
         assert_eq!(controller.status(), before);

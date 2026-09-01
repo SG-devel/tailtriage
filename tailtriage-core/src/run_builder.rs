@@ -1,7 +1,7 @@
 use crate::{
-    collector::generate_run_id, unix_time_ms, BuildError, CaptureLimits, CaptureMode,
-    EffectiveCoreConfig, EffectiveTokioSamplerConfig, InFlightSnapshot, QueueEvent, RequestEvent,
-    Run, RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, UnfinishedRequests,
+    collector::generate_run_id, unix_time_ms, CaptureLimits, CaptureMode, EffectiveCoreConfig,
+    EffectiveTokioSamplerConfig, InFlightSnapshot, QueueEvent, RequestEvent, Run, RunEndReason,
+    RunMetadata, RuntimeSnapshot, StageEvent, UnfinishedRequests,
 };
 use core::fmt;
 
@@ -145,6 +145,34 @@ impl fmt::Display for RunBuilderEventError {
 
 impl std::error::Error for RunBuilderEventError {}
 
+/// Errors emitted while creating a completed-run builder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunBuilderError {
+    /// Service name was empty.
+    EmptyServiceName,
+    /// Finalization timestamp was earlier than start timestamp.
+    InvalidFinalizationTime {
+        /// Start timestamp in unix milliseconds.
+        started_at_unix_ms: u64,
+        /// Finalization timestamp in unix milliseconds.
+        finalized_at_unix_ms: u64,
+    },
+}
+
+impl fmt::Display for RunBuilderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::InvalidFinalizationTime { started_at_unix_ms, finalized_at_unix_ms } => write!(
+                f,
+                "invalid finalization timestamp: finalized_at_unix_ms ({finalized_at_unix_ms}) must be >= started_at_unix_ms ({started_at_unix_ms})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RunBuilderError {}
+
 /// Advanced/import API for completed-run artifact assembly.
 ///
 /// [`RunBuilder`] assembles a finalized [`Run`] from already measured evidence.
@@ -169,13 +197,13 @@ impl RunBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`BuildError::EmptyServiceName`] when the service name is blank.
+    /// Returns [`RunBuilderError::EmptyServiceName`] when the service name is blank.
     ///
-    /// Returns [`BuildError::InvalidFinalizationTime`] when finalization
+    /// Returns [`RunBuilderError::InvalidFinalizationTime`] when finalization
     /// timestamp is earlier than start timestamp.
-    pub fn new(options: RunBuilderOptions) -> Result<Self, BuildError> {
+    pub fn new(options: RunBuilderOptions) -> Result<Self, RunBuilderError> {
         if options.service_name.trim().is_empty() {
-            return Err(BuildError::EmptyServiceName);
+            return Err(RunBuilderError::EmptyServiceName);
         }
 
         let mode = options.mode.unwrap_or(CaptureMode::Light);
@@ -188,7 +216,7 @@ impl RunBuilder {
         let finalized_at_unix_ms = Some(finalized_at_unix_ms_value);
 
         if finalized_at_unix_ms_value < started_at_unix_ms {
-            return Err(BuildError::InvalidFinalizationTime {
+            return Err(RunBuilderError::InvalidFinalizationTime {
                 started_at_unix_ms,
                 finalized_at_unix_ms: finalized_at_unix_ms_value,
             });
@@ -286,14 +314,19 @@ impl RunBuilder {
     ///
     /// # Errors
     ///
-    /// Currently returns `Ok(())` for all runtime snapshots. The `Result`
-    /// keeps this API consistent with other [`RunBuilder`] push methods and
-    /// leaves room for future runtime snapshot validation without changing
-    /// the method shape.
+    /// Returns [`RunBuilderEventError`] when the snapshot has invalid intrinsic shape,
+    /// including a zero worker count.
     pub fn push_runtime_snapshot(
         &mut self,
         snapshot: RuntimeSnapshot,
     ) -> Result<(), RunBuilderEventError> {
+        if snapshot.worker_count == Some(0) {
+            return Err(invalid_event(
+                "RuntimeSnapshot",
+                "worker_count",
+                "must be greater than zero when present",
+            ));
+        }
         let _ = crate::retention::push_runtime_snapshot_bounded(
             &mut self.run,
             self.capture_limits,
@@ -324,7 +357,7 @@ impl RunBuilder {
     /// This does not perform lifecycle validation or synthesize missing
     /// completions.
     #[must_use]
-    pub fn finish(self) -> Run {
+    pub fn build(self) -> Run {
         let normalized = crate::normalize_run_permissive(&self.run);
         let warnings = crate::summarize_run_validation_lifecycle(&normalized);
         let mut run = normalized.run;

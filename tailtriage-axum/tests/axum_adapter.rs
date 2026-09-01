@@ -119,6 +119,7 @@ async fn middleware_injects_request_handle_and_finishes_from_response_status() {
 async fn middleware_records_default_http_outcomes_in_snapshot() {
     let tailtriage = Arc::new(
         Tailtriage::builder("axum-adapter-outcomes-test")
+            .sink(tailtriage_core::DiscardSink)
             .build()
             .expect("build should succeed"),
     );
@@ -179,6 +180,7 @@ async fn middleware_records_default_http_outcomes_in_snapshot() {
 async fn configurable_middleware_classifier_changes_recorded_outcome() {
     let tailtriage = Arc::new(
         Tailtriage::builder("axum-adapter-custom-classifier-test")
+            .sink(tailtriage_core::DiscardSink)
             .build()
             .expect("build should succeed"),
     );
