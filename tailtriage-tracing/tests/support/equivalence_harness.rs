@@ -229,7 +229,7 @@ pub fn build_native_case_with_limits(name: &str, limits: CaptureLimits) -> Run {
     for event in source.queues {
         builder.push_queue(event).unwrap();
     }
-    builder.finish()
+    builder.build()
 }
 
 pub fn expected_run(name: &str) -> RepresentableRunProjection {

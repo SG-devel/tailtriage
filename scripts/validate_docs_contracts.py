@@ -485,6 +485,42 @@ def validate_residual_public_api_cleanup() -> None:
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
 
+    forbidden_public_patterns = {
+        REPO_ROOT / "tailtriage-core" / "src" / "config.rs": (
+            ("TailtriageBuilder::light", r"\bpub\s+fn\s+light\s*\("),
+            ("TailtriageBuilder::investigation", r"\bpub\s+fn\s+investigation\s*\("),
+        ),
+        REPO_ROOT / "tailtriage-core" / "src" / "collector.rs": (
+            ("Tailtriage::selected_mode", r"\bpub\s+(?:const\s+)?fn\s+selected_mode\s*\("),
+            ("Tailtriage::begin_request_owned", r"\bpub\s+fn\s+begin_request_owned\s*\("),
+            ("Tailtriage::begin_request_with_owned", r"\bpub\s+fn\s+begin_request_with_owned\s*\("),
+        ),
+        REPO_ROOT / "tailtriage-core" / "src" / "run_builder.rs": (
+            ("RunBuilder::finish", r"\bpub\s+fn\s+finish\s*\([^)]*\)\s*->\s*Run\b"),
+        ),
+        REPO_ROOT / "tailtriage-core" / "src" / "lib.rs": (
+            (
+                "RuntimeSamplerRegistrationError",
+                r"\bpub\s+use\s+collector\s*::\s*(?:[^;]*\bRuntimeSamplerRegistrationError\b)",
+            ),
+            (
+                "RunValidationSummaryAudience",
+                r"\bpub\s+use\s+validation\s*::\s*(?:[^;]*\bRunValidationSummaryAudience\b)",
+            ),
+            (
+                "summarize_normalized_run",
+                r"\bpub\s+use\s+validation\s*::\s*(?:[^;]*\bsummarize_normalized_run\b)",
+            ),
+        ),
+    }
+    for path, forbidden in forbidden_public_patterns.items():
+        text = path.read_text(encoding="utf-8")
+        for symbol, pattern in forbidden:
+            if re.search(pattern, text, re.DOTALL):
+                raise ValueError(
+                    f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
+                )
+
 
 def find_public_sampler_forge_methods(source: str) -> list[str]:
     return re.findall(r"^\s*pub\s+fn\s+([A-Za-z0-9_]*sampler[A-Za-z0-9_]*)\s*\(", source, re.MULTILINE)

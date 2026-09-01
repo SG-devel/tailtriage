@@ -81,7 +81,10 @@ pub struct Run {
 }
 
 impl Run {
-    /// Creates an empty run with the provided metadata.
+    /// Creates a raw, empty Run data model with the provided metadata.
+    ///
+    /// This constructor does not validate a completed artifact. Use [`crate::RunBuilder`] as
+    /// the canonical advanced path for assembling completed artifacts.
     #[must_use]
     pub fn new(metadata: RunMetadata) -> Self {
         Self {

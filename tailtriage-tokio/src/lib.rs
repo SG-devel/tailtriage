@@ -13,8 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig,
-    RuntimeSamplerRegistrationError, RuntimeSnapshot, Tailtriage,
+    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSnapshot, Tailtriage,
 };
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
@@ -582,9 +581,7 @@ impl RuntimeSamplerBuilder {
             &self.tailtriage,
             resolved.into_effective_metadata(),
         )
-        .map_err(|err| match err {
-            RuntimeSamplerRegistrationError::DuplicateStart => SamplerStartError::DuplicateStart,
-        })?;
+        .map_err(|__internal::DuplicateRuntimeSampler| SamplerStartError::DuplicateStart)?;
 
         let tailtriage = Arc::clone(&self.tailtriage);
         let (stop_tx, mut stop_rx) = oneshot::channel();
@@ -620,7 +617,7 @@ impl RuntimeSamplerBuilder {
     }
 
     fn resolve_config(&self) -> Result<ResolvedRuntimeSamplerConfig, SamplerStartError> {
-        let inherited_mode = self.tailtriage.selected_mode();
+        let inherited_mode = self.tailtriage.capture_mode();
         let resolved_mode = self.explicit_mode_override.unwrap_or(inherited_mode);
         let mode_defaults = TokioSamplerModeDefaults::for_mode(resolved_mode);
         let resolved_interval = self.interval_override.unwrap_or(mode_defaults.cadence);
@@ -819,7 +816,7 @@ mod tests {
         let tailtriage = Arc::new(
             Tailtriage::builder("runtime-test")
                 .output(std::env::temp_dir().join("tailtriage_tokio_inherit_light.json"))
-                .light()
+                .mode(CaptureMode::Light)
                 .build()
                 .expect("build should succeed"),
         );
@@ -852,7 +849,7 @@ mod tests {
         let tailtriage = Arc::new(
             Tailtriage::builder("runtime-test")
                 .output(std::env::temp_dir().join("tailtriage_tokio_inherit_investigation.json"))
-                .investigation()
+                .mode(CaptureMode::Investigation)
                 .build()
                 .expect("build should succeed"),
         );
@@ -885,7 +882,7 @@ mod tests {
         let tailtriage = Arc::new(
             Tailtriage::builder("runtime-test")
                 .output(std::env::temp_dir().join("tailtriage_tokio_mode_override.json"))
-                .light()
+                .mode(CaptureMode::Light)
                 .build()
                 .expect("build should succeed"),
         );
@@ -1085,7 +1082,7 @@ mod tests {
     async fn sampler_does_not_autostart_from_capture_mode() {
         let tailtriage = Tailtriage::builder("runtime-test")
             .output(std::env::temp_dir().join("tailtriage_tokio_no_autostart.json"))
-            .investigation()
+            .mode(CaptureMode::Investigation)
             .build()
             .expect("build should succeed");
 
@@ -1501,7 +1498,7 @@ mod helper_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn owned_request_handle_works_and_helpers_do_not_finish_request() {
         let run = Arc::new(run());
-        let started = run.begin_request_owned("/owned");
+        let started = run.begin_owned_request("/owned");
         let owned = started.handle.clone();
         let sem = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = owned
@@ -1758,7 +1755,7 @@ mod prompt09_tokio_partial_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn owned_handle_stage_helper_pending_then_drop_records_partial_stage() {
         let tt = Arc::new(capture());
-        let started = tt.begin_request_owned("/r");
+        let started = tt.begin_owned_request("/r");
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             let _ = rx.await;

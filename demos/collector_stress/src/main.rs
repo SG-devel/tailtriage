@@ -365,8 +365,8 @@ fn build_instrumentation(cli: &Cli) -> anyhow::Result<Instrumentation> {
 
     let mut builder = Tailtriage::builder("collector_stress_demo").output(artifact_path.clone());
     builder = match capture_mode {
-        CaptureMode::Light => builder.light(),
-        CaptureMode::Investigation => builder.investigation(),
+        CaptureMode::Light => builder.mode(CaptureMode::Light),
+        CaptureMode::Investigation => builder.mode(CaptureMode::Investigation),
     };
 
     let tailtriage = Arc::new(builder.build()?);

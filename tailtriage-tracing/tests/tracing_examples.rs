@@ -12,6 +12,7 @@ use tracing_subscriber::prelude::*;
 #[cfg(feature = "live")]
 fn native_single_request_run() -> Run {
     let tailtriage = Tailtriage::builder("svc")
+        .sink(tailtriage_core::DiscardSink)
         .build()
         .expect("native session should build");
     let started = tailtriage.begin_request_with(

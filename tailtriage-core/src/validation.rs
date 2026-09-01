@@ -213,7 +213,7 @@ pub fn normalize_run_permissive(run: &Run) -> NormalizedRun {
 
 /// Audience for canonical run validation summaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RunValidationSummaryAudience {
+enum RunValidationSummaryAudience {
     /// Analyzer-facing warnings include unchanged legacy precision limitations.
     Analyzer,
     /// Durable lifecycle warnings include only output-changing findings.
@@ -236,7 +236,7 @@ pub fn summarize_run_validation_lifecycle(normalized: &NormalizedRun) -> Vec<Str
 
 /// Returns bounded deterministic validation summaries for the selected audience.
 #[must_use]
-pub fn summarize_normalized_run(
+fn summarize_normalized_run(
     normalized: &NormalizedRun,
     audience: RunValidationSummaryAudience,
 ) -> Vec<String> {

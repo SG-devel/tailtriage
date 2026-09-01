@@ -29,6 +29,8 @@ Use `tailtriage` when you want the recommended default entry point: an aggregato
 cargo add tailtriage-core
 ```
 
+Direct capture requires an explicit output strategy: choose `.output(...)` for a persisted artifact, `.sink(MemorySink)` for in-memory inspection, or `.sink(DiscardSink)` when output is intentionally discarded. A bare builder returns `BuildError::MissingSink`; it never writes to the current directory implicitly.
+
 ## Quick start
 
 ```rust,no_run
@@ -54,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `started.handle` for queue/stage/inflight instrumentation
 - `started.completion` for explicit finish
 
-For `Arc<Tailtriage>` flows that move request handles across spawned tasks or helper layers, use `begin_request_owned(...)` / `begin_request_with_owned(...)`. Owned handles keep the same lifecycle rule: instrumentation does not finish the request, and the completion token must be finished exactly once.
+For `Arc<Tailtriage>` flows that move request handles across spawned tasks or helper layers, use `begin_owned_request(...)` / `begin_owned_request_with(...)`. Owned handles keep the same lifecycle rule: instrumentation does not finish the request, and the completion token must be finished exactly once.
 
 ```rust,no_run
 use tailtriage_core::{RequestOptions, Tailtriage};
@@ -207,7 +209,7 @@ fn assemble_run() -> Result<(), Box<dyn std::error::Error>> {
         outcome: "ok".into(),
     })?;
 
-    let run = builder.finish();
+    let run = builder.build();
     assert_eq!(run.requests.len(), 1);
     Ok(())
 }

@@ -41,7 +41,7 @@ mod validation;
 pub use artifact::{decode_run_json_path, RunJsonDecodeError};
 pub use collector::{
     OwnedRequestCompletion, OwnedRequestHandle, OwnedStartedRequest, RequestCompletion,
-    RequestHandle, RuntimeSamplerRegistrationError, ShutdownError, StartedRequest, Tailtriage,
+    RequestHandle, ShutdownError, StartedRequest, Tailtriage,
 };
 pub use config::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveCoreConfig,
@@ -52,24 +52,26 @@ pub use events::{
     RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, TruncationSummary,
     UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
 };
-pub use run_builder::{RunBuilder, RunBuilderEventError, RunBuilderOptions};
+pub use run_builder::{RunBuilder, RunBuilderError, RunBuilderEventError, RunBuilderOptions};
 pub use sink::{DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};
 pub use timers::{InflightGuard, QueueTimer, StageTimer};
 pub use validation::{
-    inspect_run, normalize_run_permissive, summarize_normalized_run, summarize_run_validation,
+    inspect_run, normalize_run_permissive, summarize_run_validation,
     summarize_run_validation_lifecycle, validate_run_strict, NormalizedRun, RunEventDisposition,
     RunEventDispositionKind, RunSection, RunValidationError, RunValidationIssue,
     RunValidationIssueCode, RunValidationLocation, RunValidationReport, RunValidationSeverity,
-    RunValidationSummaryAudience, RUN_RELATIVE_DURATION_TOLERANCE_US,
+    RUN_RELATIVE_DURATION_TOLERANCE_US,
 };
 
 /// Internal integration hooks for sibling crates in this workspace.
 #[doc(hidden)]
 pub mod __internal {
-    use crate::{
-        EffectiveTokioSamplerConfig, RunEndReason, RuntimeSamplerRegistrationError, Tailtriage,
-    };
+    use crate::{EffectiveTokioSamplerConfig, RunEndReason, Tailtriage};
+
+    /// Internal duplicate-registration signal for the Tokio integration.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct DuplicateRuntimeSampler;
 
     /// Sets controller-owned run-end provenance without exposing live mutation publicly.
     pub fn set_run_end_reason_if_absent(tailtriage: &Tailtriage, reason: RunEndReason) {
@@ -101,13 +103,14 @@ pub mod __internal {
     ///
     /// # Errors
     ///
-    /// Returns [`RuntimeSamplerRegistrationError::DuplicateStart`] when a sampler
-    /// was already registered for this run.
+    /// Returns [`DuplicateRuntimeSampler`] when a sampler was already registered for this run.
     pub fn register_tokio_runtime_sampler(
         tailtriage: &Tailtriage,
         config: EffectiveTokioSamplerConfig,
-    ) -> Result<(), RuntimeSamplerRegistrationError> {
-        tailtriage.register_tokio_runtime_sampler(config)
+    ) -> Result<(), DuplicateRuntimeSampler> {
+        tailtriage
+            .register_tokio_runtime_sampler(config)
+            .map_err(|_| DuplicateRuntimeSampler)
     }
 
     #[cfg(test)]

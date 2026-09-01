@@ -111,6 +111,9 @@ pub fn system_time_to_unix_ms(time: SystemTime) -> u64 {
 }
 
 /// Returns the current unix epoch timestamp in milliseconds.
+///
+/// A pre-epoch system clock is clamped to `0`; values too large for `u64` milliseconds
+/// saturate at [`u64::MAX`].
 #[must_use]
 pub fn unix_time_ms() -> u64 {
     system_time_to_unix_ms(SystemTime::now())

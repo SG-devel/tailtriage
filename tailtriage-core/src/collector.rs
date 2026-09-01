@@ -203,7 +203,9 @@ pub struct OwnedStartedRequest {
 /// use tailtriage_core::Tailtriage;
 ///
 /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-/// let run = Tailtriage::builder("checkout-service").build()?;
+/// let run = Tailtriage::builder("checkout-service")
+///     .output("tailtriage-run.json")
+///     .build()?;
 /// let started = run.begin_request("/checkout");
 ///
 /// started.handle.queue("checkout_queue").await_on(async {}).await;
@@ -269,7 +271,7 @@ pub struct OwnedRequestCompletion {
 
 /// Error returned when registering Tokio runtime sampler metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeSamplerRegistrationError {
+pub(crate) enum RuntimeSamplerRegistrationError {
     /// A runtime sampler was already registered for this run.
     DuplicateStart,
 }
@@ -306,7 +308,9 @@ impl Tailtriage {
 
         Ok(Self {
             state: CollectorStateCell::new(run),
-            sink: config.sink,
+            sink: config
+                .sink
+                .expect("builder validates explicit sink selection"),
             mode: config.mode,
             effective_core_config: config.effective_core,
             limits: config.effective_core.capture_limits,
@@ -319,7 +323,7 @@ impl Tailtriage {
 
     /// Returns the selected capture mode for this run.
     #[must_use]
-    pub const fn selected_mode(&self) -> crate::CaptureMode {
+    pub const fn capture_mode(&self) -> crate::CaptureMode {
         self.mode
     }
 
@@ -371,14 +375,14 @@ impl Tailtriage {
     ///
     /// This is the owned variant for fractured code paths that need to move
     /// handles across task boundaries.
-    pub fn begin_request_owned(self: &Arc<Self>, route: impl Into<String>) -> OwnedStartedRequest {
-        self.begin_request_with_owned(route, RequestOptions::new())
+    pub fn begin_owned_request(self: &Arc<Self>, route: impl Into<String>) -> OwnedStartedRequest {
+        self.begin_owned_request_with(route, RequestOptions::new())
     }
 
     /// Starts a request with caller-provided options using `Arc<Tailtriage>`.
     ///
     /// Finish the returned completion token exactly once.
-    pub fn begin_request_with_owned(
+    pub fn begin_owned_request_with(
         self: &Arc<Self>,
         route: impl Into<String>,
         options: RequestOptions,
@@ -515,10 +519,13 @@ impl Tailtriage {
         }
     }
 
-    /// Registers or clears a callback fired on the first transition to `limits_hit`.
+    /// Registers or clears the callback fired synchronously on the first `false` to `true`
+    /// `limits_hit` transition.
     ///
-    /// The callback is invoked at most once per run, exactly when truncation first
-    /// transitions from `false` to `true`.
+    /// At most one listener is installed. `None` clears it, and replacing a listener after
+    /// the transition does not replay that earlier transition. The callback runs inline with
+    /// capture-limit handling; it must not perform re-entrant lifecycle operations or other
+    /// behavior that could deadlock or violate lifecycle safety.
     ///
     /// # Panics
     ///

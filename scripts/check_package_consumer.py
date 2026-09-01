@@ -100,7 +100,7 @@ def consumer_source() -> str:
 use tailtriage_analyzer::AnalyzeOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let capture = Tailtriage::builder("package-consumer").build()?;
+    let capture = Tailtriage::builder("package-consumer").sink(tailtriage::DiscardSink).build()?;
     let started = capture.begin_request("/package-consumer");
     started.completion.finish_ok();
 

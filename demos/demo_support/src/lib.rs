@@ -312,7 +312,7 @@ impl DemoInstrumentation {
     {
         match &self.backend {
             DemoInstrumentationBackend::Native(tailtriage) => {
-                let started = tailtriage.begin_request_with_owned(
+                let started = tailtriage.begin_owned_request_with(
                     route,
                     tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
                 );
@@ -423,7 +423,7 @@ impl RuntimeDemoInstrumentation {
     {
         match &self.backend {
             RuntimeDemoBackend::Native(tailtriage) => {
-                let started = tailtriage.begin_request_with_owned(
+                let started = tailtriage.begin_owned_request_with(
                     route,
                     tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
                 );
@@ -570,8 +570,8 @@ pub fn init_collector(
 ) -> anyhow::Result<Arc<Tailtriage>> {
     let mut builder = Tailtriage::builder(service_name).output(output_path);
     builder = match capture.mode {
-        CaptureMode::Light => builder.light(),
-        CaptureMode::Investigation => builder.investigation(),
+        CaptureMode::Light => builder.mode(CaptureMode::Light),
+        CaptureMode::Investigation => builder.mode(CaptureMode::Investigation),
     };
     if capture.max_requests.is_some()
         || capture.max_stages.is_some()
@@ -733,7 +733,7 @@ mod tests {
     fn sample_run_without_requests() -> Run {
         RunBuilder::new(RunBuilderOptions::new("demo-service"))
             .expect("build run")
-            .finish()
+            .build()
     }
 
     fn sample_run_with_one_request() -> Run {
@@ -751,7 +751,7 @@ mod tests {
                 outcome: Outcome::Ok.into_string(),
             })
             .expect("push request");
-        builder.finish()
+        builder.build()
     }
 
     fn unique_temp_output_path(prefix: &str) -> std::path::PathBuf {

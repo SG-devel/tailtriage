@@ -786,7 +786,7 @@ impl TracingSessionBuilder {
         if self.sampler_interval.is_none() && !self.manual_runtime_snapshots {
             return Ok(None);
         }
-        let mode = self.recorder_builder.selected_mode();
+        let mode = self.recorder_builder.capture_mode();
         let resolved_limits = self.recorder_builder.resolved_capture_limits();
         let sink = MemorySink::new();
         let builder = Tailtriage::builder("tailtriage-tracing-runtime")
@@ -794,8 +794,8 @@ impl TracingSessionBuilder {
             .strict_lifecycle(false)
             .capture_limits(resolved_limits);
         let builder = match mode {
-            CaptureMode::Light => builder.light(),
-            CaptureMode::Investigation => builder.investigation(),
+            CaptureMode::Light => builder.mode(CaptureMode::Light),
+            CaptureMode::Investigation => builder.mode(CaptureMode::Investigation),
         };
         let collector = builder.build().map_err(|err| ImportError::Io {
             operation: "build tracing Tokio runtime collector",
@@ -846,7 +846,7 @@ impl LiveRecorderBuilder {
     /// Returns selected capture mode for import conversion semantics.
     #[cfg(feature = "tokio")]
     #[must_use]
-    pub(crate) fn selected_mode(&self) -> CaptureMode {
+    pub(crate) fn capture_mode(&self) -> CaptureMode {
         self.options.mode_value()
     }
 
