@@ -11,6 +11,7 @@
 - Replace `begin_request_owned` / `begin_request_with_owned` with `begin_owned_request` / `begin_owned_request_with`.
 - `RunBuilder::new` now returns `RunBuilderError`, and completed assembly uses `RunBuilder::build()` instead of `finish()`. Invalid zero worker counts are rejected by `push_runtime_snapshot` before retention.
 - Core runtime-sampler registration plumbing and the audience-selecting validation-summary helper are no longer supported root APIs; use the Tokio sampler startup errors and the two purpose-specific validation summary functions.
+- Controller template validation now uses `ControllerTemplateError`. `ReloadConfigError::Validate` and `ReloadTemplateError::Validate` carry that type instead of core `BuildError`; callers matching those variants must update their patterns and type references accordingly.
 
 - Split direct shutdown failures into `ShutdownError::UnfinishedRequests` and
   `ShutdownError::Sink`, narrowing `SinkError` to sink-produced failures. Consolidated controller

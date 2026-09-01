@@ -15,6 +15,23 @@ import validate_docs_contracts
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    def _write_residual_api_sources(self, root: Path, overrides: dict[str, str] | None = None) -> None:
+        sources = {
+            'tailtriage-controller/src/lib.rs': 'pub fn begin_request() {}\n',
+            'tailtriage-tokio/src/lib.rs': 'pub fn builder() {}\n',
+            'tailtriage-axum/src/lib.rs': 'pub fn middleware() {}\n',
+            'tailtriage-cli/src/lib.rs': '#![doc = include_str!("../README.md")]\n',
+            'tailtriage-core/src/config.rs': '',
+            'tailtriage-core/src/collector.rs': '',
+            'tailtriage-core/src/run_builder.rs': '',
+            'tailtriage-core/src/lib.rs': '',
+        }
+        sources.update(overrides or {})
+        for rel, body in sources.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body, encoding='utf-8')
+
     # TT-TEST: Z02 primary
     def test_actual_repository_manual_release_boundary_is_non_mutating(self) -> None:
         validate_docs_contracts.validate_manual_release_boundary()
@@ -48,11 +65,11 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_residual_public_api_cleanup_contract_accepts_private_cli_internals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            sources = {'tailtriage-controller/src/lib.rs': 'pub fn begin_request() {}\n', 'tailtriage-tokio/src/lib.rs': 'pub fn builder() {}\n', 'tailtriage-axum/src/lib.rs': 'pub fn middleware() {}\n', 'tailtriage-cli/src/lib.rs': '#![doc = include_str!("../README.md")]\n'}
-            for rel, body in sources.items():
-                path = root / rel
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(body, encoding='utf-8')
+            self._write_residual_api_sources(root, {
+                'tailtriage-core/src/collector.rs': 'pub(crate) enum RuntimeSamplerRegistrationError {}\n',
+                'tailtriage-core/src/lib.rs': 'pub mod __internal { pub fn register_tokio_runtime_sampler() {} }\n',
+                'tailtriage-core/src/validation.rs': 'enum RunValidationSummaryAudience {}\nfn summarize_normalized_run() {}\n',
+            })
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
@@ -60,13 +77,39 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_residual_public_api_cleanup_contract_rejects_cli_helper_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            sources = {'tailtriage-controller/src/lib.rs': '', 'tailtriage-tokio/src/lib.rs': '', 'tailtriage-axum/src/lib.rs': '', 'tailtriage-cli/src/lib.rs': 'pub fn build_analyze_options() {}\n'}
-            for rel, body in sources.items():
-                path = root / rel
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(body, encoding='utf-8')
+            self._write_residual_api_sources(root, {
+                'tailtriage-cli/src/lib.rs': 'pub fn build_analyze_options() {}\n',
+            })
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 with self.assertRaisesRegex(ValueError, 'removed residual public API'):
+                    validate_docs_contracts.validate_residual_public_api_cleanup()
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_builder_method(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-core/src/config.rs', 'pub fn light(self) -> Self { self }', 'TailtriageBuilder::light')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_owned_request_method(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-core/src/collector.rs', 'pub fn begin_request_owned(&self) {}', 'Tailtriage::begin_request_owned')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_run_builder_finish(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-core/src/run_builder.rs', 'pub fn finish(self) -> Run { todo!() }', 'RunBuilder::finish')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_core_root_type_export(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-core/src/lib.rs', 'pub use collector::{Tailtriage, RuntimeSamplerRegistrationError};', 'RuntimeSamplerRegistrationError')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_core_root_function_export(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-core/src/lib.rs', 'pub use validation::summarize_normalized_run;', 'summarize_normalized_run')
+
+    def _assert_residual_api_rejected(self, rel: str, source: str, symbol: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(root, {rel: source})
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                with self.assertRaisesRegex(ValueError, symbol):
                     validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M02 primary
