@@ -128,10 +128,9 @@ pub fn render_text(report: &Report) -> String {
 }
 
 fn render_inflight_trend(trend: &crate::InflightTrend) -> String {
-    let direction = if trend.sample_count < 2 {
-        "direction unknown".to_string()
-    } else {
-        format!("net growth {:+}", trend.growth_delta)
+    let direction = match trend.growth_delta {
+        None => "direction unknown".to_string(),
+        Some(delta) => format!("net growth {delta:+}"),
     };
     let rate = trend.growth_per_sec_milli.map_or_else(
         || "precise rate unavailable".to_string(),

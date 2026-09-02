@@ -2188,7 +2188,7 @@ fn inflight_trend_handles_constant_series() {
 
     assert_eq!(trend.peak_count, 3);
     assert_eq!(trend.p95_count, 3);
-    assert_eq!(trend.growth_delta, 0);
+    assert_eq!(trend.growth_delta, Some(0));
 }
 
 // TT-TEST: support
@@ -2218,7 +2218,7 @@ fn inflight_trend_handles_monotonic_increase() {
 
     assert_eq!(trend.peak_count, 6);
     assert_eq!(trend.p95_count, 6);
-    assert_eq!(trend.growth_delta, 5);
+    assert_eq!(trend.growth_delta, Some(5));
     assert_eq!(trend.growth_per_sec_milli, None);
 }
 
@@ -2255,7 +2255,7 @@ fn latest_active_inflight_episode_outranks_closed_historical_spike() {
             sample_count: 3,
             peak_count: 4,
             p95_count: 4,
-            growth_delta: 3,
+            growth_delta: Some(3),
             growth_per_sec_milli: Some(1500)
         }
     );
@@ -2279,7 +2279,7 @@ fn reused_inflight_label_uses_only_latest_episode() {
             trend.growth_delta,
             trend.growth_per_sec_milli
         ),
-        (3, 5, 5, 3, Some(1500))
+        (3, 5, 5, Some(3), Some(1500))
     );
 }
 
@@ -2294,7 +2294,7 @@ fn leading_and_consecutive_zero_snapshots_do_not_create_episodes() {
     let trend = super::dominant_inflight_trend(&samples).unwrap();
     assert_eq!(
         (trend.sample_count, trend.peak_count, trend.growth_delta),
-        (2, 3, -3)
+        (2, 3, Some(-3))
     );
 }
 
@@ -2319,7 +2319,7 @@ fn run_relative_time_orders_inflight_samples_before_wall_clock() {
     .unwrap();
     assert_eq!(
         (trend.growth_delta, trend.growth_per_sec_milli),
-        (5, Some(2_500_000_000))
+        (Some(5), Some(2_500_000_000))
     );
 }
 
@@ -2331,7 +2331,10 @@ fn inflight_wall_clock_fallback_is_deterministic_without_rate() {
         inflight("g", 10, None, 2),
     ])
     .unwrap();
-    assert_eq!((trend.growth_delta, trend.growth_per_sec_milli), (3, None));
+    assert_eq!(
+        (trend.growth_delta, trend.growth_per_sec_milli),
+        (Some(3), None)
+    );
 }
 
 // TT-TEST: support
@@ -2362,7 +2365,10 @@ fn equal_timestamp_inflight_order_uses_original_input_index() {
         inflight("g", 1, Some(1), 2),
     ])
     .unwrap();
-    assert_eq!((forward.growth_delta, reverse.growth_delta), (3, -3));
+    assert_eq!(
+        (forward.growth_delta, reverse.growth_delta),
+        (Some(3), Some(-3))
+    );
     assert_eq!(forward.growth_per_sec_milli, None);
 }
 
@@ -2377,7 +2383,7 @@ fn one_sample_inflight_episode_is_unknown_and_adds_no_bonus() {
             sample_count: 1,
             peak_count: 7,
             p95_count: 7,
-            growth_delta: 0,
+            growth_delta: None,
             growth_per_sec_milli: None
         }
     );
@@ -2406,7 +2412,7 @@ fn inflight_candidate_order_prefers_active_over_closed() {
             sample_count: 2,
             peak_count: 5,
             p95_count: 5,
-            growth_delta: 0,
+            growth_delta: Some(0),
             growth_per_sec_milli: Some(0),
         },
     );
@@ -2427,7 +2433,7 @@ fn inflight_candidate_order_prefers_positive_over_unknown() {
             sample_count: 2,
             peak_count: 2,
             p95_count: 2,
-            growth_delta: 1,
+            growth_delta: Some(1),
             growth_per_sec_milli: Some(1000),
         },
     );
@@ -2450,7 +2456,7 @@ fn inflight_candidate_order_prefers_positive_over_non_growing() {
                 sample_count: 2,
                 peak_count: 2,
                 p95_count: 2,
-                growth_delta: 1,
+                growth_delta: Some(1),
                 growth_per_sec_milli: Some(1000),
             },
         );
@@ -2473,7 +2479,7 @@ fn inflight_candidate_order_prefers_larger_positive_delta() {
             sample_count: 2,
             peak_count: 6,
             p95_count: 6,
-            growth_delta: 5,
+            growth_delta: Some(5),
             growth_per_sec_milli: Some(5000),
         },
     );
@@ -2494,7 +2500,7 @@ fn inflight_candidate_order_prefers_available_positive_rate() {
             sample_count: 2,
             peak_count: 4,
             p95_count: 4,
-            growth_delta: 3,
+            growth_delta: Some(3),
             growth_per_sec_milli: Some(1500),
         },
     );
@@ -2516,7 +2522,7 @@ fn inflight_candidate_order_prefers_larger_positive_rate() {
             sample_count: 2,
             peak_count: 4,
             p95_count: 4,
-            growth_delta: 3,
+            growth_delta: Some(3),
             growth_per_sec_milli: Some(3000),
         },
     );
@@ -2539,7 +2545,7 @@ fn inflight_candidate_order_prefers_larger_p95() {
             sample_count: 21,
             peak_count: 8,
             p95_count: 8,
-            growth_delta: 0,
+            growth_delta: Some(0),
             growth_per_sec_milli: Some(0),
         },
     );
@@ -2558,7 +2564,7 @@ fn inflight_candidate_order_prefers_larger_peak() {
             sample_count: 21,
             peak_count: 10,
             p95_count: 1,
-            growth_delta: -9,
+            growth_delta: Some(-9),
             growth_per_sec_milli: Some(-450_000_000),
         },
     );
@@ -2579,7 +2585,7 @@ fn inflight_candidate_order_uses_lexical_label_last() {
             sample_count: 2,
             peak_count: 2,
             p95_count: 2,
-            growth_delta: 0,
+            growth_delta: Some(0),
             growth_per_sec_milli: Some(0),
         },
     );
@@ -2598,18 +2604,18 @@ fn truncated_inflight_history_does_not_infer_missing_zero() {
         .expect("analyzer options should be valid")
         .inflight_trend
         .unwrap();
-    assert_eq!((trend.sample_count, trend.growth_delta), (2, 1));
+    assert_eq!((trend.sample_count, trend.growth_delta), (2, Some(1)));
 }
 
 // TT-TEST: support
 #[test]
-fn inflight_trend_json_shape_and_values_remain_unchanged() {
+fn inflight_trend_json_distinguishes_unavailable_from_flat() {
     let value = serde_json::to_value(InflightTrend {
         gauge: "g".into(),
         sample_count: 3,
         peak_count: 4,
         p95_count: 4,
-        growth_delta: 3,
+        growth_delta: Some(3),
         growth_per_sec_milli: Some(1500),
     })
     .unwrap();
@@ -2630,7 +2636,7 @@ fn inflight_trend_json_shape_and_values_remain_unchanged() {
             sample_count: 1,
             peak_count: 4,
             p95_count: 4,
-            growth_delta: 0,
+            growth_delta: None,
             growth_per_sec_milli: None,
         })
         .unwrap(),
@@ -2639,9 +2645,21 @@ fn inflight_trend_json_shape_and_values_remain_unchanged() {
             "sample_count": 1,
             "peak_count": 4,
             "p95_count": 4,
-            "growth_delta": 0,
+            "growth_delta": null,
             "growth_per_sec_milli": null
         })
+    );
+    assert_eq!(
+        serde_json::to_value(InflightTrend {
+            gauge: "flat".into(),
+            sample_count: 2,
+            peak_count: 4,
+            p95_count: 4,
+            growth_delta: Some(0),
+            growth_per_sec_milli: None,
+        })
+        .unwrap()["growth_delta"],
+        serde_json::json!(0)
     );
 }
 
@@ -2703,7 +2721,7 @@ fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins(
             sample_count: 2,
             peak_count: 5,
             p95_count: 5,
-            growth_delta: 0,
+            growth_delta: Some(0),
             growth_per_sec_milli: Some(0),
         })
     );
@@ -2848,15 +2866,30 @@ fn declining_inflight_episode_adds_no_growth_bonus() {
 
 // TT-TEST: support
 #[test]
-fn render_text_marks_one_sample_inflight_trend_unknown() {
-    let report = analyze_run(
+fn render_text_uses_growth_delta_as_direction_source_of_truth() {
+    let mut report = analyze_run(
         &queue_bonus_run(vec![inflight("single", 1, Some(1), 7)]),
         AnalyzeOptions::default(),
     )
     .expect("analyzer options should be valid");
+    report.inflight_trend.as_mut().unwrap().sample_count = 2;
     let text = render_text(&report);
     assert!(text.contains("direction unknown") && text.contains("precise rate unavailable"));
     assert!(!text.contains("net growth +0"));
+    let json: serde_json::Value = serde_json::from_str(&render_json(&report).unwrap()).unwrap();
+    assert_eq!(
+        json["inflight_trend"]["growth_delta"],
+        serde_json::Value::Null
+    );
+
+    let trend = report.inflight_trend.as_mut().unwrap();
+    trend.sample_count = 1;
+    trend.growth_delta = Some(0);
+    let text = render_text(&report);
+    assert!(text.contains("net growth +0"));
+    assert!(!text.contains("direction unknown"));
+    let json: serde_json::Value = serde_json::from_str(&render_json(&report).unwrap()).unwrap();
+    assert_eq!(json["inflight_trend"]["growth_delta"], 0);
 }
 
 // TT-TEST: S04 primary
@@ -2899,7 +2932,7 @@ fn render_text_formats_inflight_trend_fields() {
             sample_count: 4,
             peak_count: 8,
             p95_count: 7,
-            growth_delta: 5,
+            growth_delta: Some(5),
             growth_per_sec_milli: Some(2_500),
         }),
         warnings: Vec::new(),

@@ -4,6 +4,10 @@
 
 ### Changed
 
+- `InflightTrend::growth_delta` is now `Option<i64>`: migrate typed consumers to handle `None`
+  as unavailable direction. Report JSON renders that case as `null`; `Some(0)`/JSON `0` now
+  unambiguously means an observed flat multi-sample episode.
+
 ### 0.4 core API migration
 
 - Analyzer configuration now uses direct nested `AnalyzeOptions` mutation; the eight `with_*` closure wrappers and `valid_override_paths()` were removed. Derive paths from `analyze_option_descriptors()` and its read-only descriptor getters. Detailed CLI discovery moved from `analyze --help-analyzer-options` to `tailtriage analyzer-options`, and `analyze` now requires `RUN_JSON` at Clap parsing.

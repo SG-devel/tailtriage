@@ -211,8 +211,8 @@ Analyzer output includes:
 - `inflight_trend` summarizes the selected label's latest retained activity episode. Positive
   samples start or continue an episode; the first retained zero closes it, and later positive
   activity starts a new episode. Active episodes outrank closed historical episodes. Sample
-  count, peak, p95, and delta are episode-local. A one-sample episode has unknown direction
-  while retaining `growth_delta = 0` for compatibility. Precise rates use only valid
+  count, peak, p95, and delta are episode-local. `growth_delta` is `null` for a one-sample
+  episode with unavailable direction; numeric `0` means observed flatness. Precise rates use only valid
   run-relative microsecond timing; `null` means unavailable, and Unix milliseconds are only a
   coarse ordering fallback. Truncation never causes analysis to invent a missing closure.
   Growth supports a triage lead and is not root-cause proof.

@@ -430,18 +430,21 @@ pub(super) fn executor_pressure_suspect(
 
 fn inflight_growth_evidence(candidate: &InflightCandidate) -> String {
     let trend = &candidate.trend;
+    let growth_delta = trend
+        .growth_delta
+        .expect("in-flight growth evidence requires known positive growth");
     match (candidate.ordering, trend.growth_per_sec_milli) {
         (_, Some(rate)) => format!(
             "In-flight gauge '{}' latest active episode grew by {} across {} samples (p95={}, peak={}, run-relative rate={} milli-counts/sec).",
-            trend.gauge, trend.growth_delta, trend.sample_count, trend.p95_count, trend.peak_count, rate
+            trend.gauge, growth_delta, trend.sample_count, trend.p95_count, trend.peak_count, rate
         ),
         (InflightOrdering::UnixFallback, None) => format!(
             "In-flight gauge '{}' latest active episode grew by {} across {} samples (p95={}, peak={}); ordering used Unix-ms fallback and no precise growth rate was derived.",
-            trend.gauge, trend.growth_delta, trend.sample_count, trend.p95_count, trend.peak_count
+            trend.gauge, growth_delta, trend.sample_count, trend.p95_count, trend.peak_count
         ),
         (InflightOrdering::RunRelative, None) => format!(
             "In-flight gauge '{}' latest active episode grew by {} across {} samples (p95={}, peak={}); precise run-relative growth rate is unavailable.",
-            trend.gauge, trend.growth_delta, trend.sample_count, trend.p95_count, trend.peak_count
+            trend.gauge, growth_delta, trend.sample_count, trend.p95_count, trend.peak_count
         ),
     }
 }
