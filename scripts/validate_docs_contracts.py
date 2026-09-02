@@ -517,11 +517,16 @@ def validate_residual_public_api_cleanup() -> None:
             for name in (
                 "with_queueing", "with_blocking", "with_executor", "with_downstream",
                 "with_confidence", "with_evidence", "with_route", "with_temporal",
-                "valid_override_paths",
             )
         ) + (
             ("AnalyzeOptionDescriptor public field", r"pub\s+struct\s+AnalyzeOptionDescriptor\s*\{[^}]*\bpub\s+[A-Za-z_]\w*\s*:"),
             ("AnalyzeOptionDescriptor::new", r"impl\s+AnalyzeOptionDescriptor\s*\{[^}]*\bpub\s+(?!\(crate\))[^\n]*\bfn\s+new\s*\("),
+        ),
+        REPO_ROOT / "tailtriage-analyzer" / "src" / "options" / "overrides.rs": (
+            (
+                "AnalyzeOptions::valid_override_paths",
+                r"\bpub\s+(?:const\s+)?fn\s+valid_override_paths\s*\(",
+            ),
         ),
     }
     for path, forbidden in forbidden_public_patterns.items():
