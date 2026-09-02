@@ -148,9 +148,9 @@ pub struct InflightTrend {
     pub peak_count: u64,
     /// p95 in-flight count for the episode.
     pub p95_count: u64,
-    /// Episode-local net growth (`last - first`). With fewer than two samples,
-    /// zero represents unknown direction rather than observed flatness.
-    pub growth_delta: i64,
+    /// Episode-local net growth (`last - first`), or `None` when fewer than two
+    /// samples make direction unavailable. `Some(0)` means observed flatness.
+    pub growth_delta: Option<i64>,
     /// Growth rate in milli-counts/sec when valid run-relative microsecond timing permits it.
     pub growth_per_sec_milli: Option<i64>,
 }
@@ -741,7 +741,7 @@ pub(crate) struct InflightCandidate {
 
 impl InflightCandidate {
     pub(crate) fn known_positive_growth(&self) -> bool {
-        self.trend.sample_count >= 2 && self.trend.growth_delta > 0
+        self.trend.growth_delta.is_some_and(|delta| delta > 0)
     }
 }
 
@@ -805,7 +805,7 @@ fn inflight_trend_for_gauge(
         .collect::<Vec<_>>();
     let first = latest.first()?.1;
     let last = latest.last()?.1;
-    let growth_delta = signed_u64_delta(first.count, last.count);
+    let growth_delta = (latest.len() >= 2).then(|| signed_u64_delta(first.count, last.count));
     let growth_per_sec_milli = (latest.len() >= 2 && ordering == InflightOrdering::RunRelative)
         .then(|| {
             let times = latest
@@ -816,7 +816,7 @@ fn inflight_trend_for_gauge(
             if elapsed == 0 || !times.windows(2).all(|pair| pair[0] <= pair[1]) {
                 return None;
             }
-            let rate = i128::from(growth_delta) * 1_000_000_000i128 / i128::from(elapsed);
+            let rate = i128::from(growth_delta?) * 1_000_000_000i128 / i128::from(elapsed);
             Some(
                 i64::try_from(rate.clamp(i128::from(i64::MIN), i128::from(i64::MAX)))
                     .expect("clamped growth rate fits i64"),

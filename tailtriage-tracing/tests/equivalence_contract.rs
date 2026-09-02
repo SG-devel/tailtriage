@@ -566,7 +566,7 @@ fn equivalence_projections_detect_every_contract_field_mutation() {
                 sample_count: 7,
                 peak_count: 8,
                 p95_count: 9,
-                growth_delta: 10,
+                growth_delta: Some(10),
                 growth_per_sec_milli: Some(11)
             }),
         |x: &mut ComparableReportProjection| x.inflight_trend = serde_json::json!({"gauge":"mutated-gauge","sample_count":7,"peak_count":8,"p95_count":9,"growth_delta":10,"growth_per_sec_milli":11})
