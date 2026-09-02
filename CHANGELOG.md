@@ -6,6 +6,8 @@
 
 ### 0.4 core API migration
 
+- Analyzer configuration now uses direct nested `AnalyzeOptions` mutation; the eight `with_*` closure wrappers and `valid_override_paths()` were removed. Derive paths from `analyze_option_descriptors()` and its read-only descriptor getters. Detailed CLI discovery moved from `analyze --help-analyzer-options` to `tailtriage analyzer-options`, and `analyze` now requires `RUN_JSON` at Clap parsing.
+
 - Direct `Tailtriage::builder(...)` capture now requires `.output(...)` or `.sink(...)`; omission returns `BuildError::MissingSink` instead of implicitly writing `tailtriage-run.json`.
 - Replace `.light()` / `.investigation()` with `.mode(CaptureMode::Light)` / `.mode(CaptureMode::Investigation)`, and `selected_mode()` with `capture_mode()`.
 - Replace `begin_request_owned` / `begin_request_with_owned` with `begin_owned_request` / `begin_owned_request_with`.

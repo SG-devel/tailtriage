@@ -16,9 +16,9 @@ pub use descriptors::analyze_option_descriptors;
 /// ```
 /// use tailtriage_analyzer::AnalyzeOptions;
 ///
-/// let options = AnalyzeOptions::default()
-///     .with_queueing(|o| o.trigger_permille = 450)
-///     .with_confidence(|o| o.high_score_threshold = 90);
+/// let mut options = AnalyzeOptions::default();
+/// options.queueing.trigger_permille = 450;
+/// options.confidence.high_score_threshold = 90;
 ///
 /// assert_eq!(options.queueing.trigger_permille, 450);
 /// assert_eq!(options.confidence.high_score_threshold, 90);
@@ -248,54 +248,6 @@ impl AnalyzeOptions {
     pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {
         registry::non_default_overrides(self)
     }
-    /// Applies queueing-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_queueing(mut self, f: impl FnOnce(&mut QueueingOptions)) -> Self {
-        f(&mut self.queueing);
-        self
-    }
-    /// Applies blocking-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_blocking(mut self, f: impl FnOnce(&mut BlockingOptions)) -> Self {
-        f(&mut self.blocking);
-        self
-    }
-    /// Applies executor-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_executor(mut self, f: impl FnOnce(&mut ExecutorOptions)) -> Self {
-        f(&mut self.executor);
-        self
-    }
-    /// Applies downstream-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_downstream(mut self, f: impl FnOnce(&mut DownstreamOptions)) -> Self {
-        f(&mut self.downstream);
-        self
-    }
-    /// Applies confidence-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_confidence(mut self, f: impl FnOnce(&mut ConfidenceOptions)) -> Self {
-        f(&mut self.confidence);
-        self
-    }
-    /// Applies evidence-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_evidence(mut self, f: impl FnOnce(&mut EvidenceOptions)) -> Self {
-        f(&mut self.evidence);
-        self
-    }
-    /// Applies route-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_route(mut self, f: impl FnOnce(&mut RouteOptions)) -> Self {
-        f(&mut self.route);
-        self
-    }
-    /// Applies temporal-option edits and returns updated options for fluent setup.
-    #[must_use]
-    pub fn with_temporal(mut self, f: impl FnOnce(&mut TemporalOptions)) -> Self {
-        f(&mut self.temporal);
-        self
-    }
     /// Validates semantic analyzer thresholds and heuristic invariants before triage.
     ///
     /// # Errors
@@ -499,24 +451,24 @@ impl Error for AnalyzeConfigError {}
 /// Human-readable metadata for one semantic analyzer option path.
 pub struct AnalyzeOptionDescriptor {
     /// Stable analyzer option path name.
-    pub path: &'static str,
+    path: &'static str,
     /// Default value string for this option path.
-    pub default_value: &'static str,
+    default_value: &'static str,
     /// Rust type name for this option value.
-    pub value_type: &'static str,
+    value_type: &'static str,
     /// Short label describing which triage heuristic area this option affects.
-    pub affects: &'static str,
+    affects: &'static str,
     /// Bounded explanation of this option's role in suspect ranking heuristics.
-    pub description: &'static str,
+    description: &'static str,
     /// Effect summary when this threshold increases, if directional wording applies.
-    pub increasing: Option<&'static str>,
+    increasing: Option<&'static str>,
     /// Effect summary when this threshold decreases, if directional wording applies.
-    pub decreasing: Option<&'static str>,
+    decreasing: Option<&'static str>,
 }
 impl AnalyzeOptionDescriptor {
     /// Creates a static descriptor entry for one semantic analyzer option path.
     #[must_use]
-    pub const fn new(
+    pub(crate) const fn new(
         path: &'static str,
         default_value: &'static str,
         value_type: &'static str,
@@ -534,5 +486,41 @@ impl AnalyzeOptionDescriptor {
             increasing,
             decreasing,
         }
+    }
+
+    /// Returns the stable analyzer option path.
+    #[must_use]
+    pub const fn path(&self) -> &'static str {
+        self.path
+    }
+    /// Returns the serialized default value.
+    #[must_use]
+    pub const fn default_value(&self) -> &'static str {
+        self.default_value
+    }
+    /// Returns the Rust value type name.
+    #[must_use]
+    pub const fn value_type(&self) -> &'static str {
+        self.value_type
+    }
+    /// Returns the triage heuristic area affected by this option.
+    #[must_use]
+    pub const fn affects(&self) -> &'static str {
+        self.affects
+    }
+    /// Returns the bounded description of this option.
+    #[must_use]
+    pub const fn description(&self) -> &'static str {
+        self.description
+    }
+    /// Returns the effect of increasing this option, when applicable.
+    #[must_use]
+    pub const fn increasing(&self) -> Option<&'static str> {
+        self.increasing
+    }
+    /// Returns the effect of decreasing this option, when applicable.
+    #[must_use]
+    pub const fn decreasing(&self) -> Option<&'static str> {
+        self.decreasing
     }
 }

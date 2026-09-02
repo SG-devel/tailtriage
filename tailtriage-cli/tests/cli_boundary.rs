@@ -4,7 +4,7 @@ mod artifact;
 
 use std::process::Command;
 
-use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_option_descriptors, analyze_run, AnalyzeOptions};
 use tailtriage_core::{CaptureMode, Run};
 
 // TT-TEST: L05 secondary
@@ -87,19 +87,22 @@ fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     assert_eq!(report.request_count, 0);
 }
 
-// TT-TEST: support
+// TT-TEST: L04 secondary
 #[test]
-fn help_analyzer_options_works_without_run_json() {
+fn analyzer_options_works_without_run_json_and_matches_registry() {
     let exe = env!("CARGO_BIN_EXE_tailtriage");
     let output = Command::new(exe)
-        .arg("analyze")
-        .arg("--help-analyzer-options")
+        .arg("analyzer-options")
         .output()
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    assert!(stdout.contains("queueing.trigger_permille"));
+    for descriptor in analyze_option_descriptors() {
+        assert!(stdout.contains(descriptor.path()));
+        assert!(stdout.contains(descriptor.default_value()));
+        assert!(stdout.contains(descriptor.value_type()));
+    }
 }
 
 // TT-TEST: L04 secondary
@@ -572,6 +575,8 @@ fn analyze_help_documents_strict_default_and_permissive_escape_hatch() {
     assert!(help.contains("--allow-ambiguous-artifact"));
     assert!(help.contains("strict by default"));
     assert!(!help.contains("--strict-artifact"));
+    assert!(!help.contains("--help-analyzer-options"));
+    assert!(!help.contains("queueing.trigger_permille"));
     assert!(!help.contains("malformed/incomplete tailtriage spans"));
 }
 
@@ -670,9 +675,9 @@ fn cli_missing_analyzer_config_file_reports_path() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 }
 
-// TT-TEST: support
+// TT-TEST: L01 primary
 #[test]
-fn missing_run_json_without_help_flag_fails_clearly() {
+fn analyze_requires_run_json_at_clap_boundary() {
     let exe = env!("CARGO_BIN_EXE_tailtriage");
     let output = Command::new(exe)
         .arg("analyze")
@@ -682,6 +687,19 @@ fn missing_run_json_without_help_flag_fails_clearly() {
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("RUN_JSON") || stderr.contains("missing required"));
+}
+
+// TT-TEST: L01 primary
+// TT-TEST: L04 secondary
+#[test]
+fn analyze_rejects_removed_help_analyzer_options_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .args(["analyze", "--help-analyzer-options"])
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("unexpected argument '--help-analyzer-options'"));
 }
 
 // TT-TEST: support
@@ -973,7 +991,7 @@ fn import_tracing_spans_jsonl_rejects_inert_inflight_snapshot_flags() {
 
 // TT-TEST: L01 primary
 #[test]
-fn tailtriage_help_mentions_import_and_analyze_artifacts() {
+fn tailtriage_help_lists_all_supported_commands_without_descriptor_inventory() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("--help")
         .output()
@@ -981,6 +999,10 @@ fn tailtriage_help_mentions_import_and_analyze_artifacts() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Import and analyze tailtriage run artifacts"));
+    assert!(stdout.contains("analyze"));
+    assert!(stdout.contains("import"));
+    assert!(stdout.contains("analyzer-options"));
+    assert!(!stdout.contains("queueing.trigger_permille"));
 }
 
 // TT-TEST: R01 secondary

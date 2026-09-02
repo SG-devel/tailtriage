@@ -69,6 +69,8 @@ Users remain responsible for meaningful instrumentation and request-boundary sem
 
 ## Analyzer tuning options
 
+The supported paths have one registry source of truth. CLI users can inspect the same paths, defaults, types, and effects with `tailtriage analyzer-options`. Rust callers can use direct nested mutation, checked string overrides, or TOML.
+
 Start with defaults:
 
 ```rust
@@ -85,8 +87,8 @@ use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_core::Run;
 
 fn analyze_checked(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
-    let options = AnalyzeOptions::default()
-        .with_queueing(|o| o.trigger_permille = 450);
+    let mut options = AnalyzeOptions::default();
+    options.queueing.trigger_permille = 450;
     let report = analyze_run(run, options)?;
     let _ = report;
     Ok(())

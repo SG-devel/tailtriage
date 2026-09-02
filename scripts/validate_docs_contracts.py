@@ -512,6 +512,17 @@ def validate_residual_public_api_cleanup() -> None:
                 r"\bpub\s+use\s+validation\s*::\s*(?:[^;]*\bsummarize_normalized_run\b)",
             ),
         ),
+        REPO_ROOT / "tailtriage-analyzer" / "src" / "options" / "mod.rs": tuple(
+            (f"AnalyzeOptions::{name}", rf"\bpub\s+fn\s+{name}\s*\(")
+            for name in (
+                "with_queueing", "with_blocking", "with_executor", "with_downstream",
+                "with_confidence", "with_evidence", "with_route", "with_temporal",
+                "valid_override_paths",
+            )
+        ) + (
+            ("AnalyzeOptionDescriptor public field", r"pub\s+struct\s+AnalyzeOptionDescriptor\s*\{[^}]*\bpub\s+[A-Za-z_]\w*\s*:"),
+            ("AnalyzeOptionDescriptor::new", r"impl\s+AnalyzeOptionDescriptor\s*\{[^}]*\bpub\s+(?!\(crate\))[^\n]*\bfn\s+new\s*\("),
+        ),
     }
     for path, forbidden in forbidden_public_patterns.items():
         text = path.read_text(encoding="utf-8")

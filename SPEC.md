@@ -154,7 +154,7 @@ Semantics are batch/snapshot for completed runs, not streaming analysis.
 Analyzer configuration contract:
 
 - `AnalyzeOptions` is a meaningful configuration surface for tuning analyzer interpretation thresholds while keeping the same capture artifact contract.
-- Analyzer configuration is supported across Rust (`AnalyzeOptions` builders), TOML (`[analyzer]` schema with `schema_version = 1`), and CLI (`--analyzer-config` plus `--analyzer-set`).
+- Analyzer configuration is supported across Rust (direct nested `AnalyzeOptions` mutation), TOML (`[analyzer]` schema with `schema_version = 1`), and CLI (`--analyzer-config` plus `--analyzer-set`).
 - `AnalyzeOptions::default()` preserves the current analyzer behavior and is the recommended starting point.
 - Report JSON includes `analyzer_config` only when non-default analyzer options are used; default reports omit this field.
 - Analyzer tuning changes interpretation/ranking of already captured evidence; it does not change capture artifacts, capture limits, truncation, or what was collected.

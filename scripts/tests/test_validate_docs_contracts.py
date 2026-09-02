@@ -25,6 +25,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             'tailtriage-core/src/collector.rs': '',
             'tailtriage-core/src/run_builder.rs': '',
             'tailtriage-core/src/lib.rs': '',
+            'tailtriage-analyzer/src/options/mod.rs': 'pub struct AnalyzeOptionDescriptor { path: &\'static str }\nimpl AnalyzeOptionDescriptor { pub(crate) fn new() {} }\n',
         }
         sources.update(overrides or {})
         for rel, body in sources.items():
@@ -95,6 +96,20 @@ class ValidateDocsContractsTests(unittest.TestCase):
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_run_builder_finish(self) -> None:
         self._assert_residual_api_rejected('tailtriage-core/src/run_builder.rs', 'pub fn finish(self) -> Run { todo!() }', 'RunBuilder::finish')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_analyzer_methods(self) -> None:
+        for method in ('with_queueing', 'valid_override_paths'):
+            with self.subTest(method=method):
+                self._assert_residual_api_rejected('tailtriage-analyzer/src/options/mod.rs', f'pub fn {method}() {{}}', f'AnalyzeOptions::{method}')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_public_descriptor_field(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-analyzer/src/options/mod.rs', 'pub struct AnalyzeOptionDescriptor { pub path: &\'static str }', 'public field')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_public_descriptor_constructor(self) -> None:
+        self._assert_residual_api_rejected('tailtriage-analyzer/src/options/mod.rs', 'pub struct AnalyzeOptionDescriptor {}\nimpl AnalyzeOptionDescriptor { pub fn new() {} }', 'AnalyzeOptionDescriptor::new')
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_core_root_type_export(self) -> None:
