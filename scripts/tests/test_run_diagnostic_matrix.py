@@ -7,10 +7,10 @@ from scripts import run_diagnostic_matrix as rdm
 
 
 class RunDiagnosticMatrixTests(unittest.TestCase):
-    def sample_report(self, primary_kind="application_queue_saturation", confidence="high", p95=100, p99=200, second=None):
+    def sample_report(self, primary_kind="application_queue_pressure", confidence="high", p95=100, p99=200, second=None):
         return {
             "primary_suspect": {"kind": primary_kind, "confidence": confidence, "score": 90},
-            "secondary_suspects": second or [{"kind": "downstream_stage_dominates"}],
+            "secondary_suspects": second or [{"kind": "downstream_stage_dominance"}],
             "warnings": [],
             "request_count": 10,
             "p95_latency_us": p95,
@@ -23,9 +23,9 @@ class RunDiagnosticMatrixTests(unittest.TestCase):
         base = {
             "name": "queue",
             "variant": "before",
-            "ground_truth": "application_queue_saturation",
-            "required_top2": ["application_queue_saturation"],
-            "acceptable_primary": ["application_queue_saturation"],
+            "ground_truth": "application_queue_pressure",
+            "required_top2": ["application_queue_pressure"],
+            "acceptable_primary": ["application_queue_pressure"],
             "top1_required": True,
         }
         base.update(updates)
@@ -47,8 +47,8 @@ class RunDiagnosticMatrixTests(unittest.TestCase):
     def test_primary_stability_and_confidence_bucket(self):
         records = [
             rdm.build_record(report=self.sample_report(), metadata=self.metadata(), run_index=1, profile="dev", artifact_path=Path("a"), analysis_path=Path("b")),
-            rdm.build_record(report=self.sample_report(primary_kind="application_queue_saturation", confidence="medium"), metadata=self.metadata(), run_index=2, profile="dev", artifact_path=Path("a"), analysis_path=Path("b")),
-            rdm.build_record(report=self.sample_report(primary_kind="blocking_pool_pressure"), metadata=self.metadata(acceptable_primary=["application_queue_saturation", "blocking_pool_pressure"]), run_index=3, profile="dev", artifact_path=Path("a"), analysis_path=Path("b")),
+            rdm.build_record(report=self.sample_report(primary_kind="application_queue_pressure", confidence="medium"), metadata=self.metadata(), run_index=2, profile="dev", artifact_path=Path("a"), analysis_path=Path("b")),
+            rdm.build_record(report=self.sample_report(primary_kind="blocking_pool_pressure"), metadata=self.metadata(acceptable_primary=["application_queue_pressure", "blocking_pool_pressure"]), run_index=3, profile="dev", artifact_path=Path("a"), analysis_path=Path("b")),
         ]
         summary = rdm.summarize(records, runs=3, profile="dev")
         per = summary["per_scenario"]["queue"]
@@ -71,9 +71,9 @@ class RunDiagnosticMatrixTests(unittest.TestCase):
 
     # TT-TEST: D02 secondary
     def test_mixed_without_top1_requirement(self):
-        rec = rdm.build_record(report=self.sample_report(primary_kind="executor_pressure_suspected", second=[{"kind": "application_queue_saturation"}]), metadata=self.metadata(name="mixed", top1_required=False, acceptable_primary=["application_queue_saturation", "executor_pressure_suspected"]), run_index=1, profile="dev", artifact_path=Path("a"), analysis_path=Path("b"))
+        rec = rdm.build_record(report=self.sample_report(primary_kind="executor_pressure", second=[{"kind": "application_queue_pressure"}]), metadata=self.metadata(name="mixed", top1_required=False, acceptable_primary=["application_queue_pressure", "executor_pressure"]), run_index=1, profile="dev", artifact_path=Path("a"), analysis_path=Path("b"))
         summary = rdm.summarize([rec], runs=1, profile="dev")
-        failures = rdm.evaluate_thresholds(summary, {"mixed": self.metadata(name="mixed", top1_required=False, acceptable_primary=["application_queue_saturation", "executor_pressure_suspected"])}, min_top1=0.95, min_top2=1.0, max_high_confidence_wrong=0)
+        failures = rdm.evaluate_thresholds(summary, {"mixed": self.metadata(name="mixed", top1_required=False, acceptable_primary=["application_queue_pressure", "executor_pressure"])}, min_top1=0.95, min_top2=1.0, max_high_confidence_wrong=0)
         self.assertFalse(any("top1_accuracy" in f for f in failures))
 
     # TT-TEST: support

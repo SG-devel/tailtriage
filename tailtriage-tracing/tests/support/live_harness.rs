@@ -266,11 +266,11 @@ pub fn assert_deterministic_span_import_full_parity() {
 
     assert_eq!(
         report.analyzer.native_primary_suspect,
-        Some(DiagnosisKind::ApplicationQueueSaturation)
+        Some(DiagnosisKind::ApplicationQueuePressure)
     );
     assert_eq!(
         report.analyzer.tracing_primary_suspect,
-        Some(DiagnosisKind::ApplicationQueueSaturation)
+        Some(DiagnosisKind::ApplicationQueuePressure)
     );
 
     assert!(
@@ -763,7 +763,7 @@ fn normalization_preserves_semantic_content() {
 Run ID: abc123
 Latency (us): p50 100, p95 200, p99 300
 ## Diagnosis
-Primary suspect: application_queue_saturation (high confidence, score 87)
+Primary suspect: application_queue_pressure (high confidence, score 87)
 Evidence:
 - queue permits depth spikes on /checkout
 Next checks:
@@ -780,7 +780,7 @@ Next checks:
     let normalized_a = normalize_rendered_report(a);
     let normalized_b = normalize_rendered_report(b);
 
-    assert!(normalized_a.contains("Primary suspect: application_queue_saturation"));
+    assert!(normalized_a.contains("Primary suspect: application_queue_pressure"));
     assert!(normalized_a.contains("high confidence"));
     assert!(normalized_a.contains("Evidence:"));
     assert!(normalized_a.contains("Next checks:"));

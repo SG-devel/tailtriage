@@ -47,7 +47,7 @@
     ]
   },
   "primary_suspect": {
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "score": 95,
     "confidence": "medium",
     "evidence": [
@@ -65,7 +65,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "score": 28,
       "confidence": "low",
       "evidence": [
@@ -114,7 +114,7 @@
         ]
       },
       "primary_suspect": {
-        "kind": "application_queue_saturation",
+        "kind": "application_queue_pressure",
         "score": 92,
         "confidence": "medium",
         "evidence": [
@@ -167,7 +167,7 @@
         ]
       },
       "primary_suspect": {
-        "kind": "downstream_stage_dominates",
+        "kind": "downstream_stage_dominance",
         "score": 95,
         "confidence": "medium",
         "evidence": [

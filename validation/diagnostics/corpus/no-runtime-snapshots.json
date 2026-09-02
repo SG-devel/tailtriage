@@ -3,7 +3,7 @@
     "Runtime snapshots missing: executor and blocking separation is limited."
   ],
   "primary_suspect": {
-    "kind": "executor_pressure_suspected",
+    "kind": "executor_pressure",
     "confidence": "medium",
     "evidence": [
       "Request queueing aligns with executor pressure, but runtime snapshots are absent."

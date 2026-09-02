@@ -1,4 +1,4 @@
-use super::{Confidence, EvidenceQualityLevel, Report, TemporalSegment};
+use super::{Confidence, DiagnosisKind, EvidenceQualityLevel, Report, TemporalSegment};
 
 use tailtriage_core::__internal::escape_control_chars;
 
@@ -13,6 +13,16 @@ fn fmt_percent_permille(value: Option<u64>) -> String {
     match value {
         Some(value) => format!("{}.{:01}%", value / 10, value % 10),
         None => "n/a".to_string(),
+    }
+}
+
+fn diagnosis_display_name(kind: &DiagnosisKind) -> &'static str {
+    match kind {
+        DiagnosisKind::ApplicationQueuePressure => "application queue pressure",
+        DiagnosisKind::BlockingPoolPressure => "blocking pool pressure",
+        DiagnosisKind::ExecutorPressure => "executor pressure",
+        DiagnosisKind::DownstreamStageDominance => "downstream stage dominance",
+        DiagnosisKind::InsufficientEvidence => "insufficient evidence",
     }
 }
 
@@ -52,7 +62,7 @@ pub fn render_text(report: &Report) -> String {
 
     lines.push(format!(
         "Primary suspect: {} ({} confidence, score {})",
-        report.primary_suspect.kind.as_str(),
+        diagnosis_display_name(&report.primary_suspect.kind),
         fmt_confidence(report.primary_suspect.confidence),
         report.primary_suspect.score,
     ));
@@ -93,7 +103,7 @@ pub fn render_text(report: &Report) -> String {
         for suspect in &report.secondary_suspects {
             lines.push(format!(
                 "- {} ({} confidence, score {})",
-                suspect.kind.as_str(),
+                diagnosis_display_name(&suspect.kind),
                 fmt_confidence(suspect.confidence),
                 suspect.score
             ));
@@ -107,7 +117,7 @@ pub fn render_text(report: &Report) -> String {
                 escape_control_chars(&route.route),
                 route.request_count,
                 fmt_opt_u64(route.p95_latency_us),
-                route.primary_suspect.kind.as_str(),
+                diagnosis_display_name(&route.primary_suspect.kind),
                 fmt_confidence(route.primary_suspect.confidence)
             ));
         }
@@ -158,7 +168,7 @@ fn append_temporal_segment_text(lines: &mut Vec<String>, segments: &[TemporalSeg
             escape_control_chars(&seg.name),
             seg.request_count,
             fmt_opt_u64(seg.p95_latency_us),
-            seg.primary_suspect.kind.as_str(),
+            diagnosis_display_name(&seg.primary_suspect.kind),
             fmt_confidence(seg.primary_suspect.confidence)
         ));
     }

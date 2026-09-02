@@ -9,7 +9,7 @@
     "inflight_snapshots": "partial"
   },
   "primary_suspect": {
-    "kind": "downstream_stage_dominates",
+    "kind": "downstream_stage_dominance",
     "confidence": "medium",
     "evidence": [
       "Route /slow has dominant stage latency"
@@ -20,7 +20,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "application_queue_saturation",
+      "kind": "application_queue_pressure",
       "confidence": "low",
       "confidence_notes": []
     }

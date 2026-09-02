@@ -16,7 +16,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "executor_pressure_suspected",
+      "kind": "executor_pressure",
       "confidence": "low",
       "evidence": [
         "Missing local_queue_depth limits executor-vs-blocking confidence."

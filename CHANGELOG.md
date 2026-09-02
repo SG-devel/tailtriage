@@ -10,6 +10,18 @@
 
 ### 0.4 core API migration
 
+- Diagnosis taxonomy and Report vocabulary changed as follows:
+
+  | Previous Rust variant / machine label | 0.4 Rust variant / machine label |
+  | --- | --- |
+  | `ApplicationQueueSaturation` / `application_queue_saturation` | `ApplicationQueuePressure` / `application_queue_pressure` |
+  | `ExecutorPressureSuspected` / `executor_pressure_suspected` | `ExecutorPressure` / `executor_pressure` |
+  | `DownstreamStageDominates` / `downstream_stage_dominates` | `DownstreamStageDominance` / `downstream_stage_dominance` |
+
+  `BlockingPoolPressure` / `blocking_pool_pressure` and `InsufficientEvidence` /
+  `insufficient_evidence` are unchanged. Machine-readable Report JSON uses the 0.4 labels;
+  human-readable reports use spaced diagnosis phrases.
+
 - Analyzer configuration now uses direct nested `AnalyzeOptions` mutation; the eight `with_*` closure wrappers and `valid_override_paths()` were removed. Derive paths from `analyze_option_descriptors()` and its read-only descriptor getters. Detailed CLI discovery moved from `analyze --help-analyzer-options` to `tailtriage analyzer-options`, and `analyze` now requires `RUN_JSON` at Clap parsing.
 
 - Direct `Tailtriage::builder(...)` capture now requires `.output(...)` or `.sink(...)`; omission returns `BuildError::MissingSink` instead of implicitly writing `tailtriage-run.json`.

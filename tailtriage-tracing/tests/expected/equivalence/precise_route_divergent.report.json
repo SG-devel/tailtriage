@@ -39,7 +39,7 @@
       "Queue wait at p95 consumes 70.0% of request time.",
       "Observed queue depth sample up to 5."
     ],
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
@@ -58,7 +58,7 @@
         "Stage 'db' cumulative latency is 340000 us (425 permille of request latency).",
         "Stage 'db' contributes 425 permille of tail request latency."
       ],
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "next_checks": [
         "Inspect downstream dependency behind stage 'db'.",
         "Collect downstream service timings and retry behavior during tail windows.",
@@ -113,7 +113,7 @@
           "Stage 'db' cumulative latency is 300000 us (750 permille of request latency).",
           "Stage 'db' contributes 750 permille of tail request latency."
         ],
-        "kind": "downstream_stage_dominates",
+        "kind": "downstream_stage_dominance",
         "next_checks": [
           "Inspect downstream dependency behind stage 'db'.",
           "Collect downstream service timings and retry behavior during tail windows.",
@@ -165,7 +165,7 @@
           "Queue wait at p95 consumes 70.0% of request time.",
           "Observed queue depth sample up to 5."
         ],
-        "kind": "application_queue_saturation",
+        "kind": "application_queue_pressure",
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
           "Compare queue wait distribution before and after increasing worker parallelism."
@@ -183,7 +183,7 @@
             "Stage 'db' cumulative latency is 40000 us (100 permille of request latency).",
             "Stage 'db' contributes 100 permille of tail request latency."
           ],
-          "kind": "downstream_stage_dominates",
+          "kind": "downstream_stage_dominance",
           "next_checks": [
             "Inspect downstream dependency behind stage 'db'.",
             "Collect downstream service timings and retry behavior during tail windows.",

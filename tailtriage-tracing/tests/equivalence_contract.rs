@@ -91,7 +91,7 @@ fn route_breakdowns_match_for_equivalent_native_and_tracing_evidence() {
                 .iter()
                 .map(|x| format!("{:?}", x.primary_suspect.kind))
                 .collect::<Vec<_>>(),
-            ["DownstreamStageDominates", "ApplicationQueueSaturation"]
+            ["DownstreamStageDominance", "ApplicationQueuePressure"]
         );
         assert_eq!(
             r.route_breakdowns
@@ -138,7 +138,7 @@ fn temporal_segments_match_for_equivalent_native_and_tracing_evidence() {
             x.iter()
                 .map(|x| format!("{:?}", x.primary_suspect.kind))
                 .collect::<Vec<_>>(),
-            ["ApplicationQueueSaturation", "DownstreamStageDominates"]
+            ["ApplicationQueuePressure", "DownstreamStageDominance"]
         );
         assert_eq!(
             x.iter().map(|x| x.warnings.len()).collect::<Vec<_>>(),

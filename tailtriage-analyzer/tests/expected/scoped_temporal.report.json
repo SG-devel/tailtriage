@@ -39,7 +39,7 @@
     ]
   },
   "primary_suspect": {
-    "kind": "executor_pressure_suspected",
+    "kind": "executor_pressure",
     "score": 48,
     "confidence": "low",
     "evidence": [
@@ -92,7 +92,7 @@
         ]
       },
       "primary_suspect": {
-        "kind": "executor_pressure_suspected",
+        "kind": "executor_pressure",
         "score": 44,
         "confidence": "low",
         "evidence": [
@@ -147,7 +147,7 @@
         ]
       },
       "primary_suspect": {
-        "kind": "executor_pressure_suspected",
+        "kind": "executor_pressure",
         "score": 36,
         "confidence": "low",
         "evidence": [

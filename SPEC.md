@@ -260,10 +260,10 @@ Artifact/report contract split:
 
 Primary suspect kinds:
 
-- `application_queue_saturation`
+- `application_queue_pressure`
 - `blocking_pool_pressure`
-- `executor_pressure_suspected`
-- `downstream_stage_dominates`
+- `executor_pressure`
+- `downstream_stage_dominance`
 - `insufficient_evidence`
 
 These are ranked suspects, not proof.

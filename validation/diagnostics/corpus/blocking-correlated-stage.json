@@ -13,7 +13,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "confidence": "medium",
       "evidence": [
         "Stage latency appears high but may be a blocking-correlated symptom."

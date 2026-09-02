@@ -74,8 +74,8 @@ class DemoWrapperTests(unittest.TestCase):
         def record(scenario, passed):
             return {"scenario": scenario, "policy_passed": passed,
                 "failed_expectations": [] if passed else ["queue_share_decreases"],
-                "high_confidence_wrong_after": False, "before_primary_kind": "application_queue_saturation",
-                "after_primary_kind": "application_queue_saturation", "p95_delta_us": -100}
+                "high_confidence_wrong_after": False, "before_primary_kind": "application_queue_pressure",
+                "after_primary_kind": "application_queue_pressure", "p95_delta_us": -100}
         evaluate_mock.side_effect = [record("queue", True), record("db-pool", False), record("queue", True), record("db-pool", False)]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -100,8 +100,8 @@ class DemoWrapperTests(unittest.TestCase):
 
     # TT-TEST: D02 primary
     def test_queue_strong_movement_and_ratio_policy(self):
-        before=self._report("application_queue_saturation", p95=1000, queue=700)
-        after=self._report("application_queue_saturation", score=70, p95=940, queue=600)
+        before=self._report("application_queue_pressure", p95=1000, queue=700)
+        after=self._report("application_queue_pressure", score=70, p95=940, queue=600)
         self.assertTrue(demo_tool.evaluate_live_scenario("queue", before, after, min_p95_improvement_ratio=.05)["policy_passed"])
         self.assertIn("p95_improves", demo_tool.evaluate_live_scenario("queue", before, after, min_p95_improvement_ratio=.10)["failed_expectations"])
         after["p95_queue_share_permille"]=700
@@ -109,10 +109,10 @@ class DemoWrapperTests(unittest.TestCase):
 
     # TT-TEST: D02 primary
     def test_target_score_and_high_confidence_wrong_fail_structurally(self):
-        for scenario, target in (("queue", "application_queue_saturation"), ("blocking", "blocking_pool_pressure"), ("downstream", "downstream_stage_dominates")):
+        for scenario, target in (("queue", "application_queue_pressure"), ("blocking", "blocking_pool_pressure"), ("downstream", "downstream_stage_dominance")):
             evidence=["Blocking queue depth p95 is 10"] if scenario == "blocking" else []
             before=self._report(target, score=70, p95=1000, evidence=evidence)
-            after=self._report("executor_pressure_suspected", score=90, p95=500, queue=500, confidence="high",
+            after=self._report("executor_pressure", score=90, p95=500, queue=500, confidence="high",
                 evidence=["Blocking queue depth p95 is 5"] if scenario == "blocking" else [])
             result=demo_tool.evaluate_live_scenario(scenario, before, after)
             self.assertFalse(result["policy_passed"])
@@ -121,8 +121,8 @@ class DemoWrapperTests(unittest.TestCase):
 
     # TT-TEST: D02 primary
     def test_required_queue_and_blocking_evidence_movement(self):
-        db_before=self._report("application_queue_saturation", queue=600)
-        db_after=self._report("application_queue_saturation", p95=500, queue=600)
+        db_before=self._report("application_queue_pressure", queue=600)
+        db_after=self._report("application_queue_pressure", p95=500, queue=600)
         self.assertIn("queue_share_decreases", demo_tool.evaluate_live_scenario("db-pool", db_before, db_after)["failed_expectations"])
         before=self._report("blocking_pool_pressure", evidence=["Blocking queue depth p95 is 10"])
         after=self._report("blocking_pool_pressure", score=20, p95=500, evidence=["Blocking queue depth p95 is 10"])
@@ -130,96 +130,96 @@ class DemoWrapperTests(unittest.TestCase):
 
     # TT-TEST: D02 primary
     def test_executor_and_extended_semantics_remain(self):
-        executor=self._report("executor_pressure_suspected", evidence=["Blocking queue depth p95 is 4"])
-        result=demo_tool.evaluate_live_scenario("executor", executor, self._report("executor_pressure_suspected", p95=500))
+        executor=self._report("executor_pressure", evidence=["Blocking queue depth p95 is 4"])
+        result=demo_tool.evaluate_live_scenario("executor", executor, self._report("executor_pressure", p95=500))
         self.assertIn("no_blocking_evidence", result["failed_expectations"])
-        retry=self._report("downstream_stage_dominates", service=950)
-        self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", retry, self._report("downstream_stage_dominates", score=70, p95=500, service=800))["policy_passed"])
+        retry=self._report("downstream_stage_dominance", service=950)
+        self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", retry, self._report("downstream_stage_dominance", score=70, p95=500, service=800))["policy_passed"])
 
     # TT-TEST: D02 primary
     def test_shared_lock_compares_actual_primary_scores(self):
         before = self._report(
-            "application_queue_saturation",
+            "application_queue_pressure",
             score=80,
             evidence=["Queue wait at p95 reflects shared lock contention"],
         )
-        unchanged = self._report("application_queue_saturation", score=70, p95=500)
+        unchanged = self._report("application_queue_pressure", score=70, p95=500)
         self.assertTrue(demo_tool.evaluate_live_scenario("shared-lock", before, unchanged)["policy_passed"])
 
-        higher_replacement = self._report("executor_pressure_suspected", score=90, p95=500)
+        higher_replacement = self._report("executor_pressure", score=90, p95=500)
         result = demo_tool.evaluate_live_scenario("shared-lock", before, higher_replacement)
         self.assertIn("primary_score_nonworsening", result["failed_expectations"])
 
-        lower_replacement = self._report("executor_pressure_suspected", score=70, p95=500)
+        lower_replacement = self._report("executor_pressure", score=70, p95=500)
         self.assertTrue(demo_tool.evaluate_live_scenario("shared-lock", before, lower_replacement)["policy_passed"])
 
     # TT-TEST: D02 primary
     def test_retry_storm_compares_actual_primary_scores(self):
-        before = self._report("downstream_stage_dominates", score=80, service=950)
-        unchanged = self._report("downstream_stage_dominates", score=70, p95=500)
+        before = self._report("downstream_stage_dominance", score=80, service=950)
+        unchanged = self._report("downstream_stage_dominance", score=70, p95=500)
         self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", before, unchanged)["policy_passed"])
 
-        higher_replacement = self._report("executor_pressure_suspected", score=90, p95=500)
+        higher_replacement = self._report("executor_pressure", score=90, p95=500)
         result = demo_tool.evaluate_live_scenario("retry-storm", before, higher_replacement)
         self.assertIn("primary_score_nonworsening", result["failed_expectations"])
 
-        lower_replacement = self._report("executor_pressure_suspected", score=80, p95=500)
+        lower_replacement = self._report("executor_pressure", score=80, p95=500)
         self.assertTrue(demo_tool.evaluate_live_scenario("retry-storm", before, lower_replacement)["policy_passed"])
 
     # TT-TEST: D02 primary
     def test_cold_start_primary_score_nonincrease_passes(self):
         before = self._report(
-            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            "application_queue_pressure", score=80, p95=20_000, queue=700,
             evidence=["cold_start_stage causes initial queue impact"],
         )
-        after = self._report("executor_pressure_suspected", score=80, p95=19_500, queue=700)
+        after = self._report("executor_pressure", score=80, p95=19_500, queue=700)
         self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, after)["policy_passed"])
 
     # TT-TEST: D02 primary
     def test_cold_start_score_increase_requires_material_latency_improvement(self):
         before = self._report(
-            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            "application_queue_pressure", score=80, p95=20_000, queue=700,
             evidence=["cold_start_stage causes initial queue impact"],
         )
-        after = self._report("application_queue_saturation", score=90, p95=19_500, queue=700)
+        after = self._report("application_queue_pressure", score=90, p95=19_500, queue=700)
         result = demo_tool.evaluate_live_scenario("cold-start", before, after)
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
     # TT-TEST: D02 primary
     def test_cold_start_changed_primary_requires_material_queue_improvement(self):
         before = self._report(
-            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            "application_queue_pressure", score=80, p95=20_000, queue=700,
             evidence=["Queue wait at p95 reflects cold-start work"],
         )
-        unrelated = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=650)
+        unrelated = self._report("executor_pressure", score=90, p95=18_000, queue=650)
         result = demo_tool.evaluate_live_scenario("cold-start", before, unrelated)
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
-        explained = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=600)
+        explained = self._report("executor_pressure", score=90, p95=18_000, queue=600)
         self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, explained)["policy_passed"])
 
     # TT-TEST: D02 primary
     def test_cold_start_score_increase_retains_queue_worsening_tolerance(self):
         before = self._report(
-            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            "application_queue_pressure", score=80, p95=20_000, queue=700,
             evidence=["cold_start_stage causes initial queue impact"],
         )
-        tolerated = self._report("application_queue_saturation", score=90, p95=18_000, queue=720)
+        tolerated = self._report("application_queue_pressure", score=90, p95=18_000, queue=720)
         self.assertTrue(demo_tool.evaluate_live_scenario("cold-start", before, tolerated)["policy_passed"])
 
-        worsened = self._report("application_queue_saturation", score=90, p95=18_000, queue=721)
+        worsened = self._report("application_queue_pressure", score=90, p95=18_000, queue=721)
         result = demo_tool.evaluate_live_scenario("cold-start", before, worsened)
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
     # TT-TEST: D02 primary
     def test_cold_start_target_disappearance_does_not_bypass_score_rule(self):
         before = self._report(
-            "application_queue_saturation", score=80, p95=20_000, queue=700,
+            "application_queue_pressure", score=80, p95=20_000, queue=700,
             evidence=["Queue depth sample reflects cold-start work"],
         )
-        after = self._report("executor_pressure_suspected", score=90, p95=18_000, queue=700)
+        after = self._report("executor_pressure", score=90, p95=18_000, queue=700)
         result = demo_tool.evaluate_live_scenario("cold-start", before, after)
-        self.assertNotIn("application_queue_saturation", [after["primary_suspect"]["kind"]])
+        self.assertNotIn("application_queue_pressure", [after["primary_suspect"]["kind"]])
         self.assertIn("primary_score_increase_explainable", result["failed_expectations"])
 
     # TT-TEST: support
@@ -308,39 +308,39 @@ class DemoWrapperTests(unittest.TestCase):
     # TT-TEST: support
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
-            "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
+            "secondary_suspects": [{"kind": "downstream_stage_dominance"}],
         }
 
-        self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
-        self.assertFalse(has_suspect_kind(report, {"application_queue_saturation"}))
+        self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominance"}))
+        self.assertFalse(has_suspect_kind(report, {"application_queue_pressure"}))
 
     # TT-TEST: support
     def test_has_suspect_kind_checks_primary_and_secondary(self) -> None:
         report = {
-            "primary_suspect": {"kind": "application_queue_saturation"},
-            "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
+            "primary_suspect": {"kind": "application_queue_pressure"},
+            "secondary_suspects": [{"kind": "downstream_stage_dominance"}],
         }
 
-        self.assertTrue(has_suspect_kind(report, {"application_queue_saturation"}))
-        self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
+        self.assertTrue(has_suspect_kind(report, {"application_queue_pressure"}))
+        self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominance"}))
         self.assertFalse(has_suspect_kind(report, {"blocking_pool_pressure"}))
 
     # TT-TEST: support
     def test_suspect_score_reads_secondary_kind_score(self) -> None:
         report = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
-            "secondary_suspects": [{"kind": "executor_pressure_suspected", "score": 70}],
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 90},
+            "secondary_suspects": [{"kind": "executor_pressure", "score": 70}],
         }
-        self.assertEqual(suspect_score(report, "executor_pressure_suspected"), 70)
+        self.assertEqual(suspect_score(report, "executor_pressure"), 70)
         self.assertIsNone(suspect_score(report, "blocking_pool_pressure"))
 
     # TT-TEST: support
     def test_contains_blocking_depth_evidence_checks_secondary_suspects(self) -> None:
         report = {
-            "primary_suspect": {"kind": "application_queue_saturation", "evidence": []},
+            "primary_suspect": {"kind": "application_queue_pressure", "evidence": []},
             "secondary_suspects": [
                 {
-                    "kind": "executor_pressure_suspected",
+                    "kind": "executor_pressure",
                     "evidence": ["Blocking queue depth p95 is 12 due to contention."],
                 }
             ],
@@ -356,12 +356,12 @@ class DemoWrapperTests(unittest.TestCase):
         load_report_json_mock,
     ) -> None:
         before_report = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 83, "evidence": []},
-            "secondary_suspects": [{"kind": "downstream_stage_dominates", "score": 70, "evidence": []}],
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 83, "evidence": []},
+            "secondary_suspects": [{"kind": "downstream_stage_dominance", "score": 70, "evidence": []}],
             "p95_latency_us": 31_000,
         }
         after_report = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 50, "evidence": []},
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 50, "evidence": []},
             "secondary_suspects": [],
             "p95_latency_us": 900,
         }
@@ -460,7 +460,7 @@ class DemoWrapperTests(unittest.TestCase):
             "demo_manifest": Path("/tmp/demo/Cargo.toml"),
             "artifact_dir": Path("/tmp/demo/artifacts"),
             "route": "/queue-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"worker_permit"},
             "stages": {"simulated_work"},
             "require_p95_improvement": True,
@@ -468,7 +468,7 @@ class DemoWrapperTests(unittest.TestCase):
         report = {
             "request_count": 1,
             "p95_latency_us": 10,
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 10},
             "secondary_suspects": [],
         }
         load_report_json_mock.side_effect = [report] * 8
@@ -510,7 +510,7 @@ class DemoWrapperTests(unittest.TestCase):
             "demo_manifest": Path("/tmp/demo/Cargo.toml"),
             "artifact_dir": Path("/tmp/demo/artifacts"),
             "route": "/queue-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"worker_permit"},
             "stages": {"simulated_work"},
             "require_p95_improvement": False,
@@ -518,7 +518,7 @@ class DemoWrapperTests(unittest.TestCase):
         report = {
             "request_count": 1,
             "p95_latency_us": 10,
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 10},
             "secondary_suspects": [],
         }
         load_report_json_mock.side_effect = [report] * 8
@@ -569,7 +569,7 @@ class DemoWrapperTests(unittest.TestCase):
             "demo_manifest": Path("/tmp/demo/Cargo.toml"),
             "artifact_dir": Path("/tmp/demo/artifacts"),
             "route": "/queue-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"worker_permit"},
             "stages": {"simulated_work"},
             "require_p95_improvement": False,
@@ -577,7 +577,7 @@ class DemoWrapperTests(unittest.TestCase):
         report = {
             "request_count": 1,
             "p95_latency_us": 10,
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 10},
             "secondary_suspects": [],
         }
         load_report_json_mock.side_effect = [report] * 8
@@ -725,12 +725,12 @@ class DemoWrapperTests(unittest.TestCase):
         load_report_json_mock,
     ) -> None:
         before_report = {
-            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 90},
+            "primary_suspect": {"kind": "downstream_stage_dominance", "score": 90},
             "secondary_suspects": [],
             "p95_latency_us": 100_000,
         }
         after_report = {
-            "primary_suspect": {"kind": "application_queue_saturation", "score": 95, "confidence": "high"},
+            "primary_suspect": {"kind": "application_queue_pressure", "score": 95, "confidence": "high"},
             "secondary_suspects": [],
             "p95_latency_us": 20_000,
         }

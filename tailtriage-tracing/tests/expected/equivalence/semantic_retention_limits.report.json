@@ -38,7 +38,7 @@
       "Queue wait at p95 consumes 37.5% of request time.",
       "Observed queue depth sample up to 2."
     ],
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."

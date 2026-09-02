@@ -9,10 +9,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 KINDS = {
-    "application_queue_saturation",
+    "application_queue_pressure",
     "blocking_pool_pressure",
-    "executor_pressure_suspected",
-    "downstream_stage_dominates",
+    "executor_pressure",
+    "downstream_stage_dominance",
     "insufficient_evidence",
 }
 TYPES = {

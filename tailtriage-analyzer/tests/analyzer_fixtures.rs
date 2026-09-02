@@ -66,7 +66,7 @@ fn scoped_route_fixture_preserves_breakdown_contract() {
             .iter()
             .map(|breakdown| breakdown.primary_suspect.kind.as_str())
             .collect::<Vec<_>>(),
-        ["application_queue_saturation", "downstream_stage_dominates"]
+        ["application_queue_pressure", "downstream_stage_dominance"]
     );
     assert!(report.route_breakdowns.iter().all(|breakdown| breakdown
         .warnings
@@ -122,19 +122,16 @@ fn fixture_categories_produce_expected_primary_suspect() {
     let cases = [
         (
             "queue_saturation.json",
-            DiagnosisKind::ApplicationQueueSaturation,
+            DiagnosisKind::ApplicationQueuePressure,
         ),
         (
             "blocking_pressure.json",
             DiagnosisKind::BlockingPoolPressure,
         ),
-        (
-            "executor_pressure.json",
-            DiagnosisKind::ExecutorPressureSuspected,
-        ),
+        ("executor_pressure.json", DiagnosisKind::ExecutorPressure),
         (
             "downstream_stage.json",
-            DiagnosisKind::DownstreamStageDominates,
+            DiagnosisKind::DownstreamStageDominance,
         ),
         (
             "insufficient_evidence.json",
