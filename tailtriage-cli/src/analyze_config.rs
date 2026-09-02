@@ -83,16 +83,16 @@ pub(crate) fn analyzer_options_help_text() -> String {
         let _ = writeln!(
             out,
             "- {}\n  default: {}\n  type: {}\n  affects: {}\n  description: {}",
-            descriptor.path,
-            descriptor.default_value,
-            descriptor.value_type,
-            descriptor.affects,
-            descriptor.description,
+            descriptor.path(),
+            descriptor.default_value(),
+            descriptor.value_type(),
+            descriptor.affects(),
+            descriptor.description(),
         );
-        if let Some(note) = descriptor.increasing {
+        if let Some(note) = descriptor.increasing() {
             let _ = writeln!(out, "  increasing: {note}");
         }
-        if let Some(note) = descriptor.decreasing {
+        if let Some(note) = descriptor.decreasing() {
             let _ = writeln!(out, "  decreasing: {note}");
         }
         out.push('\n');

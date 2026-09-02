@@ -353,16 +353,14 @@ overlap makes timestamp attribution approximate.
 
 ## Analyzer tuning and configuration transparency
 
-Start with `AnalyzeOptions::default()`. The Rust builder exposes matching
-`with_queueing`, `with_blocking`, `with_executor`, `with_downstream`,
-`with_confidence`, `with_evidence`, `with_route`, and `with_temporal` groups.
+Start with `AnalyzeOptions::default()` and tune its public nested option groups directly.
 TOML nests the same groups under `[analyzer.<group>]`, as shown in
 [`examples/analyzer-config.toml`](../examples/analyzer-config.toml). The CLI
 loads `--analyzer-config` first, then applies repeated `--analyzer-set
 PATH=VALUE` overrides in argument order, so later repeated paths win.
 
 This inventory is mechanically owned by the analyzer option registry and is
-also printed by `tailtriage analyze --help-analyzer-options`:
+also printed by `tailtriage analyzer-options`:
 
 | Option path | Default | Unit/type | Behavioral ownership |
 | --- | --- | --- | --- |

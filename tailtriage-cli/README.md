@@ -124,7 +124,7 @@ Start with default analyzer behavior first.
 
 - `--analyzer-config <path>` loads analyzer options from TOML (`[analyzer]`, `schema_version = 1`).
 - `--analyzer-set PATH=VALUE` applies one override (repeatable).
-- `--help-analyzer-options` prints supported override paths and value formats.
+- `tailtriage analyzer-options` prints supported override paths, defaults, types, and effects without requiring a Run artifact.
 
 Precedence:
 

@@ -157,6 +157,8 @@ Analyze the saved **Run artifact** at the command line:
 tailtriage analyze tailtriage-run.json
 ```
 
+Tune analyzer thresholds in Rust through direct nested `AnalyzeOptions` mutation, or use checked TOML/string overrides. List every registry-owned path, default, type, and effect with `tailtriage analyzer-options`.
+
 Or analyze a completed `Run` in process and obtain a typed **Report**:
 
 ```rust

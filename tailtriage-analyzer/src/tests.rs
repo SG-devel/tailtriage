@@ -373,10 +373,15 @@ fn scoped_evidence(
 // TT-TEST: A06 primary
 #[test]
 fn ambiguity_cluster_membership_uses_raw_scores_only() {
-    let options = AnalyzeOptions::default().with_confidence(|o| {
-        o.ambiguity_min_score = 90;
-        o.ambiguity_score_gap = 4;
-    });
+    let options = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.ambiguity_min_score = 90;
+            o.ambiguity_score_gap = 4;
+        }
+        options
+    };
     let candidates = vec![
         literal_scored(
             DiagnosisKind::ApplicationQueueSaturation,
@@ -599,7 +604,14 @@ fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
         stage.latency_us = 500;
         stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 500);
     }
-    let options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 96);
+    let options = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.high_score_threshold = 96;
+        }
+        options
+    };
     let report = analyze_run(&run, options.clone()).expect("analyzer options should be valid");
     let primary = &report.primary_suspect;
     let secondary = &report.secondary_suspects[0];
@@ -683,12 +695,19 @@ fn scoped_flip_report() -> Report {
             stage.latency_us = 1_000;
         }
     }
-    let options = AnalyzeOptions::default()
-        .with_route(|o| o.min_request_count = 10)
-        .with_temporal(|o| {
+    let options = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.min_request_count = 10;
+        }
+        {
+            let o = &mut options.temporal;
             o.min_request_count = 20;
             o.min_segment_request_count = 10;
-        });
+        }
+        options
+    };
     analyze_run(&run, options).expect("analyzer options should be valid")
 }
 
@@ -1562,13 +1581,15 @@ fn worker_test_run() -> Run {
 }
 
 fn temporal_worker_report(run: &Run) -> Report {
-    analyze_run(
-        run,
-        AnalyzeOptions::default().with_temporal(|options| {
+    analyze_run(run, {
+        let mut options = AnalyzeOptions::default();
+        {
+            let options = &mut options.temporal;
             options.min_request_count = 20;
             options.min_segment_request_count = 10;
-        }),
-    )
+        }
+        options
+    })
     .expect("analyzer options should be valid")
 }
 
@@ -3107,7 +3128,14 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
         .any(|w| w.contains("No runtime snapshots captured")));
     assert!(default_report.analyzer_config.is_none());
 
-    let strict_options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 95);
+    let strict_options = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.high_score_threshold = 95;
+        }
+        options
+    };
     let strict_report =
         analyze_run(&run, strict_options).expect("analyzer options should be valid");
     assert!(strict_report
@@ -3334,8 +3362,14 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
 
     let downstream_score_for = |margin: u8| {
-        let options = AnalyzeOptions::default()
-            .with_downstream(|o| o.blocking_correlation_score_margin = margin);
+        let options = {
+            let mut options = AnalyzeOptions::default();
+            {
+                let o = &mut options.downstream;
+                o.blocking_correlation_score_margin = margin;
+            }
+            options
+        };
         let report = analyze_run(&run, options).expect("analyzer options should be valid");
         report
             .secondary_suspects
@@ -3353,10 +3387,22 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
 // TT-TEST: support
 #[test]
 fn non_default_overrides_are_sorted_and_include_downstream_margin_override() {
-    let options = AnalyzeOptions::default()
-        .with_temporal(|o| o.min_request_count = 25)
-        .with_downstream(|o| o.blocking_correlation_score_margin = 7)
-        .with_queueing(|o| o.trigger_permille = 250);
+    let options = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
+            o.min_request_count = 25;
+        }
+        {
+            let o = &mut options.downstream;
+            o.blocking_correlation_score_margin = 7;
+        }
+        {
+            let o = &mut options.queueing;
+            o.trigger_permille = 250;
+        }
+        options
+    };
     let overrides = options.non_default_overrides();
     let paths = overrides
         .iter()
@@ -5299,91 +5345,199 @@ fn analyze_options_default_validates() {
 
 // TT-TEST: Q01 primary
 #[test]
+#[allow(clippy::too_many_lines)]
 fn analyze_options_validate_rejects_invalid_classes() {
-    assert!(AnalyzeOptions::default()
-        .with_queueing(|o| o.trigger_permille = 1001)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_blocking(|o| o.strong_nonzero_share_permille = 1001)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_confidence(|o| {
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.queueing;
+            o.trigger_permille = 1001;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.blocking;
+            o.strong_nonzero_share_permille = 1001;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
             o.medium_score_threshold = 90;
             o.high_score_threshold = 80;
-        })
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_confidence(|o| o.high_score_threshold = 101)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_confidence(|o| o.ambiguity_min_score = 101)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_confidence(|o| o.ambiguity_score_gap = 101)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_downstream(|o| o.blocking_correlation_score_margin = 101)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_route(|o| o.breakdown_limit = 0)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_route(|o| o.slowest_to_fastest_p95_ratio_numerator = 0)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_route(|o| o.slowest_to_fastest_p95_ratio_numerator = 1)
-        .with_route(|o| o.slowest_to_fastest_p95_ratio_denominator = 2)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_temporal(|o| o.min_segment_request_count = 0)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_temporal(|o| o.min_segment_request_count = 11)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_temporal(|o| o.share_shift_permille = 1001)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_temporal(|o| o.p95_shift_ratio_numerator = 0)
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_temporal(|o| {
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.high_score_threshold = 101;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.ambiguity_min_score = 101;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.ambiguity_score_gap = 101;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.downstream;
+            o.blocking_correlation_score_margin = 101;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.breakdown_limit = 0;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.slowest_to_fastest_p95_ratio_numerator = 0;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.slowest_to_fastest_p95_ratio_numerator = 1;
+        }
+        {
+            let o = &mut options.route;
+            o.slowest_to_fastest_p95_ratio_denominator = 2;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
+            o.min_segment_request_count = 0;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
+            o.min_segment_request_count = 11;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
+            o.share_shift_permille = 1001;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
+            o.p95_shift_ratio_numerator = 0;
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
             o.p95_shift_ratio_numerator = 1;
             o.p95_shift_ratio_denominator = 2;
-        })
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_downstream(|o| o.blocking_correlated_stage_patterns = Vec::new())
-        .validate()
-        .is_err());
-    assert!(AnalyzeOptions::default()
-        .with_downstream(|o| o.blocking_correlated_stage_patterns = vec!["  ".to_string()])
-        .validate()
-        .is_err());
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.downstream;
+            o.blocking_correlated_stage_patterns = Vec::new();
+        }
+        options
+    }
+    .validate()
+    .is_err());
+    assert!({
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.downstream;
+            o.blocking_correlated_stage_patterns = vec!["  ".to_string()];
+        }
+        options
+    }
+    .validate()
+    .is_err());
 }
 
 // TT-TEST: Q01 primary
 #[test]
 fn validate_ratio_zero_denominators_report_exact_paths() {
-    let err = AnalyzeOptions::default()
-        .with_route(|o| o.slowest_to_fastest_p95_ratio_denominator = 0)
-        .validate()
-        .expect_err("fastest ratio denominator zero should fail");
+    let err = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.slowest_to_fastest_p95_ratio_denominator = 0;
+        }
+        options
+    }
+    .validate()
+    .expect_err("fastest ratio denominator zero should fail");
     assert!(matches!(
         err,
         AnalyzeConfigError::InvalidConfigValue {
@@ -5392,10 +5546,16 @@ fn validate_ratio_zero_denominators_report_exact_paths() {
         }
     ));
 
-    let err = AnalyzeOptions::default()
-        .with_route(|o| o.slowest_to_global_p95_ratio_denominator = 0)
-        .validate()
-        .expect_err("global ratio denominator zero should fail");
+    let err = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.slowest_to_global_p95_ratio_denominator = 0;
+        }
+        options
+    }
+    .validate()
+    .expect_err("global ratio denominator zero should fail");
     assert!(matches!(
         err,
         AnalyzeConfigError::InvalidConfigValue {
@@ -5404,10 +5564,16 @@ fn validate_ratio_zero_denominators_report_exact_paths() {
         }
     ));
 
-    let err = AnalyzeOptions::default()
-        .with_temporal(|o| o.p95_shift_ratio_denominator = 0)
-        .validate()
-        .expect_err("temporal p95 ratio denominator zero should fail");
+    let err = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
+            o.p95_shift_ratio_denominator = 0;
+        }
+        options
+    }
+    .validate()
+    .expect_err("temporal p95 ratio denominator zero should fail");
     assert!(matches!(
         err,
         AnalyzeConfigError::InvalidConfigValue {
@@ -5421,7 +5587,14 @@ fn validate_ratio_zero_denominators_report_exact_paths() {
 #[test]
 fn analyze_run_rejects_invalid_options() {
     let run = test_run();
-    let options = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001);
+    let options = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.queueing;
+            o.trigger_permille = 1001;
+        }
+        options
+    };
     assert!(matches!(
         analyze_run(&run, options),
         Err(AnalyzeConfigError::InvalidConfigValue {
@@ -5445,14 +5618,14 @@ fn analyze_run_still_works_with_default_options() {
 fn queueing_trigger_descriptor_direction_text_is_correct() {
     let descriptor = crate::analyze_option_descriptors()
         .iter()
-        .find(|d| d.path == "queueing.trigger_permille")
+        .find(|d| d.path() == "queueing.trigger_permille")
         .expect("queueing.trigger_permille descriptor exists");
     assert!(descriptor
-        .increasing
+        .increasing()
         .expect("increasing text")
         .contains("harder"));
     assert!(descriptor
-        .decreasing
+        .decreasing()
         .expect("decreasing text")
         .contains("easier"));
 }
@@ -5464,7 +5637,7 @@ fn descriptors_have_unique_and_exact_v1_paths() {
     let descriptors = crate::analyze_option_descriptors();
     let paths = descriptors
         .iter()
-        .map(|d| d.path)
+        .map(crate::AnalyzeOptionDescriptor::path)
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(paths.len(), descriptors.len());
     let expected = [
@@ -5650,8 +5823,8 @@ fn descriptor_defaults_match_analyze_options_defaults() {
     ]);
     for descriptor in crate::analyze_option_descriptors() {
         assert_eq!(
-            Some(&descriptor.default_value.to_string()),
-            expected.get(descriptor.path)
+            Some(&descriptor.default_value().to_string()),
+            expected.get(descriptor.path())
         );
     }
 }
@@ -6028,7 +6201,14 @@ fn option_queueing_trigger_permille_changes_queue_suspect() {
         default_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
     );
-    let strict = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 600);
+    let strict = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.queueing;
+            o.trigger_permille = 600;
+        }
+        options
+    };
     let strict_report = analyze_run(&run, strict).expect("analyzer options should be valid");
     assert_ne!(
         strict_report.primary_suspect.kind,
@@ -6048,7 +6228,14 @@ fn option_blocking_min_nonzero_samples_changes_signal_emission() {
         default_report.primary_suspect.kind,
         DiagnosisKind::BlockingPoolPressure
     );
-    let relaxed = AnalyzeOptions::default().with_blocking(|o| o.min_nonzero_samples_for_signal = 1);
+    let relaxed = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.blocking;
+            o.min_nonzero_samples_for_signal = 1;
+        }
+        options
+    };
     let relaxed_report = analyze_run(&run, relaxed).expect("analyzer options should be valid");
     assert_eq!(
         relaxed_report.primary_suspect.kind,
@@ -6067,7 +6254,14 @@ fn option_executor_min_global_queue_p95_changes_signal_emission() {
         default_report.primary_suspect.kind,
         DiagnosisKind::ExecutorPressureSuspected
     );
-    let strict = AnalyzeOptions::default().with_executor(|o| o.min_global_queue_p95_for_signal = 2);
+    let strict = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.executor;
+            o.min_global_queue_p95_for_signal = 2;
+        }
+        options
+    };
     let strict_report = analyze_run(&run, strict).expect("analyzer options should be valid");
     assert_ne!(
         strict_report.primary_suspect.kind,
@@ -6102,7 +6296,14 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
     assert_eq!(default_report.primary_suspect.score, 90);
     assert_eq!(default_report.primary_suspect.confidence, Confidence::High);
 
-    let strict = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 91);
+    let strict = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.confidence;
+            o.high_score_threshold = 91;
+        }
+        options
+    };
     let strict_report = analyze_run(&run, strict).expect("analyzer options should be valid");
     assert_eq!(
         strict_report.primary_suspect.kind,
@@ -6132,7 +6333,14 @@ fn analyzer_toml_sparse_preserves_defaults() {
 // TT-TEST: support
 #[test]
 fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
-    let base = AnalyzeOptions::default().with_blocking(|o| o.strong_p95_threshold = 99);
+    let base = {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.blocking;
+            o.strong_p95_threshold = 99;
+        }
+        options
+    };
     let merged = base
         .merge_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=410\n")
         .expect("merge");
@@ -6800,15 +7008,19 @@ fn assert_no_duplicate_warnings(values: &[String]) {
 #[test]
 fn global_partial_warning_is_emitted_once_and_not_copied_to_nested_warnings() {
     let run = scoped_partial_acceptance_run();
-    let r = analyze_run(
-        &run,
-        AnalyzeOptions::default()
-            .with_route(|o| o.min_request_count = 10)
-            .with_temporal(|o| {
-                o.min_request_count = 20;
-                o.min_segment_request_count = 10;
-            }),
-    )
+    let r = analyze_run(&run, {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.min_request_count = 10;
+        }
+        {
+            let o = &mut options.temporal;
+            o.min_request_count = 20;
+            o.min_segment_request_count = 10;
+        }
+        options
+    })
     .expect("analyzer options should be valid");
     assert_eq!(r.route_breakdowns.len(), 2);
     assert_eq!(r.temporal_segments.len(), 2);
@@ -6999,10 +7211,14 @@ fn route_breakdowns_apply_completed_distribution_and_partial_confidence_policy()
         .iter()
         .filter(|s| s.request_id == "r20")
         .all(|s| !s.completed && !s.success));
-    let report = analyze_run(
-        &run,
-        AnalyzeOptions::default().with_route(|o| o.min_request_count = 10),
-    )
+    let report = analyze_run(&run, {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.route;
+            o.min_request_count = 10;
+        }
+        options
+    })
     .expect("analyzer options should be valid");
     assert_eq!(report.route_breakdowns.len(), 2);
     let completed = report
@@ -7067,13 +7283,15 @@ fn route_breakdowns_apply_completed_distribution_and_partial_confidence_policy()
 #[test]
 fn temporal_segments_apply_completed_distribution_and_partial_confidence_policy() {
     let run = scoped_partial_acceptance_run();
-    let report = analyze_run(
-        &run,
-        AnalyzeOptions::default().with_temporal(|o| {
+    let report = analyze_run(&run, {
+        let mut options = AnalyzeOptions::default();
+        {
+            let o = &mut options.temporal;
             o.min_request_count = 20;
             o.min_segment_request_count = 10;
-        }),
-    )
+        }
+        options
+    })
     .expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     assert!(report.warnings.iter().any(|w| w == "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect."));

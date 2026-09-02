@@ -1,17 +1,6 @@
-use super::registry::{find_entry, suggest_path, OPTION_ENTRIES};
+use super::registry::{find_entry, suggest_path};
 use super::{AnalyzeConfigError, AnalyzeOptions};
-use std::sync::LazyLock;
-
-static VALID_OVERRIDE_PATHS: LazyLock<Vec<&'static str>> =
-    LazyLock::new(|| OPTION_ENTRIES.iter().map(|entry| entry.path).collect());
-
 impl AnalyzeOptions {
-    /// Returns every supported v1 CLI override path (`group.field`).
-    #[must_use]
-    pub fn valid_override_paths() -> &'static [&'static str] {
-        VALID_OVERRIDE_PATHS.as_slice()
-    }
-
     /// Applies CLI overrides in order as one transactional batch.
     ///
     /// # Errors
@@ -291,7 +280,10 @@ mod tests {
     // TT-TEST: Q01 secondary
     #[test]
     fn registry_paths_are_unique_and_exact() {
-        let paths = AnalyzeOptions::valid_override_paths();
+        let paths: Vec<_> = analyze_option_descriptors()
+            .iter()
+            .map(crate::AnalyzeOptionDescriptor::path)
+            .collect();
         let unique: HashSet<_> = paths.iter().copied().collect();
         assert_eq!(paths.len(), 30);
         assert_eq!(paths.len(), unique.len());
@@ -300,12 +292,12 @@ mod tests {
 
     // TT-TEST: Q01 secondary
     #[test]
-    fn descriptor_paths_and_valid_override_paths_are_identical() {
+    fn descriptor_paths_are_registry_ordered() {
         let descriptor_paths: Vec<_> = analyze_option_descriptors()
             .iter()
-            .map(|descriptor| descriptor.path)
+            .map(crate::AnalyzeOptionDescriptor::path)
             .collect();
-        assert_eq!(descriptor_paths, AnalyzeOptions::valid_override_paths());
+        assert_eq!(descriptor_paths, EXPECTED_PATHS);
     }
 
     // TT-TEST: Q01 secondary
