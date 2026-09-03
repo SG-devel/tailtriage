@@ -10,6 +10,13 @@
 
 ### 0.4 core API migration
 
+- Tokio semaphore helpers are now awaited directly: replace
+  `.semaphore(...).acquire().await` with `.semaphore(...).await` and
+  `.owned_semaphore(...).acquire_owned().await` with `.owned_semaphore(...).await`.
+  The intermediate `InstrumentedSemaphore` and `InstrumentedOwnedSemaphore` types were removed.
+  Replace the redundant Tokio `inflight_guard(...)` alias with the canonical core
+  `inflight(...)` method.
+
 - Diagnosis taxonomy and Report vocabulary changed as follows:
 
   | Previous Rust variant / machine label | 0.4 Rust variant / machine label |

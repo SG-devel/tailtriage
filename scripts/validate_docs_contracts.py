@@ -498,6 +498,20 @@ def validate_residual_public_api_cleanup() -> None:
         REPO_ROOT / "tailtriage-core" / "src" / "run_builder.rs": (
             ("RunBuilder::finish", r"\bpub\s+fn\s+finish\s*\([^)]*\)\s*->\s*Run\b"),
         ),
+        REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs": (
+            (
+                "TokioRequestHandleExt::inflight_guard",
+                r"\bfn\s+inflight_guard\s*\(",
+            ),
+            (
+                "public InstrumentedSemaphore",
+                r"\bpub\s+struct\s+InstrumentedSemaphore\b",
+            ),
+            (
+                "public InstrumentedOwnedSemaphore",
+                r"\bpub\s+struct\s+InstrumentedOwnedSemaphore\b",
+            ),
+        ),
         REPO_ROOT / "tailtriage-core" / "src" / "lib.rs": (
             (
                 "RuntimeSamplerRegistrationError",

@@ -127,7 +127,7 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_pool = Arc::new(tokio::sync::Semaphore::new(32));
     {
-        let _permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
+        let _permit = req.semaphore("db_pool_wait", &db_pool).await?;
 
         let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
             .timeout_stage("downstream_http", Duration::from_millis(200), async {
@@ -281,15 +281,15 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 
 | Use case                     | Helper                                   | Records   |
 | ---------------------------- | ---------------------------------------- | --------- |
-| DB pool / capacity wait      | `semaphore(...).acquire()`               | queue     |
-| owned permit wait            | `owned_semaphore(...).acquire_owned()`   | queue     |
+| DB pool / capacity wait      | `semaphore(...).await`                   | queue     |
+| owned permit wait            | `owned_semaphore(...).await`             | queue     |
 | bounded channel backpressure | `mpsc_send(...)`                         | queue     |
 | async mutex contention       | `mutex_lock(...)`                        | queue     |
 | async rwlock contention      | `rwlock_read(...)` / `rwlock_write(...)` | queue     |
 | spawned task result          | `join_task(...)`                         | stage     |
 | timeout-wrapped work         | `timeout_stage(...)`                     | stage     |
 | blocking pool work           | `blocking_stage(...)`                    | stage     |
-| active bounded section       | `inflight_guard(...)`                    | in-flight |
+| active bounded section       | `inflight(...)`                           | in-flight |
 
 ### Semantics notes
 
@@ -317,7 +317,11 @@ let req = started.handle.clone();
 
 let db_pool = Arc::new(tokio::sync::Semaphore::new(32));
 {
-    let _permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
+    let _permit = req.semaphore("db_pool_wait", &db_pool).await?;
+    let _owned = req
+        .owned_semaphore("owned_db_pool_wait", Arc::clone(&db_pool))
+        .await?;
+    let _guard = req.inflight("database");
     let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
         .timeout_stage("downstream_http", Duration::from_millis(200), async {
             Ok::<(), ()>(())

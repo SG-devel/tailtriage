@@ -100,6 +100,32 @@ class ValidateDocsContractsTests(unittest.TestCase):
         self._assert_residual_api_rejected('tailtriage-core/src/run_builder.rs', 'pub fn finish(self) -> Run { todo!() }', 'RunBuilder::finish')
 
     # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_tokio_request_helpers(self) -> None:
+        for symbol, source in (
+            ('TokioRequestHandleExt::inflight_guard', 'pub trait TokioRequestHandleExt { fn inflight_guard(&self); }'),
+            ('public InstrumentedSemaphore', 'pub struct InstrumentedSemaphore;'),
+            ('public InstrumentedOwnedSemaphore', 'pub struct InstrumentedOwnedSemaphore;'),
+        ):
+            with self.subTest(symbol=symbol):
+                self._assert_residual_api_rejected('tailtriage-tokio/src/lib.rs', source, symbol)
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_accepts_direct_tokio_semaphore_futures(self) -> None:
+        source = '''pub trait TokioRequestHandleExt {
+    fn semaphore<'req, 'sem>(&'req self, semaphore: &'sem Semaphore)
+        -> impl Future<Output = Result<SemaphorePermit<'sem>, AcquireError>> + 'req
+        where 'sem: 'req;
+    fn owned_semaphore(&self, semaphore: Arc<Semaphore>)
+        -> impl Future<Output = Result<OwnedSemaphorePermit, AcquireError>> + '_;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(root, {'tailtriage-tokio/src/lib.rs': source})
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
+
+    # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_removed_analyzer_methods(self) -> None:
         for method in ('with_queueing', 'with_blocking', 'with_executor', 'with_downstream',
                        'with_confidence', 'with_evidence', 'with_route', 'with_temporal'):

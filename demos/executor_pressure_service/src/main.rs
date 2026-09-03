@@ -193,7 +193,7 @@ async fn run_request_cohort(
                         request_id,
                         tailtriage_core::Outcome::Ok,
                         |request| async move {
-                            let inflight_guard = request.inflight("executor_pressure_inflight");
+                            let inflight = request.inflight("executor_pressure_inflight");
                             execute_request_work(
                                 fanout_tasks,
                                 cpu_turns,
@@ -201,7 +201,7 @@ async fn run_request_cohort(
                                 Arc::clone(&hot_slice_local_depth),
                             )
                             .await;
-                            drop(inflight_guard);
+                            drop(inflight);
                         },
                     )
                     .await;

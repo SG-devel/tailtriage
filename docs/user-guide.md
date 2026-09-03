@@ -414,15 +414,15 @@ These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...)
 
 | Use case | Helper | Records |
 |---|---|---|
-| DB pool / capacity wait | `semaphore(...).acquire()` | queue |
-| owned permit wait | `owned_semaphore(...).acquire_owned()` | queue |
+| DB pool / capacity wait | `semaphore(...).await` | queue |
+| owned permit wait | `owned_semaphore(...).await` | queue |
 | bounded channel backpressure | `mpsc_send(...)` | queue |
 | async mutex contention | `mutex_lock(...)` | queue |
 | async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
 | spawned task result | `join_task(...)` | stage |
 | timeout-wrapped work | `timeout_stage(...)` | stage |
 | blocking pool work | `blocking_stage(...)` | stage |
-| active bounded section | `inflight_guard(...)` | in-flight |
+| active bounded section | `inflight(...)` | in-flight |
 
 Semantics notes:
 

@@ -30,7 +30,7 @@ mod sealed {
 pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Records a queue event while waiting to acquire a semaphore permit.
     ///
-    /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())` via [`InstrumentedSemaphore::acquire`].
+    /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())`.
     ///
     /// Records only acquisition wait time, not the protected work after the permit is acquired.
     /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
@@ -39,10 +39,12 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
         &'req self,
         queue: impl Into<String>,
         semaphore: &'sem tokio::sync::Semaphore,
-    ) -> InstrumentedSemaphore<'req, 'sem>;
+    ) -> impl Future<Output = Result<tokio::sync::SemaphorePermit<'sem>, tokio::sync::AcquireError>> + 'req
+    where
+        'sem: 'req;
     /// Records a queue event while waiting to acquire an owned semaphore permit.
     ///
-    /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())` via [`InstrumentedOwnedSemaphore::acquire_owned`].
+    /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())`.
     ///
     /// Records only acquisition wait time, not work after permit acquisition.
     /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
@@ -51,7 +53,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
         &self,
         queue: impl Into<String>,
         semaphore: Arc<tokio::sync::Semaphore>,
-    ) -> InstrumentedOwnedSemaphore<'_>;
+    ) -> impl Future<Output = Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>> + '_;
     /// Records a queue event while waiting for bounded-channel send/backpressure.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(sender.send(value))`.
@@ -159,12 +161,6 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
-    /// Alias for `inflight(...)` for RAII discoverability.
-    ///
-    /// Equivalent low-level form: `req.inflight(label)`.
-    ///
-    /// Records in-flight gauge increments/decrements only. It does not record queue or stage timing. Request completion remains explicit.
-    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_>;
 }
 
 impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
@@ -172,21 +168,19 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
         &'req self,
         queue: impl Into<String>,
         semaphore: &'sem tokio::sync::Semaphore,
-    ) -> InstrumentedSemaphore<'req, 'sem> {
-        InstrumentedSemaphore {
-            timer: self.queue(queue),
-            semaphore,
-        }
+    ) -> impl Future<Output = Result<tokio::sync::SemaphorePermit<'sem>, tokio::sync::AcquireError>> + 'req
+    where
+        'sem: 'req,
+    {
+        self.queue(queue).await_on(semaphore.acquire())
     }
     fn owned_semaphore(
         &self,
         queue: impl Into<String>,
         semaphore: Arc<tokio::sync::Semaphore>,
-    ) -> InstrumentedOwnedSemaphore<'_> {
-        InstrumentedOwnedSemaphore {
-            timer: self.queue(queue),
-            semaphore,
-        }
+    ) -> impl Future<Output = Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>> + '_
+    {
+        self.queue(queue).await_on(semaphore.acquire_owned())
     }
     fn mpsc_send<'a, T>(
         &'a self,
@@ -261,9 +255,6 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
                 .await_on(async move { tokio::task::spawn_blocking(f).await })
                 .await
         }
-    }
-    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
-        self.inflight(gauge)
     }
 }
 
@@ -272,21 +263,19 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
         &'req self,
         queue: impl Into<String>,
         semaphore: &'sem tokio::sync::Semaphore,
-    ) -> InstrumentedSemaphore<'req, 'sem> {
-        InstrumentedSemaphore {
-            timer: self.queue(queue),
-            semaphore,
-        }
+    ) -> impl Future<Output = Result<tokio::sync::SemaphorePermit<'sem>, tokio::sync::AcquireError>> + 'req
+    where
+        'sem: 'req,
+    {
+        self.queue(queue).await_on(semaphore.acquire())
     }
     fn owned_semaphore(
         &self,
         queue: impl Into<String>,
         semaphore: Arc<tokio::sync::Semaphore>,
-    ) -> InstrumentedOwnedSemaphore<'_> {
-        InstrumentedOwnedSemaphore {
-            timer: self.queue(queue),
-            semaphore,
-        }
+    ) -> impl Future<Output = Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError>> + '_
+    {
+        self.queue(queue).await_on(semaphore.acquire_owned())
     }
     fn mpsc_send<'a, T>(
         &'a self,
@@ -361,46 +350,6 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
                 .await_on(async move { tokio::task::spawn_blocking(f).await })
                 .await
         }
-    }
-    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
-        self.inflight(gauge)
-    }
-}
-
-/// Queue-instrumented semaphore acquisition helper.
-#[must_use = "constructing the wrapper records nothing until acquire() is awaited"]
-pub struct InstrumentedSemaphore<'req, 'sem> {
-    timer: tailtriage_core::QueueTimer<'req>,
-    semaphore: &'sem tokio::sync::Semaphore,
-}
-impl<'sem> InstrumentedSemaphore<'_, 'sem> {
-    /// Awaits a borrowed semaphore permit while recording queue wait duration.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`tokio::sync::AcquireError`] when the semaphore is closed.
-    pub async fn acquire(
-        self,
-    ) -> Result<tokio::sync::SemaphorePermit<'sem>, tokio::sync::AcquireError> {
-        self.timer.await_on(self.semaphore.acquire()).await
-    }
-}
-/// Queue-instrumented owned semaphore acquisition helper.
-#[must_use = "constructing the wrapper records nothing until acquire_owned() is awaited"]
-pub struct InstrumentedOwnedSemaphore<'a> {
-    timer: tailtriage_core::QueueTimer<'a>,
-    semaphore: Arc<tokio::sync::Semaphore>,
-}
-impl InstrumentedOwnedSemaphore<'_> {
-    /// Awaits an owned semaphore permit while recording queue wait duration.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`tokio::sync::AcquireError`] when the semaphore is closed.
-    pub async fn acquire_owned(
-        self,
-    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
-        self.timer.await_on(self.semaphore.acquire_owned()).await
     }
 }
 
@@ -1178,7 +1127,6 @@ mod helper_tests {
         semaphore: &'s tokio::sync::Semaphore,
     ) -> tokio::sync::SemaphorePermit<'s> {
         req.semaphore("sem_lifetime", semaphore)
-            .acquire()
             .await
             .expect("permit")
     }
@@ -1211,18 +1159,19 @@ mod helper_tests {
         let started = run.begin_request("/helpers");
         let req = started.handle.clone();
         let sem = Arc::new(tokio::sync::Semaphore::new(1));
-        let permit = req.semaphore("sem", &sem).acquire().await.expect("permit");
+        let permit = req.semaphore("sem", &sem).await.expect("permit");
         drop(permit);
-        let owned = req
+        let owned: tokio::sync::OwnedSemaphorePermit = req
             .owned_semaphore("owned_sem", Arc::clone(&sem))
-            .acquire_owned()
             .await
             .expect("owned permit");
         drop(owned);
 
         let closed = tokio::sync::Semaphore::new(0);
         closed.close();
-        assert!(req.semaphore("closed", &closed).acquire().await.is_err());
+        let closed_result: Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> =
+            req.semaphore("closed", &closed).await;
+        assert!(closed_result.is_err());
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         tx.send(7u8).await.expect("seed send");
@@ -1321,7 +1270,7 @@ mod helper_tests {
             .is_err());
 
         {
-            let _g = req.inflight_guard("busy");
+            let _g = req.inflight("busy");
             assert_eq!(run.snapshot().inflight.len(), 1);
         }
         let inflight_snap = run.snapshot();
@@ -1503,10 +1452,18 @@ mod helper_tests {
         let sem = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = owned
             .owned_semaphore("owned_sem", Arc::clone(&sem))
-            .acquire_owned()
             .await
             .expect("owned permit");
         drop(permit);
+        let borrowed_permit: tokio::sync::SemaphorePermit<'_> = owned
+            .semaphore("owned_handle_borrowed_sem", &sem)
+            .await
+            .expect("borrowed permit from owned request handle");
+        drop(borrowed_permit);
+        {
+            let _inflight = owned.inflight("owned_busy");
+            assert!(run.snapshot().requests.is_empty());
+        }
         let _ = owned
             .timeout_stage("owned_timeout", Duration::from_millis(10), async { 1usize })
             .await
@@ -1606,23 +1563,44 @@ mod prompt09_tokio_partial_tests {
 
     // TT-TEST: T01 primary
     #[tokio::test(flavor = "current_thread")]
+    async fn unpolled_semaphore_futures_record_nothing() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let borrowed = tokio::sync::Semaphore::new(1);
+        drop(started.handle.semaphore("borrowed_unpolled", &borrowed));
+
+        let owned = Arc::new(tokio::sync::Semaphore::new(1));
+        drop(
+            started
+                .handle
+                .owned_semaphore("owned_unpolled", Arc::clone(&owned)),
+        );
+
+        assert!(tt.snapshot().queues.is_empty());
+        started.completion.finish_ok();
+    }
+
+    // TT-TEST: T01 primary
+    #[tokio::test(flavor = "current_thread")]
     async fn borrowed_semaphore_pending_then_drop_records_partial_queue() {
         let tt = capture();
         let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
         let sem = tokio::sync::Semaphore::new(1);
         let permit = sem.acquire().await.unwrap();
-        let fut = started.handle.semaphore("sem", &sem).acquire();
+        let fut = started.handle.semaphore("sem", &sem);
         let mut fut = Box::pin(fut);
         assert!(poll_once(&mut fut).is_pending());
         drop(fut);
         drop(permit);
-        let ev = &tt.snapshot().queues[0];
+        let snapshot = tt.snapshot();
+        assert_eq!(snapshot.queues.len(), 1);
+        let ev = &snapshot.queues[0];
         assert_eq!(ev.request_id, "req");
         assert_eq!(ev.queue, "sem");
         assert!(!ev.completed);
     }
 
-    // TT-TEST: K02 secondary
+    // TT-TEST: T01 primary
     #[tokio::test(flavor = "current_thread")]
     async fn owned_semaphore_pending_then_drop_records_partial_queue() {
         let tt = capture();
@@ -1631,13 +1609,14 @@ mod prompt09_tokio_partial_tests {
         let permit = sem.acquire().await.unwrap();
         let fut = started
             .handle
-            .owned_semaphore("owned_sem", Arc::clone(&sem))
-            .acquire_owned();
+            .owned_semaphore("owned_sem", Arc::clone(&sem));
         let mut fut = Box::pin(fut);
         assert!(poll_once(&mut fut).is_pending());
         drop(fut);
         drop(permit);
-        let ev = &tt.snapshot().queues[0];
+        let snapshot = tt.snapshot();
+        assert_eq!(snapshot.queues.len(), 1);
+        let ev = &snapshot.queues[0];
         assert_eq!(ev.queue, "owned_sem");
         assert!(!ev.completed);
     }
