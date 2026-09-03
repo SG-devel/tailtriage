@@ -1,7 +1,7 @@
 {
   "warnings": [],
   "primary_suspect": {
-    "kind": "downstream_stage_dominates",
+    "kind": "downstream_stage_dominance",
     "confidence": "high",
     "evidence": [
       "Stage fetch_inventory contributes most p95 tail time.",

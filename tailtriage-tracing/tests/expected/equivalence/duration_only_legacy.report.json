@@ -39,7 +39,7 @@
       "Queue wait at p95 consumes 65.0% of request time.",
       "Observed queue depth sample up to 3."
     ],
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
@@ -55,7 +55,7 @@
         "Stage 'db' cumulative latency is 90000 us (150 permille of request latency).",
         "Stage 'db' contributes 150 permille of tail request latency."
       ],
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "next_checks": [
         "Inspect downstream dependency behind stage 'db'.",
         "Collect downstream service timings and retry behavior during tail windows.",

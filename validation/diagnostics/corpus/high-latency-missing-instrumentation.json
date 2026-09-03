@@ -15,7 +15,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "confidence": "low",
       "evidence": [
         "Downstream dominance is plausible but unsupported without stage/runtime signals."

@@ -3,7 +3,7 @@
     "Stage instrumentation missing: downstream stage dominance cannot be excluded."
   ],
   "primary_suspect": {
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "confidence": "medium",
     "evidence": [
       "Queue wait dominates captured request time.",
@@ -16,7 +16,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "confidence": "low",
       "evidence": [
         "Missing stage data keeps downstream dominance plausible."

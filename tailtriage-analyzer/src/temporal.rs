@@ -126,7 +126,7 @@ pub(super) fn temporal_segments(
             analyzed.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present;
         if matches!(
             analyzed.primary_suspect.kind,
-            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
+            DiagnosisKind::ExecutorPressure | DiagnosisKind::BlockingPoolPressure
         ) && (sparse_runtime || sparse_inflight)
         {
             analyzed
@@ -195,11 +195,11 @@ fn is_runtime_dependent_suspect_shift(early: &TemporalSegment, late: &TemporalSe
     matches!(
         (&early.primary_suspect.kind, &late.primary_suspect.kind),
         (
-            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure,
+            DiagnosisKind::ExecutorPressure | DiagnosisKind::BlockingPoolPressure,
             _
         ) | (
             _,
-            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
+            DiagnosisKind::ExecutorPressure | DiagnosisKind::BlockingPoolPressure
         )
     )
 }

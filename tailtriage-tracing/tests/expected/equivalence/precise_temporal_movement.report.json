@@ -36,7 +36,7 @@
       "Stage 'downstream' cumulative latency is 1200000 us (454 permille of request latency).",
       "Stage 'downstream' contributes 750 permille of tail request latency."
     ],
-    "kind": "downstream_stage_dominates",
+    "kind": "downstream_stage_dominance",
     "next_checks": [
       "Inspect downstream dependency behind stage 'downstream'.",
       "Collect downstream service timings and retry behavior during tail windows.",
@@ -52,7 +52,7 @@
         "Queue wait at p95 consumes 70.0% of request time.",
         "Observed queue depth sample up to 4."
       ],
-      "kind": "application_queue_saturation",
+      "kind": "application_queue_pressure",
       "next_checks": [
         "Inspect queue admission limits and producer burst patterns.",
         "Compare queue wait distribution before and after increasing worker parallelism."
@@ -102,7 +102,7 @@
           "Queue wait at p95 consumes 70.0% of request time.",
           "Observed queue depth sample up to 4."
         ],
-        "kind": "application_queue_saturation",
+        "kind": "application_queue_pressure",
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
           "Compare queue wait distribution before and after increasing worker parallelism."
@@ -119,7 +119,7 @@
             "Stage 'downstream' cumulative latency is 120000 us (100 permille of request latency).",
             "Stage 'downstream' contributes 100 permille of tail request latency."
           ],
-          "kind": "downstream_stage_dominates",
+          "kind": "downstream_stage_dominance",
           "next_checks": [
             "Inspect downstream dependency behind stage 'downstream'.",
             "Collect downstream service timings and retry behavior during tail windows.",
@@ -173,7 +173,7 @@
           "Stage 'downstream' cumulative latency is 1080000 us (750 permille of request latency).",
           "Stage 'downstream' contributes 750 permille of tail request latency."
         ],
-        "kind": "downstream_stage_dominates",
+        "kind": "downstream_stage_dominance",
         "next_checks": [
           "Inspect downstream dependency behind stage 'downstream'.",
           "Collect downstream service timings and retry behavior during tail windows.",

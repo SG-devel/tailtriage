@@ -3,7 +3,7 @@
     "Queue instrumentation missing: queue saturation cannot be excluded."
   ],
   "primary_suspect": {
-    "kind": "downstream_stage_dominates",
+    "kind": "downstream_stage_dominance",
     "confidence": "medium",
     "evidence": [
       "Stage process_payment dominates tail latency contribution.",
@@ -16,7 +16,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "application_queue_saturation",
+      "kind": "application_queue_pressure",
       "confidence": "low",
       "evidence": [
         "Missing queue instrumentation leaves queue saturation plausible."

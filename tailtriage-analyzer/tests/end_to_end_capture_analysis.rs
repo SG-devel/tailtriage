@@ -49,7 +49,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind.as_str(),
-        "application_queue_saturation",
+        "application_queue_pressure",
         "unexpected report: {report:#?}"
     );
 }
@@ -102,7 +102,7 @@ async fn downstream_heavy_stage_is_ranked() {
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind.as_str(),
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
     );
     assert!(
         report

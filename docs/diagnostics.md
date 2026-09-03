@@ -266,10 +266,10 @@ Final ordering puts eligible diagnosis candidates before
 `insufficient_evidence`, then orders by final confidence descending, raw score
 descending, and this stable kind tie order:
 
-1. `application_queue_saturation`
+1. `application_queue_pressure`
 2. `blocking_pool_pressure`
-3. `executor_pressure_suspected`
-4. `downstream_stage_dominates`
+3. `executor_pressure`
+4. `downstream_stage_dominance`
 
 Raw-score ambiguity intentionally uses different input from final visible
 ordering; a lower raw score can appear first if it retains higher confidence.

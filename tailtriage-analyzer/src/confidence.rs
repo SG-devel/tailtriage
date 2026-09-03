@@ -127,7 +127,7 @@ fn apply_family_evidence_caps(
     notes: &mut Vec<String>,
 ) {
     match kind {
-        DiagnosisKind::ApplicationQueueSaturation => {
+        DiagnosisKind::ApplicationQueuePressure => {
             if basis == EvidenceBasis::ObservedLowerBound {
                 *cap = (*cap).min(Confidence::Medium);
                 notes.push(PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string());
@@ -146,7 +146,7 @@ fn apply_family_evidence_caps(
                 );
             }
         }
-        DiagnosisKind::DownstreamStageDominates => {
+        DiagnosisKind::DownstreamStageDominance => {
             if basis == EvidenceBasis::ObservedLowerBound {
                 *cap = (*cap).min(Confidence::Medium);
                 notes.push(PARTIAL_STAGE_CONFIDENCE_NOTE.to_string());
@@ -165,7 +165,7 @@ fn apply_family_evidence_caps(
                 );
             }
         }
-        DiagnosisKind::BlockingPoolPressure | DiagnosisKind::ExecutorPressureSuspected => {
+        DiagnosisKind::BlockingPoolPressure | DiagnosisKind::ExecutorPressure => {
             if run.truncation.dropped_runtime_snapshots > 0 {
                 *cap = (*cap).min(Confidence::Medium);
                 notes.push(

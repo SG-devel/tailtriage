@@ -26,15 +26,15 @@ Synthetic analyzer-contract demos:
 
 | Scenario      | Expected baseline primary suspect | Required supporting signal                               |
 | ------------- | --------------------------------- | -------------------------------------------------------- |
-| `queue`       | `application_queue_saturation`    | Queue evidence on primary suspect                        |
-| `downstream`  | `downstream_stage_dominates`      | Stage-dominance evidence on primary suspect              |
-| `db-pool`     | `application_queue_saturation`    | Queue pressure on DB admission path                      |
-| `shared-lock` | `application_queue_saturation`    | Queue wait/depth evidence from lock contention           |
-| `retry-storm` | `downstream_stage_dominates`      | Elevated service-share evidence from retry-heavy stage   |
-| `mixed`       | `application_queue_saturation`    | Downstream suspect also appears as secondary             |
+| `queue`       | `application_queue_pressure`    | Queue evidence on primary suspect                        |
+| `downstream`  | `downstream_stage_dominance`      | Stage-dominance evidence on primary suspect              |
+| `db-pool`     | `application_queue_pressure`    | Queue pressure on DB admission path                      |
+| `shared-lock` | `application_queue_pressure`    | Queue wait/depth evidence from lock contention           |
+| `retry-storm` | `downstream_stage_dominance`      | Elevated service-share evidence from retry-heavy stage   |
+| `mixed`       | `application_queue_pressure`    | Downstream suspect also appears as secondary             |
 | `blocking`    | `blocking_pool_pressure`          | Blocking queue depth evidence remains visible            |
-| `cold-start`  | `application_queue_saturation`    | Evidence mentions `cold_start_stage` and/or queue impact |
-| `executor`    | `executor_pressure_suspected`     | Runtime snapshot pressure + executor suspect score       |
+| `cold-start`  | `application_queue_pressure`    | Evidence mentions `cold_start_stage` and/or queue impact |
+| `executor`    | `executor_pressure`     | Runtime snapshot pressure + executor suspect score       |
 
 ## Run and validate
 

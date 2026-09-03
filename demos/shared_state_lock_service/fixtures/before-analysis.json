@@ -39,7 +39,7 @@
     ]
   },
   "primary_suspect": {
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "score": 95,
     "confidence": "high",
     "evidence": [
@@ -54,7 +54,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "downstream_stage_dominates",
+      "kind": "downstream_stage_dominance",
       "score": 32,
       "confidence": "low",
       "evidence": [
@@ -105,7 +105,7 @@
         ]
       },
       "primary_suspect": {
-        "kind": "application_queue_saturation",
+        "kind": "application_queue_pressure",
         "score": 100,
         "confidence": "high",
         "evidence": [
@@ -121,7 +121,7 @@
       },
       "secondary_suspects": [
         {
-          "kind": "downstream_stage_dominates",
+          "kind": "downstream_stage_dominance",
           "score": 32,
           "confidence": "low",
           "evidence": [
@@ -174,7 +174,7 @@
         ]
       },
       "primary_suspect": {
-        "kind": "application_queue_saturation",
+        "kind": "application_queue_pressure",
         "score": 95,
         "confidence": "high",
         "evidence": [
@@ -189,7 +189,7 @@
       },
       "secondary_suspects": [
         {
-          "kind": "downstream_stage_dominates",
+          "kind": "downstream_stage_dominance",
           "score": 32,
           "confidence": "low",
           "evidence": [

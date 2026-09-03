@@ -37,7 +37,7 @@
     ]
   },
   "primary_suspect": {
-    "kind": "downstream_stage_dominates",
+    "kind": "downstream_stage_dominance",
     "score": 100,
     "confidence": "high",
     "evidence": [

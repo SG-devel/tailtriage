@@ -199,7 +199,7 @@ fn queue_candidate(
     }
     Some(ScoredSuspect {
         suspect: suspect(
-            DiagnosisKind::ApplicationQueueSaturation,
+            DiagnosisKind::ApplicationQueuePressure,
             score,
             evidence,
             vec![
@@ -415,7 +415,7 @@ pub(super) fn executor_pressure_suspect(
     };
     Some((
         suspect(
-            DiagnosisKind::ExecutorPressureSuspected,
+            DiagnosisKind::ExecutorPressure,
             score,
             evidence,
             vec![
@@ -584,7 +584,7 @@ pub(super) fn downstream_stage_suspect(
     }
     Some(ScoredSuspect {
         suspect: suspect(
-            DiagnosisKind::DownstreamStageDominates,
+            DiagnosisKind::DownstreamStageDominance,
             downstream_score,
             evidence,
             vec![

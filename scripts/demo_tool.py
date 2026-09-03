@@ -21,10 +21,10 @@ from _demo_runner import (
     write_before_after_comparison,
 )
 
-EXPECTED_QUEUE_KIND = {"application_queue_saturation"}
+EXPECTED_QUEUE_KIND = {"application_queue_pressure"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure"}
-EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected"}
-EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates"}
+EXPECTED_EXECUTOR_KIND = {"executor_pressure"}
+EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominance"}
 EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
@@ -224,15 +224,15 @@ def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
 # Its check names own both baseline expectations and mitigation movement for exactly nine
 # scenarios; both ordinary validation and mitigation reporting consume evaluate_live_scenario.
 LIVE_SCENARIO_POLICIES: dict[str, dict[str, Any]] = {
-    "queue": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_saturation", "downstream_stage_dominates"}},
-    "blocking": {"targeted": "blocking_pool_pressure", "checks": ["baseline_targeted", "p95_improves", "blocking_depth_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"blocking_pool_pressure", "downstream_stage_dominates"}},
-    "executor": {"targeted": "executor_pressure_suspected", "checks": ["baseline_targeted", "executor_present", "no_blocking_evidence", "p95_improves", "targeted_score_nonworsening"]},
-    "downstream": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "p95_improves", "targeted_score_nonworsening"], "after_high_confidence": {"downstream_stage_dominates"}},
-    "mixed": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "baseline_downstream_secondary", "primary_rank_or_score_shifts"]},
-    "cold-start": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "primary_score_increase_explainable"]},
-    "db-pool": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_saturation", "downstream_stage_dominates"}},
-    "shared-lock": {"targeted": "application_queue_saturation", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "primary_score_nonworsening"]},
-    "retry-storm": {"targeted": "downstream_stage_dominates", "checks": ["baseline_targeted", "baseline_service_share_elevated", "p95_improves", "primary_score_nonworsening"]},
+    "queue": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_pressure", "downstream_stage_dominance"}},
+    "blocking": {"targeted": "blocking_pool_pressure", "checks": ["baseline_targeted", "p95_improves", "blocking_depth_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"blocking_pool_pressure", "downstream_stage_dominance"}},
+    "executor": {"targeted": "executor_pressure", "checks": ["baseline_targeted", "executor_present", "no_blocking_evidence", "p95_improves", "targeted_score_nonworsening"]},
+    "downstream": {"targeted": "downstream_stage_dominance", "checks": ["baseline_targeted", "p95_improves", "targeted_score_nonworsening"], "after_high_confidence": {"downstream_stage_dominance"}},
+    "mixed": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "baseline_downstream_secondary", "primary_rank_or_score_shifts"]},
+    "cold-start": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "primary_score_increase_explainable"]},
+    "db-pool": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_pressure", "downstream_stage_dominance"}},
+    "shared-lock": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "primary_score_nonworsening"]},
+    "retry-storm": {"targeted": "downstream_stage_dominance", "checks": ["baseline_targeted", "baseline_service_share_elevated", "p95_improves", "primary_score_nonworsening"]},
 }
 SCENARIOS = list(LIVE_SCENARIO_POLICIES)
 
@@ -308,7 +308,7 @@ def evaluate_live_scenario(
         if name == "primary_score_increase_explainable": return cold_start_score_increase_explainable()
         if name == "executor_present": return has_suspect_kind(before, {targeted}) and (profile == "release" or before_targeted_score is not None)
         if name == "no_blocking_evidence": return "blocking queue depth" not in evidence
-        if name == "baseline_downstream_secondary": return any(s.get("kind") == "downstream_stage_dominates" for s in before.get("secondary_suspects") or [])
+        if name == "baseline_downstream_secondary": return any(s.get("kind") == "downstream_stage_dominance" for s in before.get("secondary_suspects") or [])
         if name == "primary_rank_or_score_shifts": return after_primary.get("kind") != before_primary.get("kind") or after_primary.get("score") != before_primary.get("score")
         if name == "cold_start_or_queue_evidence": return any(x in evidence for x in ("cold_start_stage", "queue wait at p95", "queue depth sample"))
         if name == "shared_lock_queue_evidence": return "queue wait at p95" in evidence or "queue depth sample" in evidence
@@ -484,7 +484,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "queue"),
             "artifact_dir": scenario_artifact_dir(root_dir, "queue"),
             "route": "/queue-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"worker_permit"},
             "stages": {"simulated_work"},
             "require_p95_improvement": True,
@@ -493,7 +493,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "downstream"),
             "artifact_dir": scenario_artifact_dir(root_dir, "downstream"),
             "route": "/downstream-demo",
-            "expected_kind": "downstream_stage_dominates",
+            "expected_kind": "downstream_stage_dominance",
             "queues": set(),
             "stages": {"app_precheck", "downstream_call"},
             "require_p95_improvement": True,
@@ -502,7 +502,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "mixed"),
             "artifact_dir": scenario_artifact_dir(root_dir, "mixed"),
             "route": "/mixed-contention-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"worker_permit"},
             "stages": {"app_prepare", "downstream_call"},
             "require_p95_improvement": True,
@@ -511,7 +511,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "cold-start"),
             "artifact_dir": scenario_artifact_dir(root_dir, "cold-start"),
             "route": "/cold-start-burst-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"worker_admission"},
             "stages": {"cold_start_stage"},
             "require_p95_improvement": True,
@@ -520,7 +520,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "db-pool"),
             "artifact_dir": scenario_artifact_dir(root_dir, "db-pool"),
             "route": "/db-pool-saturation-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"db_pool"},
             "stages": {"app_precheck", "db_query"},
             "require_p95_improvement": True,
@@ -529,7 +529,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "shared-lock"),
             "artifact_dir": scenario_artifact_dir(root_dir, "shared-lock"),
             "route": "/shared-state-lock-demo",
-            "expected_kind": "application_queue_saturation",
+            "expected_kind": "application_queue_pressure",
             "queues": {"shared_state_write_lock"},
             "stages": {"pre_lock_work", "shared_state_critical_section"},
             "require_p95_improvement": True,
@@ -538,7 +538,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "retry-storm"),
             "artifact_dir": scenario_artifact_dir(root_dir, "retry-storm"),
             "route": "/retry-storm-demo",
-            "expected_kind": "downstream_stage_dominates",
+            "expected_kind": "downstream_stage_dominance",
             "queues": set(),
             "stages": {"app_precheck", "downstream_total"},
             # Retry-heavy downstream behavior can make p95 movement less stable between
@@ -559,7 +559,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "demo_manifest": scenario_manifest(root_dir, "executor"),
             "artifact_dir": scenario_artifact_dir(root_dir, "executor"),
             "route": "/executor-pressure",
-            "expected_kind": "executor_pressure_suspected",
+            "expected_kind": "executor_pressure",
             "queues": set(),
             "stages": set(),
             "require_p95_improvement": True,

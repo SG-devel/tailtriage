@@ -45,7 +45,7 @@
     ]
   },
   "primary_suspect": {
-    "kind": "application_queue_saturation",
+    "kind": "application_queue_pressure",
     "score": 78,
     "confidence": "medium",
     "evidence": [

@@ -15,12 +15,12 @@
       ],
       "notes": "Queue scenario before mitigation is queue-dominant.",
       "expected_primary_kinds": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
-      "exact_primary_kind": "application_queue_saturation",
+      "exact_primary_kind": "application_queue_pressure",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -50,11 +50,11 @@
       ],
       "notes": "After mitigation, queue contribution drops and work stage dominates.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -113,11 +113,11 @@
       ],
       "notes": "After blocking mitigation, downstream work can dominate residual tail.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
+        "downstream_stage_dominance",
         "blocking_pool_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -144,12 +144,12 @@
       ],
       "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
       "expected_primary_kinds": [
-        "executor_pressure_suspected"
+        "executor_pressure"
       ],
       "required_visible_suspects": [
-        "executor_pressure_suspected"
+        "executor_pressure"
       ],
-      "exact_primary_kind": "executor_pressure_suspected",
+      "exact_primary_kind": "executor_pressure",
       "must_include_evidence": [
         "Global queue depth"
       ],
@@ -170,11 +170,11 @@
       ],
       "notes": "Post-mitigation executor pressure reduces, but executor remains the expected true cause in this fixture; downstream may appear as an acceptable alternate primary.",
       "expected_primary_kinds": [
-        "executor_pressure_suspected",
-        "downstream_stage_dominates"
+        "executor_pressure",
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "executor_pressure_suspected"
+        "executor_pressure"
       ],
       "must_include_evidence": [
         "Runtime global queue depth"
@@ -196,13 +196,13 @@
       ],
       "notes": "Downstream slowdown scenario should identify downstream stage dominance.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
-      "exact_primary_kind": "downstream_stage_dominates",
+      "exact_primary_kind": "downstream_stage_dominance",
       "must_include_evidence": [
         "Stage"
       ],
@@ -223,12 +223,12 @@
       ],
       "notes": "After improvements downstream may still be top but with reduced severity.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
-      "exact_primary_kind": "downstream_stage_dominates",
+      "exact_primary_kind": "downstream_stage_dominance",
       "must_include_evidence": [
         "Stage"
       ],
@@ -249,11 +249,11 @@
       ],
       "notes": "Mixed baseline intentionally keeps queue and executor signals close.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "executor_pressure_suspected"
+        "application_queue_pressure",
+        "executor_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -284,11 +284,11 @@
       ],
       "notes": "Mitigated mixed case reduces contention so downstream work often leads.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -310,11 +310,11 @@
       ],
       "notes": "Cold-start burst before mitigation shows admission queue pressure.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "executor_pressure_suspected"
+        "application_queue_pressure",
+        "executor_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -336,11 +336,11 @@
       ],
       "notes": "After warmup mitigation queue pressure drops and stage work dominates.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -362,11 +362,11 @@
       ],
       "notes": "Before pool tuning queueing from limited DB pool appears strongly.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
+        "application_queue_pressure",
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -390,11 +390,11 @@
       ],
       "notes": "After queue improvement, dependency stage often dominates residual tails.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -416,11 +416,11 @@
       ],
       "notes": "Shared lock contention manifests through stage latency dominance.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -444,11 +444,11 @@
       ],
       "notes": "After mitigation remaining time is still mostly stage work.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -472,11 +472,11 @@
       ],
       "notes": "Retry storm amplifies downstream latency contribution.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "downstream"
@@ -498,12 +498,12 @@
       ],
       "notes": "After retry tuning downstream remains dominant but improved.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
-      "exact_primary_kind": "downstream_stage_dominates",
+      "exact_primary_kind": "downstream_stage_dominance",
       "must_include_evidence": [
         "Stage"
       ],
@@ -550,11 +550,11 @@
       ],
       "notes": "Runtime warning should be accepted when expected.",
       "expected_primary_kinds": [
-        "executor_pressure_suspected",
-        "application_queue_saturation"
+        "executor_pressure",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "executor_pressure_suspected"
+        "executor_pressure"
       ],
       "must_include_evidence": [
         "Global queue depth"
@@ -577,12 +577,12 @@
       ],
       "notes": "Stage warning allowed for partial instrumentation cases.",
       "expected_primary_kinds": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
-      "exact_primary_kind": "application_queue_saturation",
+      "exact_primary_kind": "application_queue_pressure",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -604,11 +604,11 @@
       ],
       "notes": "Truncation warning validates partial-data handling without changing ranking.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "executor_pressure_suspected"
+        "application_queue_pressure",
+        "executor_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -631,11 +631,11 @@
       ],
       "notes": "Close scores case validates ambiguity-warning handling.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
+        "application_queue_pressure",
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -696,12 +696,12 @@
       ],
       "notes": "Synthetic adversarial missing-queue case: downstream can lead, but queue saturation must remain visible in top-2 and confidence must stay conservative.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Stage",
@@ -729,12 +729,12 @@
       ],
       "notes": "Synthetic adversarial missing-stage case: queue may lead, but downstream dominance cannot be excluded without stage events.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
+        "application_queue_pressure",
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
+        "application_queue_pressure",
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Queue wait",
@@ -762,11 +762,11 @@
       ],
       "notes": "Synthetic adversarial runtime-missing case: executor and blocking suspects should both remain visible with capped confidence.",
       "expected_primary_kinds": [
-        "executor_pressure_suspected",
+        "executor_pressure",
         "blocking_pool_pressure"
       ],
       "required_visible_suspects": [
-        "executor_pressure_suspected",
+        "executor_pressure",
         "blocking_pool_pressure"
       ],
       "must_include_evidence": [
@@ -795,11 +795,11 @@
       "notes": "Synthetic adversarial partial-runtime-fields case: optional Tokio fields missing should limit confidence while retaining plausible runtime suspects.",
       "expected_primary_kinds": [
         "blocking_pool_pressure",
-        "executor_pressure_suspected"
+        "executor_pressure"
       ],
       "required_visible_suspects": [
         "blocking_pool_pressure",
-        "executor_pressure_suspected"
+        "executor_pressure"
       ],
       "must_include_evidence": [
         "optional runtime fields",
@@ -829,11 +829,11 @@
       ],
       "notes": "Synthetic adversarial truncation case: plausible dominant stage signal is retained but confidence is capped and truncation follow-up is required.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
+        "downstream_stage_dominance",
         "blocking_pool_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Truncation warning",
@@ -864,13 +864,13 @@
       ],
       "notes": "Synthetic adversarial mixed-signal case: strong downstream evidence should outrank weak blocking hints while keeping blocking visible in top-2.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates",
+        "downstream_stage_dominance",
         "blocking_pool_pressure"
       ],
-      "exact_primary_kind": "downstream_stage_dominates",
+      "exact_primary_kind": "downstream_stage_dominance",
       "must_include_evidence": [
         "tail time",
         "weak"
@@ -900,7 +900,7 @@
       ],
       "required_visible_suspects": [
         "blocking_pool_pressure",
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "exact_primary_kind": "blocking_pool_pressure",
       "must_include_evidence": [
@@ -992,12 +992,12 @@
       ],
       "notes": "Synthetic route divergence case for route breakdown validation.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
-      "exact_primary_kind": "downstream_stage_dominates",
+      "exact_primary_kind": "downstream_stage_dominance",
       "must_include_evidence": [
         "Route /slow"
       ],
@@ -1020,7 +1020,7 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "tracing_queue_dominant",
-      "ground_truth": "application_queue_saturation",
+      "ground_truth": "application_queue_pressure",
       "tags": [
         "tracing",
         "import",
@@ -1028,12 +1028,12 @@
       ],
       "notes": "Completed tailtriage tracing span JSONL fixture validates CLI import to Run JSON, CLI analyze, and queue-dominant diagnosis behavior.",
       "expected_primary_kinds": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
-      "exact_primary_kind": "application_queue_saturation",
+      "exact_primary_kind": "application_queue_pressure",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -1089,7 +1089,7 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "raw_no_queue_events",
-      "ground_truth": "downstream_stage_dominates",
+      "ground_truth": "downstream_stage_dominance",
       "tags": [
         "adversarial",
         "raw-run",
@@ -1097,11 +1097,11 @@
       ],
       "notes": "Raw run fixture without queue events checks missing-queue warning and conservative interpretation.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
+        "downstream_stage_dominance",
         "insufficient_evidence"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "Stage"
@@ -1123,7 +1123,7 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "raw_no_stage_events",
-      "ground_truth": "application_queue_saturation",
+      "ground_truth": "application_queue_pressure",
       "tags": [
         "adversarial",
         "raw-run",
@@ -1131,11 +1131,11 @@
       ],
       "notes": "Raw run fixture without stage events checks missing-stage warning and confidence cap.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
+        "application_queue_pressure",
         "insufficient_evidence"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -1157,7 +1157,7 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "raw_no_runtime_snapshots",
-      "ground_truth": "application_queue_saturation",
+      "ground_truth": "application_queue_pressure",
       "tags": [
         "adversarial",
         "raw-run",
@@ -1165,12 +1165,12 @@
       ],
       "notes": "Raw run fixture checks runtime-missing warning from analyzer run path.",
       "expected_primary_kinds": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
-      "exact_primary_kind": "application_queue_saturation",
+      "exact_primary_kind": "application_queue_pressure",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -1190,7 +1190,7 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "raw_truncated_partial_evidence",
-      "ground_truth": "application_queue_saturation",
+      "ground_truth": "application_queue_pressure",
       "tags": [
         "adversarial",
         "raw-run",
@@ -1198,12 +1198,12 @@
       ],
       "notes": "Raw run fixture with truncation validates warning propagation and conservative confidence.",
       "expected_primary_kinds": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
-      "exact_primary_kind": "application_queue_saturation",
+      "exact_primary_kind": "application_queue_pressure",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -1225,17 +1225,17 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "partial-evidence-completed-only",
-      "ground_truth": "application_queue_saturation",
+      "ground_truth": "application_queue_pressure",
       "tags": [
         "partial-evidence"
       ],
       "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
+        "application_queue_pressure",
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Queue wait at p95 consumes"
@@ -1260,17 +1260,17 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "partial-evidence-mixed",
-      "ground_truth": "downstream_stage_dominates",
+      "ground_truth": "downstream_stage_dominance",
       "tags": [
         "partial-evidence"
       ],
       "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "observed lower-bound p95 latency"
@@ -1302,17 +1302,17 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "partial-evidence-queue-only",
-      "ground_truth": "application_queue_saturation",
+      "ground_truth": "application_queue_pressure",
       "tags": [
         "partial-evidence"
       ],
       "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
       "expected_primary_kinds": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
+        "application_queue_pressure",
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "application_queue_saturation"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
         "Observed queue-wait lower bound at p95 is"
@@ -1341,17 +1341,17 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "partial-evidence-stage-only",
-      "ground_truth": "downstream_stage_dominates",
+      "ground_truth": "downstream_stage_dominance",
       "tags": [
         "partial-evidence"
       ],
       "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "observed lower-bound p95 latency"
@@ -1380,17 +1380,17 @@
       "validation_class": "analyzer_execution",
       "accuracy_eligible": true,
       "observation_id": "cancelled-request-with-partial-child",
-      "ground_truth": "downstream_stage_dominates",
+      "ground_truth": "downstream_stage_dominance",
       "tags": [
         "partial-evidence"
       ],
       "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
       "expected_primary_kinds": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominance",
+        "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominance"
       ],
       "must_include_evidence": [
         "observed lower-bound p95 latency"

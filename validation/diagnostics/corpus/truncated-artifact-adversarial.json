@@ -3,7 +3,7 @@
     "Artifact appears truncated; records may be dropped or partial."
   ],
   "primary_suspect": {
-    "kind": "downstream_stage_dominates",
+    "kind": "downstream_stage_dominance",
     "confidence": "medium",
     "evidence": [
       "Downstream stage parse_order dominates observed tail in captured records.",

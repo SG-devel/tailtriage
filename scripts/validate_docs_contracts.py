@@ -537,6 +537,30 @@ def validate_residual_public_api_cleanup() -> None:
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
 
+    analyzer_path = REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs"
+    analyzer_source = analyzer_path.read_text(encoding="utf-8")
+    diagnosis_kind = re.search(
+        r"\bpub\s+enum\s+DiagnosisKind\s*\{(?P<body>[^}]*)\}",
+        analyzer_source,
+        re.DOTALL | re.MULTILINE,
+    )
+    if diagnosis_kind is None:
+        raise ValueError(f"{analyzer_path.relative_to(REPO_ROOT)} is missing public DiagnosisKind")
+    for variant in (
+        "ApplicationQueueSaturation",
+        "ExecutorPressureSuspected",
+        "DownstreamStageDominates",
+    ):
+        if re.search(
+            rf"^\s*{variant}\b(?=\s*(?:,|=|\(|\{{|\Z))",
+            diagnosis_kind.group("body"),
+            re.MULTILINE,
+        ):
+            raise ValueError(
+                f"{analyzer_path.relative_to(REPO_ROOT)} exposes removed residual public API: "
+                f"DiagnosisKind::{variant}"
+            )
+
 
 def find_public_sampler_forge_methods(source: str) -> list[str]:
     return re.findall(r"^\s*pub\s+fn\s+([A-Za-z0-9_]*sampler[A-Za-z0-9_]*)\s*\(", source, re.MULTILINE)

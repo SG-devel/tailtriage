@@ -40,13 +40,13 @@ const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosisKind {
     /// Queue wait dominates request latency, suggesting application-level queue pressure.
-    ApplicationQueueSaturation,
+    ApplicationQueuePressure,
     /// Blocking pool backlog suggests pressure in `spawn_blocking`-backed work.
     BlockingPoolPressure,
     /// Runtime scheduler queueing suggests potential executor pressure.
-    ExecutorPressureSuspected,
+    ExecutorPressure,
     /// One stage dominates aggregate latency, suggesting downstream slowdown.
-    DownstreamStageDominates,
+    DownstreamStageDominance,
     /// Captured signals are too sparse to rank stronger suspects.
     InsufficientEvidence,
 }
@@ -56,10 +56,10 @@ impl DiagnosisKind {
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Self::ApplicationQueueSaturation => "application_queue_saturation",
+            Self::ApplicationQueuePressure => "application_queue_pressure",
             Self::BlockingPoolPressure => "blocking_pool_pressure",
-            Self::ExecutorPressureSuspected => "executor_pressure_suspected",
-            Self::DownstreamStageDominates => "downstream_stage_dominates",
+            Self::ExecutorPressure => "executor_pressure",
+            Self::DownstreamStageDominance => "downstream_stage_dominance",
             Self::InsufficientEvidence => "insufficient_evidence",
         }
     }
@@ -563,10 +563,10 @@ const fn confidence_rank(confidence: Confidence) -> u8 {
 
 const fn diagnosis_kind_rank(kind: &DiagnosisKind) -> u8 {
     match kind {
-        DiagnosisKind::ApplicationQueueSaturation => 0,
+        DiagnosisKind::ApplicationQueuePressure => 0,
         DiagnosisKind::BlockingPoolPressure => 1,
-        DiagnosisKind::ExecutorPressureSuspected => 2,
-        DiagnosisKind::DownstreamStageDominates => 3,
+        DiagnosisKind::ExecutorPressure => 2,
+        DiagnosisKind::DownstreamStageDominance => 3,
         DiagnosisKind::InsufficientEvidence => 255,
     }
 }
@@ -598,26 +598,25 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) 
     }
     let primary_kind = suspects.first().map(|s| &s.kind);
     if run.queues.is_empty()
-        && primary_kind.is_some_and(|kind| *kind == DiagnosisKind::ApplicationQueueSaturation)
+        && primary_kind.is_some_and(|kind| *kind == DiagnosisKind::ApplicationQueuePressure)
     {
         warnings.push(
             "No queue events captured; queue saturation interpretation is limited.".to_string(),
         );
     }
     if run.stages.is_empty()
-        && primary_kind.is_some_and(|kind| *kind == DiagnosisKind::DownstreamStageDominates)
+        && primary_kind.is_some_and(|kind| *kind == DiagnosisKind::DownstreamStageDominance)
     {
         warnings.push(
             "No stage events captured; downstream-stage interpretation is limited.".to_string(),
         );
     }
     let runtime_distinction_relevant = suspects.iter().any(|s| {
-        s.kind == DiagnosisKind::BlockingPoolPressure
-            || s.kind == DiagnosisKind::ExecutorPressureSuspected
+        s.kind == DiagnosisKind::BlockingPoolPressure || s.kind == DiagnosisKind::ExecutorPressure
     });
     let strong_non_runtime_primary = suspects.first().is_some_and(|s| {
-        (s.kind == DiagnosisKind::ApplicationQueueSaturation
-            || s.kind == DiagnosisKind::DownstreamStageDominates)
+        (s.kind == DiagnosisKind::ApplicationQueuePressure
+            || s.kind == DiagnosisKind::DownstreamStageDominance)
             && s.score >= options.confidence.high_score_threshold
     });
 

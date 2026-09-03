@@ -27,6 +27,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
             'tailtriage-core/src/lib.rs': '',
             'tailtriage-analyzer/src/options/mod.rs': 'pub struct AnalyzeOptionDescriptor { path: &\'static str }\nimpl AnalyzeOptionDescriptor { pub(crate) fn new() {} }\n',
             'tailtriage-analyzer/src/options/overrides.rs': 'fn valid_override_paths() {}\npub(crate) fn valid_override_paths_for_crate() {}\n',
+            'tailtriage-analyzer/src/lib.rs': 'pub enum DiagnosisKind { ApplicationQueuePressure, BlockingPoolPressure, ExecutorPressure, DownstreamStageDominance, InsufficientEvidence, }\n',
         }
         sources.update(overrides or {})
         for rel, body in sources.items():
@@ -104,6 +105,42 @@ class ValidateDocsContractsTests(unittest.TestCase):
                        'with_confidence', 'with_evidence', 'with_route', 'with_temporal'):
             with self.subTest(method=method):
                 self._assert_residual_api_rejected('tailtriage-analyzer/src/options/mod.rs', f'pub fn {method}() {{}}', f'AnalyzeOptions::{method}')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_diagnosis_variants(self) -> None:
+        for variant, declaration in (
+            ('ApplicationQueueSaturation', 'ApplicationQueueSaturation,'),
+            ('ApplicationQueueSaturation', 'ApplicationQueueSaturation'),
+            ('ApplicationQueueSaturation', 'ApplicationQueueSaturation = 7,'),
+            ('ExecutorPressureSuspected', 'ExecutorPressureSuspected(u8),'),
+            ('DownstreamStageDominates', 'DownstreamStageDominates { source: u8 },'),
+            ('ApplicationQueueSaturation', 'ApplicationQueueSaturation, // legacy spelling'),
+        ):
+            with self.subTest(declaration=declaration):
+                source = f'pub enum DiagnosisKind {{\n    ApplicationQueuePressure,\n    {declaration}\n}}\n'
+                self._assert_residual_api_rejected(
+                    'tailtriage-analyzer/src/lib.rs', source, f'DiagnosisKind::{variant}'
+                )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_accepts_diagnosis_variant_boundaries(self) -> None:
+        source = '''// Historical migration note: ApplicationQueueSaturation was renamed.
+pub enum DiagnosisKind {
+    ApplicationQueuePressure,
+    BlockingPoolPressure,
+    ExecutorPressure,
+    DownstreamStageDominance,
+    InsufficientEvidence,
+    ApplicationQueueSaturationDetails,
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(
+                root, {'tailtriage-analyzer/src/lib.rs': source}
+            )
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_valid_override_paths_in_overrides(self) -> None:

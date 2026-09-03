@@ -98,7 +98,7 @@ fn queue_share_threshold_uses_300_permille_boundary() {
     assert_eq!(below_report.p95_queue_share_permille, Some(299));
     assert_ne!(
         below_report.primary_suspect.kind,
-        DiagnosisKind::ApplicationQueueSaturation,
+        DiagnosisKind::ApplicationQueuePressure,
         "queue saturation should not trigger below the 300 permille threshold"
     );
 
@@ -120,7 +120,7 @@ fn queue_share_threshold_uses_300_permille_boundary() {
     assert_eq!(above_report.p95_queue_share_permille, Some(300));
     assert_eq!(
         above_report.primary_suspect.kind,
-        DiagnosisKind::ApplicationQueueSaturation,
+        DiagnosisKind::ApplicationQueuePressure,
         "queue saturation should trigger at the 300 permille threshold"
     );
 }
@@ -159,7 +159,7 @@ fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
         .iter()
         .all(
             |suspect| suspect.kind != DiagnosisKind::BlockingPoolPressure
-                && suspect.kind != DiagnosisKind::ExecutorPressureSuspected
+                && suspect.kind != DiagnosisKind::ExecutorPressure
         ));
     assert_ne!(
         zero_report.primary_suspect.kind,
@@ -167,7 +167,7 @@ fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
     );
     assert_ne!(
         zero_report.primary_suspect.kind,
-        DiagnosisKind::ExecutorPressureSuspected
+        DiagnosisKind::ExecutorPressure
     );
 
     let mut nonzero = base_run();
@@ -201,7 +201,7 @@ fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
         .map(|suspect| suspect.kind.clone())
         .collect::<Vec<_>>();
     assert!(kinds.contains(&DiagnosisKind::BlockingPoolPressure));
-    assert!(kinds.contains(&DiagnosisKind::ExecutorPressureSuspected));
+    assert!(kinds.contains(&DiagnosisKind::ExecutorPressure));
 }
 
 // TT-TEST: A01 primary
@@ -237,7 +237,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         .expect("analyzer options should be valid");
     assert_ne!(
         two_samples_report.primary_suspect.kind,
-        DiagnosisKind::DownstreamStageDominates,
+        DiagnosisKind::DownstreamStageDominance,
         "downstream stage suspect requires at least three samples"
     );
 
@@ -282,7 +282,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         .expect("analyzer options should be valid");
     assert_eq!(
         three_samples_report.primary_suspect.kind,
-        DiagnosisKind::DownstreamStageDominates,
+        DiagnosisKind::DownstreamStageDominance,
         "downstream stage suspect should trigger once three samples exist"
     );
 }
@@ -297,7 +297,7 @@ fn mixed_signal_fixtures_preserve_stronger_evidence_ordering() {
     .expect("analyzer options should be valid");
     assert_eq!(
         queue_vs_blocking.primary_suspect.kind,
-        DiagnosisKind::ApplicationQueueSaturation
+        DiagnosisKind::ApplicationQueuePressure
     );
     assert!(
         queue_vs_blocking
@@ -321,7 +321,7 @@ fn mixed_signal_fixtures_preserve_stronger_evidence_ordering() {
     .expect("analyzer options should be valid");
     assert_eq!(
         blocking_vs_downstream.primary_suspect.kind,
-        DiagnosisKind::DownstreamStageDominates
+        DiagnosisKind::DownstreamStageDominance
     );
     assert!(
         blocking_vs_downstream

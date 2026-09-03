@@ -18,7 +18,7 @@
   },
   "secondary_suspects": [
     {
-      "kind": "application_queue_saturation",
+      "kind": "application_queue_pressure",
       "confidence": "low",
       "evidence": [
         "Queue contribution appears elevated in sparse samples."

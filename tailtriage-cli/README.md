@@ -194,10 +194,10 @@ Loader, parse, validation, and render errors return a non-zero process exit thro
 
 The current report surface includes these suspect kinds:
 
-- `application_queue_saturation`
+- `application_queue_pressure`
 - `blocking_pool_pressure`
-- `executor_pressure_suspected`
-- `downstream_stage_dominates`
+- `executor_pressure`
+- `downstream_stage_dominance`
 - `insufficient_evidence`
 
 ## When the result is `insufficient_evidence`

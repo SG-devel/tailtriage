@@ -4,7 +4,7 @@ from unittest import mock
 from scripts import diagnostic_benchmark as db
 
 
-def report(kind="application_queue_saturation", conf="high", secondary=None):
+def report(kind="application_queue_pressure", conf="high", secondary=None):
     return {
         "primary_suspect": {
             "kind": kind,
@@ -38,8 +38,8 @@ def case(cid="run", typ="run_artifact", eligible=True, **kw):
         "accuracy_eligible": eligible,
         "tags": [],
         "notes": "test case",
-        "expected_primary_kinds": ["application_queue_saturation"],
-        "required_visible_suspects": ["application_queue_saturation"],
+        "expected_primary_kinds": ["application_queue_pressure"],
+        "required_visible_suspects": ["application_queue_pressure"],
         "must_include_evidence": ["queue"],
         "must_include_next_checks": ["check"],
         "expected_warnings": [],
@@ -48,8 +48,8 @@ def case(cid="run", typ="run_artifact", eligible=True, **kw):
     if eligible:
         c.update(
             observation_id=cid,
-            ground_truth="application_queue_saturation",
-            exact_primary_kind="application_queue_saturation",
+            ground_truth="application_queue_pressure",
+            exact_primary_kind="application_queue_pressure",
         )
     c.update(kw)
     return c
@@ -111,7 +111,7 @@ class Tests(unittest.TestCase):
         vals = []
         for rr in [
             report(),
-            report("blocking_pool_pressure", "low", "downstream_stage_dominates"),
+            report("blocking_pool_pressure", "low", "downstream_stage_dominance"),
         ]:
             with tempfile.TemporaryDirectory() as td:
                 p = self.write(td, [a, r], [report(), rr])
@@ -233,7 +233,7 @@ class Tests(unittest.TestCase):
                 {
                     "expected_primary_kinds": [
                         "blocking_pool_pressure",
-                        "application_queue_saturation",
+                        "application_queue_pressure",
                     ]
                 },
                 True,
@@ -242,7 +242,7 @@ class Tests(unittest.TestCase):
                 {
                     "required_visible_suspects": [
                         "blocking_pool_pressure",
-                        "application_queue_saturation",
+                        "application_queue_pressure",
                     ]
                 },
                 True,
@@ -262,7 +262,7 @@ class Tests(unittest.TestCase):
         c = case(
             expected_primary_kinds=[
                 "blocking_pool_pressure",
-                "application_queue_saturation",
+                "application_queue_pressure",
             ]
         )
         with tempfile.TemporaryDirectory() as td:
@@ -390,7 +390,7 @@ class Tests(unittest.TestCase):
     # TT-TEST: support
     def test_optional_contract_fields_are_strictly_validated(self):
         valid = {
-            "exact_primary_kind": "application_queue_saturation",
+            "exact_primary_kind": "application_queue_pressure",
             "max_primary_confidence": "high",
             "expected_evidence_quality": "strong",
             "expected_signal_statuses": {"queues": "present"},

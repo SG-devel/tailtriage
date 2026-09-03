@@ -37,7 +37,7 @@
     ]
   },
   "primary_suspect": {
-    "kind": "executor_pressure_suspected",
+    "kind": "executor_pressure",
     "score": 36,
     "confidence": "low",
     "evidence": [
