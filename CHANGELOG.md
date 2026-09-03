@@ -8,6 +8,12 @@
   as unavailable direction. Report JSON renders that case as `null`; `Some(0)`/JSON `0` now
   unambiguously means an observed flat multi-sample episode.
 
+### 0.4 tracing API migration
+
+- `SpanRecord` fluent construction now uses `with_id`, `with_parent_id`, `with_field`, `with_started_at_run_us`, `with_finished_at_run_us`, and `with_duration_us`. Its getters now use the exact model names `id`, `parent_id`, `started_at_run_us`, `finished_at_run_us`, and `duration_us` instead of the former `_ref` spellings.
+- `ImportOptions` inspection now uses `configured_service_version`, `configured_run_id`, `is_strict`, and `capture_mode` instead of `service_version_ref`, `run_id_ref`, `strict_mode`, and `mode_value`. Setters are unchanged.
+- `ImportedRun::new` and `ImportWarning::new` are now crate-owned constructors. Custom sources should construct `SpanRecord` inputs and obtain result values from `run_from_span_records(...)`.
+
 ### 0.4 core API migration
 
 - Tokio semaphore helpers are now awaited directly: replace

@@ -551,6 +551,62 @@ def validate_residual_public_api_cleanup() -> None:
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
 
+    tracing_types_path = REPO_ROOT / "tailtriage-tracing" / "src" / "types.rs"
+    tracing_types_source = tracing_types_path.read_text(encoding="utf-8")
+
+    def impl_body(type_name: str) -> str:
+        declaration = re.search(rf"\bimpl\s+{type_name}\s*\{{", tracing_types_source)
+        if declaration is None:
+            raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} missing impl {type_name}")
+        body_start = declaration.end()
+        depth = 1
+        for index in range(body_start, len(tracing_types_source)):
+            if tracing_types_source[index] == "{":
+                depth += 1
+            elif tracing_types_source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return tracing_types_source[body_start:index]
+        raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} has unclosed impl {type_name}")
+
+    tracing_removed_methods = {
+        "SpanRecord": (
+            *(f"{name} consuming setter" for name in (
+                "id", "parent_id", "field", "started_at_run_us",
+                "finished_at_run_us", "duration_us",
+            )),
+            "id_ref", "parent_id_ref", "started_at_run_us_ref",
+            "finished_at_run_us_ref", "duration_us_ref",
+        ),
+        "ImportOptions": (
+            "service_version_ref", "run_id_ref", "strict_mode", "mode_value",
+        ),
+    }
+    span_body = impl_body("SpanRecord")
+    consuming_names = (
+        "id", "parent_id", "field", "started_at_run_us", "finished_at_run_us", "duration_us",
+    )
+    for name in consuming_names:
+        pattern = rf"\bpub\s+fn\s+{name}\s*\(\s*(?:mut\s+)?self\b"
+        if re.search(pattern, span_body):
+            raise ValueError(
+                f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: SpanRecord::{name} consuming setter"
+            )
+    for type_name, names in tracing_removed_methods.items():
+        body = impl_body(type_name)
+        for name in names:
+            if name.endswith(" consuming setter"):
+                continue
+            if re.search(rf"\bpub\s+fn\s+{name}\s*\(", body):
+                raise ValueError(
+                    f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: {type_name}::{name}"
+                )
+    for type_name in ("ImportWarning", "ImportedRun"):
+        if re.search(r"\bpub\s+fn\s+new\s*\(", impl_body(type_name)):
+            raise ValueError(
+                f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: {type_name}::new"
+            )
+
     analyzer_path = REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs"
     analyzer_source = analyzer_path.read_text(encoding="utf-8")
     diagnosis_kind = re.search(

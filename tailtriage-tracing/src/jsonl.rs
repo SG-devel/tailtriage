@@ -34,7 +34,7 @@ fn import_jsonl_reader_with_limit<R: Read>(
     record_limit: usize,
 ) -> Result<ImportedRun, ImportError> {
     let mut parse_warnings = Vec::new();
-    let strict = options.strict_mode();
+    let strict = options.is_strict();
     let records = BoundedJsonlRecords::new(reader, record_limit);
     let spans = records.filter_map(|record| match record {
         Err(error) => Some(Err(error)),
@@ -587,29 +587,29 @@ mod tests {
     #[test]
     fn stable_writer_output_reimports_with_explicit_evidence() {
         let span = SpanRecord::new("http.request", 1000, 1100)
-            .id("span-id")
-            .parent_id("parent-id")
-            .started_at_run_us(10)
-            .finished_at_run_us(100_010)
-            .duration_us(100_000)
-            .field(crate::TT_KIND, "request")
-            .field(crate::TT_REQUEST_ID, "req-1")
-            .field(crate::TT_ROUTE, "/checkout")
-            .field("custom", "kept");
+            .with_id("span-id")
+            .with_parent_id("parent-id")
+            .with_started_at_run_us(10)
+            .with_finished_at_run_us(100_010)
+            .with_duration_us(100_000)
+            .with_field(crate::TT_KIND, "request")
+            .with_field(crate::TT_REQUEST_ID, "req-1")
+            .with_field(crate::TT_ROUTE, "/checkout")
+            .with_field("custom", "kept");
         let jsonl =
             serde_json::json!({"format":"tailtriage.tracing-span.v1","span":span}).to_string();
         let imported = import_jsonl_reader(Cursor::new(jsonl), ImportOptions::new("svc")).unwrap();
         let retained = imported.retained_sources();
         assert_eq!(retained.len(), 1);
         let source = &retained[0];
-        assert_eq!(source.id_ref(), Some("span-id"));
-        assert_eq!(source.parent_id_ref(), Some("parent-id"));
+        assert_eq!(source.id(), Some("span-id"));
+        assert_eq!(source.parent_id(), Some("parent-id"));
         assert_eq!(source.name(), "http.request");
         assert_eq!(source.started_at_unix_ms(), 1000);
         assert_eq!(source.finished_at_unix_ms(), 1100);
-        assert_eq!(source.started_at_run_us_ref(), Some(10));
-        assert_eq!(source.finished_at_run_us_ref(), Some(100_010));
-        assert_eq!(source.duration_us_ref(), Some(100_000));
+        assert_eq!(source.started_at_run_us(), Some(10));
+        assert_eq!(source.finished_at_run_us(), Some(100_010));
+        assert_eq!(source.duration_us(), Some(100_000));
         assert_eq!(
             source.fields().get(crate::TT_KIND),
             Some(&FieldValue::String("request".to_owned()))

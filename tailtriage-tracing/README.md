@@ -33,6 +33,40 @@ CLI offline import workflows only need JSONL import support and do not require t
 
 The same APIs are also available through the default `tailtriage` crate when enabling its `tracing`, `tracing-live`, or `tracing-tokio` façade features.
 
+## Custom tracing-like sources
+
+`SpanRecord` is the public adapter/input type for custom tracing-like sources. Construct records with `SpanRecord::new(...)` and its `with_*` methods, then pass them to `run_from_span_records(...)`:
+
+```rust
+use tailtriage_tracing::{
+    run_from_span_records, ImportOptions, SpanRecord, TT_KIND, TT_REQUEST_ID, TT_ROUTE,
+};
+
+let record = SpanRecord::new("request", 10, 20)
+    .with_id("span-1")
+    .with_started_at_run_us(100)
+    .with_finished_at_run_us(200)
+    .with_duration_us(100)
+    .with_field(TT_KIND, "request")
+    .with_field(TT_REQUEST_ID, "req-1")
+    .with_field(TT_ROUTE, "/checkout");
+
+let imported = run_from_span_records(
+    [record],
+    ImportOptions::new("checkout-service")
+        .service_version("1.2.3")
+        .run_id("run-123")
+        .strict(false)
+        .mode(tailtriage_core::CaptureMode::Light),
+)?;
+
+assert_eq!(imported.run().metadata.service_name, "checkout-service");
+let _warnings = imported.warnings();
+# Ok::<(), tailtriage_tracing::ImportError>(())
+```
+
+`ImportedRun` and `ImportWarning` are output types produced by Tailtriage. Inspect them through their public accessors; direct construction of those result values is not the supported boundary.
+
 For live tracing intake sessions, `tailtriage-tracing` enables optional dependencies behind feature flags, but applications that call `tracing::...` or `tracing_subscriber::...` directly still need explicit app dependencies:
 
 ```bash

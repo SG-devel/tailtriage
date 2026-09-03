@@ -881,40 +881,40 @@ fn tracing_candidates() -> Vec<TracingCase> {
 
 fn req(id: &str, start: u64, end: u64, dur: u64) -> tailtriage_tracing::SpanRecord {
     tailtriage_tracing::SpanRecord::new("req", 1, 2)
-        .field(tailtriage_tracing::TT_KIND, "request")
-        .field(tailtriage_tracing::TT_REQUEST_ID, id)
-        .field(tailtriage_tracing::TT_ROUTE, "/")
-        .field(tailtriage_tracing::TT_OUTCOME, "ok")
-        .started_at_run_us(start)
-        .finished_at_run_us(end)
-        .duration_us(dur)
+        .with_field(tailtriage_tracing::TT_KIND, "request")
+        .with_field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .with_field(tailtriage_tracing::TT_ROUTE, "/")
+        .with_field(tailtriage_tracing::TT_OUTCOME, "ok")
+        .with_started_at_run_us(start)
+        .with_finished_at_run_us(end)
+        .with_duration_us(dur)
 }
 fn req_no_precision(id: &str, dur: u64) -> tailtriage_tracing::SpanRecord {
     tailtriage_tracing::SpanRecord::new("req", 1, 2)
-        .field(tailtriage_tracing::TT_KIND, "request")
-        .field(tailtriage_tracing::TT_REQUEST_ID, id)
-        .field(tailtriage_tracing::TT_ROUTE, "/")
-        .field(tailtriage_tracing::TT_OUTCOME, "ok")
-        .duration_us(dur)
+        .with_field(tailtriage_tracing::TT_KIND, "request")
+        .with_field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .with_field(tailtriage_tracing::TT_ROUTE, "/")
+        .with_field(tailtriage_tracing::TT_OUTCOME, "ok")
+        .with_duration_us(dur)
 }
 fn stage(id: &str, start: u64, end: u64, dur: u64) -> tailtriage_tracing::SpanRecord {
     tailtriage_tracing::SpanRecord::new("stage", 1, 2)
-        .field(tailtriage_tracing::TT_KIND, "stage")
-        .field(tailtriage_tracing::TT_REQUEST_ID, id)
-        .field(tailtriage_tracing::TT_STAGE, "db")
-        .field(tailtriage_tracing::TT_SUCCESS, true)
-        .started_at_run_us(start)
-        .finished_at_run_us(end)
-        .duration_us(dur)
+        .with_field(tailtriage_tracing::TT_KIND, "stage")
+        .with_field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .with_field(tailtriage_tracing::TT_STAGE, "db")
+        .with_field(tailtriage_tracing::TT_SUCCESS, true)
+        .with_started_at_run_us(start)
+        .with_finished_at_run_us(end)
+        .with_duration_us(dur)
 }
 fn queue(id: &str, start: u64, end: u64, dur: u64) -> tailtriage_tracing::SpanRecord {
     tailtriage_tracing::SpanRecord::new("queue", 1, 2)
-        .field(tailtriage_tracing::TT_KIND, "queue")
-        .field(tailtriage_tracing::TT_REQUEST_ID, id)
-        .field(tailtriage_tracing::TT_QUEUE, "pool")
-        .started_at_run_us(start)
-        .finished_at_run_us(end)
-        .duration_us(dur)
+        .with_field(tailtriage_tracing::TT_KIND, "queue")
+        .with_field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .with_field(tailtriage_tracing::TT_QUEUE, "pool")
+        .with_started_at_run_us(start)
+        .with_finished_at_run_us(end)
+        .with_duration_us(dur)
 }
 fn spans_for(name: &str) -> Vec<tailtriage_tracing::SpanRecord> {
     match name {
@@ -926,16 +926,16 @@ fn spans_for(name: &str) -> Vec<tailtriage_tracing::SpanRecord> {
         "missing-precision" => vec![
             req_no_precision("req1", 10),
             tailtriage_tracing::SpanRecord::new("stage", 1, 2)
-                .field(tailtriage_tracing::TT_KIND, "stage")
-                .field(tailtriage_tracing::TT_REQUEST_ID, "req1")
-                .field(tailtriage_tracing::TT_STAGE, "db")
-                .field(tailtriage_tracing::TT_SUCCESS, true)
-                .duration_us(3),
+                .with_field(tailtriage_tracing::TT_KIND, "stage")
+                .with_field(tailtriage_tracing::TT_REQUEST_ID, "req1")
+                .with_field(tailtriage_tracing::TT_STAGE, "db")
+                .with_field(tailtriage_tracing::TT_SUCCESS, true)
+                .with_duration_us(3),
             tailtriage_tracing::SpanRecord::new("queue", 1, 2)
-                .field(tailtriage_tracing::TT_KIND, "queue")
-                .field(tailtriage_tracing::TT_REQUEST_ID, "req1")
-                .field(tailtriage_tracing::TT_QUEUE, "pool")
-                .duration_us(2),
+                .with_field(tailtriage_tracing::TT_KIND, "queue")
+                .with_field(tailtriage_tracing::TT_REQUEST_ID, "req1")
+                .with_field(tailtriage_tracing::TT_QUEUE, "pool")
+                .with_duration_us(2),
         ],
         "duplicate-ambiguous-child" => vec![
             req("dup", 0, 10, 10),
@@ -944,12 +944,12 @@ fn spans_for(name: &str) -> Vec<tailtriage_tracing::SpanRecord> {
         ],
         "orphan-child" => vec![req("req1", 1, 11, 10), stage("missing", 1, 2, 1)],
         "invalid-optional-precision" => vec![tailtriage_tracing::SpanRecord::new("req", 1, 2)
-            .field(tailtriage_tracing::TT_KIND, "request")
-            .field(tailtriage_tracing::TT_REQUEST_ID, "req1")
-            .field(tailtriage_tracing::TT_ROUTE, "/")
-            .field(tailtriage_tracing::TT_OUTCOME, "ok")
-            .started_at_run_us(1)
-            .duration_us(10)],
+            .with_field(tailtriage_tracing::TT_KIND, "request")
+            .with_field(tailtriage_tracing::TT_REQUEST_ID, "req1")
+            .with_field(tailtriage_tracing::TT_ROUTE, "/")
+            .with_field(tailtriage_tracing::TT_OUTCOME, "ok")
+            .with_started_at_run_us(1)
+            .with_duration_us(10)],
         "outside-child" => vec![req("req1", 10, 20, 10), stage("req1", 0, 5, 5)],
         _ => unreachable!(),
     }
