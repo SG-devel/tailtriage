@@ -110,6 +110,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_residual_public_api_cleanup_rejects_removed_diagnosis_variants(self) -> None:
         for variant, declaration in (
             ('ApplicationQueueSaturation', 'ApplicationQueueSaturation,'),
+            ('ApplicationQueueSaturation', 'ApplicationQueueSaturation'),
             ('ApplicationQueueSaturation', 'ApplicationQueueSaturation = 7,'),
             ('ExecutorPressureSuspected', 'ExecutorPressureSuspected(u8),'),
             ('DownstreamStageDominates', 'DownstreamStageDominates { source: u8 },'),

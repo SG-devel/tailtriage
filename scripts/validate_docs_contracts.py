@@ -552,7 +552,7 @@ def validate_residual_public_api_cleanup() -> None:
         "DownstreamStageDominates",
     ):
         if re.search(
-            rf"^\s*{variant}\b(?=\s*(?:,|=|\(|\{{))",
+            rf"^\s*{variant}\b(?=\s*(?:,|=|\(|\{{|\Z))",
             diagnosis_kind.group("body"),
             re.MULTILINE,
         ):
