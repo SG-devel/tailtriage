@@ -551,7 +551,11 @@ def validate_residual_public_api_cleanup() -> None:
         "ExecutorPressureSuspected",
         "DownstreamStageDominates",
     ):
-        if re.search(rf"^\s*{variant}\s*[,]?\s*$", diagnosis_kind.group("body"), re.MULTILINE):
+        if re.search(
+            rf"^\s*{variant}\b(?=\s*(?:,|=|\(|\{{))",
+            diagnosis_kind.group("body"),
+            re.MULTILINE,
+        ):
             raise ValueError(
                 f"{analyzer_path.relative_to(REPO_ROOT)} exposes removed residual public API: "
                 f"DiagnosisKind::{variant}"
