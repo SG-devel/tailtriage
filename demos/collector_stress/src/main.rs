@@ -512,9 +512,9 @@ async fn run_instrumented_request(
 
     for cycle in 0..inflight_cycles {
         let gauge = format!("collector_stress_inflight_{cycle}");
-        let inflight_guard = request.inflight(gauge);
+        let inflight = request.inflight(gauge);
         tokio::task::yield_now().await;
-        drop(inflight_guard);
+        drop(inflight);
     }
 
     for queue_idx in 0..queues_per_request {
