@@ -554,20 +554,25 @@ def validate_residual_public_api_cleanup() -> None:
     tracing_types_path = REPO_ROOT / "tailtriage-tracing" / "src" / "types.rs"
     tracing_types_source = tracing_types_path.read_text(encoding="utf-8")
 
-    def impl_body(type_name: str) -> str:
-        declaration = re.search(rf"\bimpl\s+{type_name}\s*\{{", tracing_types_source)
-        if declaration is None:
+    def impl_bodies(type_name: str) -> tuple[str, ...]:
+        declarations = tuple(re.finditer(rf"\bimpl\s+{type_name}\s*\{{", tracing_types_source))
+        if not declarations:
             raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} missing impl {type_name}")
-        body_start = declaration.end()
-        depth = 1
-        for index in range(body_start, len(tracing_types_source)):
-            if tracing_types_source[index] == "{":
-                depth += 1
-            elif tracing_types_source[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    return tracing_types_source[body_start:index]
-        raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} has unclosed impl {type_name}")
+        bodies = []
+        for declaration in declarations:
+            body_start = declaration.end()
+            depth = 1
+            for index in range(body_start, len(tracing_types_source)):
+                if tracing_types_source[index] == "{":
+                    depth += 1
+                elif tracing_types_source[index] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        bodies.append(tracing_types_source[body_start:index])
+                        break
+            else:
+                raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} has unclosed impl {type_name}")
+        return tuple(bodies)
 
     tracing_removed_methods = {
         "SpanRecord": (
@@ -582,27 +587,28 @@ def validate_residual_public_api_cleanup() -> None:
             "service_version_ref", "run_id_ref", "strict_mode", "mode_value",
         ),
     }
-    span_body = impl_body("SpanRecord")
+    public_function = r"\bpub\s+(?:const\s+)?fn\s+"
+    span_bodies = impl_bodies("SpanRecord")
     consuming_names = (
         "id", "parent_id", "field", "started_at_run_us", "finished_at_run_us", "duration_us",
     )
     for name in consuming_names:
-        pattern = rf"\bpub\s+fn\s+{name}\s*\(\s*(?:mut\s+)?self\b"
-        if re.search(pattern, span_body):
+        pattern = rf"{public_function}{name}\s*\(\s*(?:mut\s+)?self\b"
+        if any(re.search(pattern, body) for body in span_bodies):
             raise ValueError(
                 f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: SpanRecord::{name} consuming setter"
             )
     for type_name, names in tracing_removed_methods.items():
-        body = impl_body(type_name)
+        bodies = impl_bodies(type_name)
         for name in names:
             if name.endswith(" consuming setter"):
                 continue
-            if re.search(rf"\bpub\s+fn\s+{name}\s*\(", body):
+            if any(re.search(rf"{public_function}{name}\s*\(", body) for body in bodies):
                 raise ValueError(
                     f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: {type_name}::{name}"
                 )
     for type_name in ("ImportWarning", "ImportedRun"):
-        if re.search(r"\bpub\s+fn\s+new\s*\(", impl_body(type_name)):
+        if any(re.search(rf"{public_function}new\s*\(", body) for body in impl_bodies(type_name)):
             raise ValueError(
                 f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: {type_name}::new"
             )

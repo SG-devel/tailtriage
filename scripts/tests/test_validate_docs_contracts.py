@@ -33,10 +33,13 @@ class ValidateDocsContractsTests(unittest.TestCase):
     pub fn id(&self) {}
     pub fn with_id(mut self, id: String) -> Self { self }
 }
+impl SpanRecord {}
 impl ImportOptions {
     pub fn new() {}
     pub fn configured_run_id(&self) {}
+    pub fn is_strict(&self) {}
 }
+impl ImportOptions {}
 impl ImportWarning { pub(crate) fn new() {} }
 impl ImportedRun { pub(crate) fn new() {} }
 ''',
@@ -122,6 +125,39 @@ impl ImportedRun { pub(crate) fn new() {} }
                 self._assert_residual_api_rejected(
                     'tailtriage-tracing/src/types.rs', declaration + suffix, symbol
                 )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_tracing_surface_in_later_impls(self) -> None:
+        cases = (
+            ('''impl SpanRecord { pub fn id(&self) {} }
+impl SpanRecord { pub fn id(mut self, value: String) -> Self { self } }
+impl ImportOptions {}
+impl ImportWarning {}
+impl ImportedRun {}
+''', 'SpanRecord::id consuming setter'),
+            ('''impl SpanRecord {}
+impl ImportOptions { pub fn configured_run_id(&self) {} }
+impl ImportOptions { pub fn strict_mode(&self) -> bool { false } }
+impl ImportWarning {}
+impl ImportedRun {}
+''', 'ImportOptions::strict_mode'),
+        )
+        for source, symbol in cases:
+            with self.subTest(symbol=symbol):
+                self._assert_residual_api_rejected(
+                    'tailtriage-tracing/src/types.rs', source, symbol
+                )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_const_removed_tracing_surface(self) -> None:
+        source = '''impl SpanRecord {}
+impl ImportOptions { pub const fn strict_mode(&self) -> bool { false } }
+impl ImportWarning {}
+impl ImportedRun {}
+'''
+        self._assert_residual_api_rejected(
+            'tailtriage-tracing/src/types.rs', source, 'ImportOptions::strict_mode'
+        )
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_accepts_canonical_tracing_surface(self) -> None:
