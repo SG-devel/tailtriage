@@ -28,6 +28,21 @@ class ValidateDocsContractsTests(unittest.TestCase):
             'tailtriage-analyzer/src/options/mod.rs': 'pub struct AnalyzeOptionDescriptor { path: &\'static str }\nimpl AnalyzeOptionDescriptor { pub(crate) fn new() {} }\n',
             'tailtriage-analyzer/src/options/overrides.rs': 'fn valid_override_paths() {}\npub(crate) fn valid_override_paths_for_crate() {}\n',
             'tailtriage-analyzer/src/lib.rs': 'pub enum DiagnosisKind { ApplicationQueuePressure, BlockingPoolPressure, ExecutorPressure, DownstreamStageDominance, InsufficientEvidence, }\n',
+            'tailtriage-tracing/src/types.rs': '''impl SpanRecord {
+    pub fn new() {}
+    pub fn id(&self) {}
+    pub fn with_id(mut self, id: String) -> Self { self }
+}
+impl SpanRecord {}
+impl ImportOptions {
+    pub fn new() {}
+    pub fn configured_run_id(&self) {}
+    pub fn is_strict(&self) {}
+}
+impl ImportOptions {}
+impl ImportWarning { pub(crate) fn new() {} }
+impl ImportedRun { pub(crate) fn new() {} }
+''',
         }
         sources.update(overrides or {})
         for rel, body in sources.items():
@@ -94,6 +109,63 @@ class ValidateDocsContractsTests(unittest.TestCase):
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_removed_owned_request_method(self) -> None:
         self._assert_residual_api_rejected('tailtriage-core/src/collector.rs', 'pub fn begin_request_owned(&self) {}', 'Tailtriage::begin_request_owned')
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_tracing_surface(self) -> None:
+        cases = (
+            ('impl SpanRecord { pub fn id(mut self, value: String) -> Self { self } }', 'SpanRecord::id consuming setter'),
+            ('impl SpanRecord { pub fn id_ref(&self) {} }', 'SpanRecord::id_ref'),
+            ('impl ImportOptions { pub fn strict_mode(&self) {} }', 'ImportOptions::strict_mode'),
+            ('impl ImportWarning { pub fn new() {} }', 'ImportWarning::new'),
+            ('impl ImportedRun { pub fn new() {} }', 'ImportedRun::new'),
+        )
+        suffix = '\nimpl SpanRecord {}\nimpl ImportOptions {}\nimpl ImportWarning {}\nimpl ImportedRun {}\n'
+        for declaration, symbol in cases:
+            with self.subTest(symbol=symbol):
+                self._assert_residual_api_rejected(
+                    'tailtriage-tracing/src/types.rs', declaration + suffix, symbol
+                )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_tracing_surface_in_later_impls(self) -> None:
+        cases = (
+            ('''impl SpanRecord { pub fn id(&self) {} }
+impl SpanRecord { pub fn id(mut self, value: String) -> Self { self } }
+impl ImportOptions {}
+impl ImportWarning {}
+impl ImportedRun {}
+''', 'SpanRecord::id consuming setter'),
+            ('''impl SpanRecord {}
+impl ImportOptions { pub fn configured_run_id(&self) {} }
+impl ImportOptions { pub fn strict_mode(&self) -> bool { false } }
+impl ImportWarning {}
+impl ImportedRun {}
+''', 'ImportOptions::strict_mode'),
+        )
+        for source, symbol in cases:
+            with self.subTest(symbol=symbol):
+                self._assert_residual_api_rejected(
+                    'tailtriage-tracing/src/types.rs', source, symbol
+                )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_const_removed_tracing_surface(self) -> None:
+        source = '''impl SpanRecord {}
+impl ImportOptions { pub const fn strict_mode(&self) -> bool { false } }
+impl ImportWarning {}
+impl ImportedRun {}
+'''
+        self._assert_residual_api_rejected(
+            'tailtriage-tracing/src/types.rs', source, 'ImportOptions::strict_mode'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_accepts_canonical_tracing_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(root)
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_run_builder_finish(self) -> None:

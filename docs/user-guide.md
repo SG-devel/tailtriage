@@ -96,6 +96,7 @@ tailtriage analyze tailtriage-run.json
 
 - Completed-span JSONL output contains retained original tracing source records selected after parsing, retention limits, and core normalization.
 - Source identity and source fields represented by `SpanRecord` are preserved exactly.
+- For custom tracing-like sources, construct the public adapter/input `SpanRecord` values with `SpanRecord::new(...)` and `with_*` methods, then pass them to `run_from_span_records(...)`; Tailtriage produces `ImportedRun` and `ImportWarning` outputs for accessor-based inspection rather than direct caller construction.
 - Direct input order and JSONL input order are preserved through replay; live session output is section-grouped as request records, then stage records, then queue records.
 - Replay parity is limited to representable normalized request/stage/queue evidence.
 - Completed-span JSONL does not encode Run-only metadata, runtime snapshots, in-flight snapshots, lifecycle warnings, semantic/raw truncation counters, source-line context, omitted-source diagnostics, or output failures.
