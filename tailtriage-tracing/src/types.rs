@@ -118,53 +118,53 @@ impl SpanRecord {
 
     /// Sets a span identifier.
     #[must_use]
-    pub fn id(mut self, id: impl Into<String>) -> Self {
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
         self
     }
 
     /// Sets the optional parent span identifier.
     #[must_use]
-    pub fn parent_id(mut self, parent_id: impl Into<String>) -> Self {
+    pub fn with_parent_id(mut self, parent_id: impl Into<String>) -> Self {
         self.parent_id = Some(parent_id.into());
         self
     }
 
     /// Adds or replaces a field.
     #[must_use]
-    pub fn field(mut self, key: impl Into<String>, value: impl Into<FieldValue>) -> Self {
+    pub fn with_field(mut self, key: impl Into<String>, value: impl Into<FieldValue>) -> Self {
         self.fields.insert(key.into(), value.into());
         self
     }
     /// Sets span start offset from run start in microseconds.
     #[must_use]
-    pub fn started_at_run_us(mut self, started_at_run_us: u64) -> Self {
+    pub fn with_started_at_run_us(mut self, started_at_run_us: u64) -> Self {
         self.started_at_run_us = Some(started_at_run_us);
         self
     }
 
     /// Sets span finish offset from run start in microseconds.
     #[must_use]
-    pub fn finished_at_run_us(mut self, finished_at_run_us: u64) -> Self {
+    pub fn with_finished_at_run_us(mut self, finished_at_run_us: u64) -> Self {
         self.finished_at_run_us = Some(finished_at_run_us);
         self
     }
 
     /// Sets explicit span duration in microseconds.
     #[must_use]
-    pub fn duration_us(mut self, duration_us: u64) -> Self {
+    pub fn with_duration_us(mut self, duration_us: u64) -> Self {
         self.duration_us = Some(duration_us);
         self
     }
 
     /// Returns span id if present.
     #[must_use]
-    pub fn id_ref(&self) -> Option<&str> {
+    pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
     }
     /// Returns parent span id if present.
     #[must_use]
-    pub fn parent_id_ref(&self) -> Option<&str> {
+    pub fn parent_id(&self) -> Option<&str> {
         self.parent_id.as_deref()
     }
     /// Returns span name.
@@ -184,7 +184,7 @@ impl SpanRecord {
     }
     /// Returns span start offset from run start in microseconds when present.
     #[must_use]
-    pub fn started_at_run_us_ref(&self) -> Option<u64> {
+    pub fn started_at_run_us(&self) -> Option<u64> {
         self.started_at_run_us
     }
     /// Returns finish timestamp in unix milliseconds.
@@ -194,12 +194,12 @@ impl SpanRecord {
     }
     /// Returns span finish offset from run start in microseconds when present.
     #[must_use]
-    pub fn finished_at_run_us_ref(&self) -> Option<u64> {
+    pub fn finished_at_run_us(&self) -> Option<u64> {
         self.finished_at_run_us
     }
     /// Returns explicit span duration in microseconds when present.
     #[must_use]
-    pub fn duration_us_ref(&self) -> Option<u64> {
+    pub fn duration_us(&self) -> Option<u64> {
         self.duration_us
     }
 }
@@ -283,17 +283,17 @@ impl ImportOptions {
     }
     /// Returns service version.
     #[must_use]
-    pub fn service_version_ref(&self) -> Option<&str> {
+    pub fn configured_service_version(&self) -> Option<&str> {
         self.service_version.as_deref()
     }
     /// Returns run id.
     #[must_use]
-    pub fn run_id_ref(&self) -> Option<&str> {
+    pub fn configured_run_id(&self) -> Option<&str> {
         self.run_id.as_deref()
     }
     /// Returns strict mode setting.
     #[must_use]
-    pub fn strict_mode(&self) -> bool {
+    pub fn is_strict(&self) -> bool {
         self.strict
     }
 
@@ -308,7 +308,7 @@ impl ImportOptions {
 
     /// Returns capture mode setting.
     #[must_use]
-    pub fn mode_value(&self) -> tailtriage_core::CaptureMode {
+    pub fn capture_mode(&self) -> tailtriage_core::CaptureMode {
         self.mode
     }
 }
@@ -322,7 +322,7 @@ pub struct ImportWarning {
 
 impl ImportWarning {
     /// Creates a warning message.
-    pub fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -353,7 +353,8 @@ pub struct ImportedRun {
 impl ImportedRun {
     /// Creates imported output from a converted run and non-fatal warnings.
     #[must_use]
-    pub fn new(run: tailtriage_core::Run, warnings: Vec<ImportWarning>) -> Self {
+    #[allow(dead_code)]
+    pub(crate) fn new(run: tailtriage_core::Run, warnings: Vec<ImportWarning>) -> Self {
         Self {
             run,
             warnings,
@@ -413,22 +414,22 @@ mod tests {
     #[test]
     fn span_record_builder_stores_fields() {
         let record = SpanRecord::new("request", 10, 20)
-            .id("span-1")
-            .parent_id("parent-1")
-            .started_at_run_us(100)
-            .finished_at_run_us(200)
-            .field("tt.request_id", "req-1")
-            .field(TT_KIND, "request")
-            .field(TT_SUCCESS, true)
-            .field(TT_DEPTH_AT_START, 7_u64);
+            .with_id("span-1")
+            .with_parent_id("parent-1")
+            .with_started_at_run_us(100)
+            .with_finished_at_run_us(200)
+            .with_field("tt.request_id", "req-1")
+            .with_field(TT_KIND, "request")
+            .with_field(TT_SUCCESS, true)
+            .with_field(TT_DEPTH_AT_START, 7_u64);
 
-        assert_eq!(record.id_ref(), Some("span-1"));
-        assert_eq!(record.parent_id_ref(), Some("parent-1"));
+        assert_eq!(record.id(), Some("span-1"));
+        assert_eq!(record.parent_id(), Some("parent-1"));
         assert_eq!(record.name(), "request");
         assert_eq!(record.started_at_unix_ms(), 10);
-        assert_eq!(record.started_at_run_us_ref(), Some(100));
+        assert_eq!(record.started_at_run_us(), Some(100));
         assert_eq!(record.finished_at_unix_ms(), 20);
-        assert_eq!(record.finished_at_run_us_ref(), Some(200));
+        assert_eq!(record.finished_at_run_us(), Some(200));
         assert_eq!(record.fields().len(), 4);
     }
 
@@ -458,9 +459,9 @@ mod tests {
             .strict(true);
 
         assert_eq!(options.service_name(), "checkout-service");
-        assert_eq!(options.service_version_ref(), Some("1.2.3"));
-        assert_eq!(options.run_id_ref(), Some("run-123"));
-        assert!(options.strict_mode());
+        assert_eq!(options.configured_service_version(), Some("1.2.3"));
+        assert_eq!(options.configured_run_id(), Some("run-123"));
+        assert!(options.is_strict());
     }
 
     // TT-TEST: support
@@ -504,7 +505,7 @@ mod tests {
     #[test]
     fn import_options_default_resolution_uses_light_core_defaults() {
         let options = ImportOptions::new("svc");
-        assert_eq!(options.mode_value(), tailtriage_core::CaptureMode::Light);
+        assert_eq!(options.capture_mode(), tailtriage_core::CaptureMode::Light);
         assert_eq!(
             options.resolved_capture_limits(),
             tailtriage_core::CaptureMode::Light.core_defaults()

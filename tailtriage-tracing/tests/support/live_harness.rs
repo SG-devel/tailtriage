@@ -197,43 +197,43 @@ fn deterministic_tracing_run() -> (Run, Vec<String>) {
         let req_run_start_us = offset_ms * 1000;
         spans.push(
             SpanRecord::new("request", req_start, req_start + (request_us / 1000))
-                .started_at_run_us(req_run_start_us)
-                .finished_at_run_us(req_run_start_us + request_us)
-                .duration_us(request_us)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, id)
-                .field(TT_ROUTE, "/checkout")
-                .field(TT_OUTCOME, "ok"),
+                .with_started_at_run_us(req_run_start_us)
+                .with_finished_at_run_us(req_run_start_us + request_us)
+                .with_duration_us(request_us)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, id)
+                .with_field(TT_ROUTE, "/checkout")
+                .with_field(TT_OUTCOME, "ok"),
         );
         spans.push(
             SpanRecord::new("queue", req_start + 1, req_start + 1 + (queue_us / 1000))
-                .started_at_run_us(req_run_start_us + 1_000)
-                .finished_at_run_us(req_run_start_us + 1_000 + queue_us)
-                .duration_us(queue_us)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, id)
-                .field(TT_QUEUE, "permits")
-                .field(TT_DEPTH_AT_START, 3_u64),
+                .with_started_at_run_us(req_run_start_us + 1_000)
+                .with_finished_at_run_us(req_run_start_us + 1_000 + queue_us)
+                .with_duration_us(queue_us)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, id)
+                .with_field(TT_QUEUE, "permits")
+                .with_field(TT_DEPTH_AT_START, 3_u64),
         );
         spans.push(
             SpanRecord::new("stage", req_start + 85, req_start + 85 + (db_us / 1000))
-                .started_at_run_us(req_run_start_us + 85_000)
-                .finished_at_run_us(req_run_start_us + 85_000 + db_us)
-                .duration_us(db_us)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, id)
-                .field(TT_STAGE, "db")
-                .field(TT_SUCCESS, true),
+                .with_started_at_run_us(req_run_start_us + 85_000)
+                .with_finished_at_run_us(req_run_start_us + 85_000 + db_us)
+                .with_duration_us(db_us)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, id)
+                .with_field(TT_STAGE, "db")
+                .with_field(TT_SUCCESS, true),
         );
         spans.push(
             SpanRecord::new("stage", req_start + 93, req_start + 93 + (cache_us / 1000))
-                .started_at_run_us(req_run_start_us + 93_000)
-                .finished_at_run_us(req_run_start_us + 93_000 + cache_us)
-                .duration_us(cache_us)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, id)
-                .field(TT_STAGE, "cache")
-                .field(TT_SUCCESS, true),
+                .with_started_at_run_us(req_run_start_us + 93_000)
+                .with_finished_at_run_us(req_run_start_us + 93_000 + cache_us)
+                .with_duration_us(cache_us)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, id)
+                .with_field(TT_STAGE, "cache")
+                .with_field(TT_SUCCESS, true),
         );
     }
     let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();

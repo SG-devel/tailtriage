@@ -847,7 +847,7 @@ impl LiveRecorderBuilder {
     #[cfg(feature = "tokio")]
     #[must_use]
     pub(crate) fn capture_mode(&self) -> CaptureMode {
-        self.options.mode_value()
+        self.options.capture_mode()
     }
 
     /// Returns capture limits resolved from configured mode/base/override settings.
@@ -1004,17 +1004,17 @@ where
             }
             let duration_us = duration_us_between(open.started_instant, closed_instant);
             let mut record = SpanRecord::new(open.name, open.started_at_unix_ms, closed_at_unix_ms)
-                .started_at_run_us(open.started_at_run_us)
-                .finished_at_run_us(finished_at_run_us)
-                .duration_us(duration_us);
+                .with_started_at_run_us(open.started_at_run_us)
+                .with_finished_at_run_us(finished_at_run_us)
+                .with_duration_us(duration_us);
             if let Some(span_id) = open.id {
-                record = record.id(span_id);
+                record = record.with_id(span_id);
             }
             if let Some(parent_id) = open.parent_id {
-                record = record.parent_id(parent_id);
+                record = record.with_parent_id(parent_id);
             }
             for (k, v) in open.fields {
-                record = record.field(k, v);
+                record = record.with_field(k, v);
             }
             push_completed_candidate_with_kind_aware_retention(
                 &mut state,
@@ -1451,7 +1451,7 @@ fn imported_with_drop_warnings(
     limits: RecorderLimits,
 ) -> Result<ImportedRun, ImportError> {
     let mut strict_messages = Vec::new();
-    if options.strict_mode() {
+    if options.is_strict() {
         push_strict_recorder_messages(&mut strict_messages, stats, limits);
     }
 
@@ -1585,7 +1585,7 @@ mod tests {
             .map(|span| {
                 (
                     span.name().to_owned(),
-                    span.id_ref().unwrap_or_default().to_owned(),
+                    span.id().unwrap_or_default().to_owned(),
                 )
             })
             .collect()
@@ -1701,14 +1701,14 @@ mod tests {
             .iter()
             .map(|span| SourceIdentity {
                 name: span.name().to_owned(),
-                id: span.id_ref().map(ToOwned::to_owned),
-                parent_id: span.parent_id_ref().map(ToOwned::to_owned),
+                id: span.id().map(ToOwned::to_owned),
+                parent_id: span.parent_id().map(ToOwned::to_owned),
                 fields: span.fields().clone(),
                 started_at_unix_ms: span.started_at_unix_ms(),
                 finished_at_unix_ms: span.finished_at_unix_ms(),
-                started_at_run_us: span.started_at_run_us_ref(),
-                finished_at_run_us: span.finished_at_run_us_ref(),
-                duration_us: span.duration_us_ref(),
+                started_at_run_us: span.started_at_run_us(),
+                finished_at_run_us: span.finished_at_run_us(),
+                duration_us: span.duration_us(),
             })
             .collect()
     }
@@ -2108,7 +2108,7 @@ mod tests {
 
     // TT-TEST: R03 primary
     #[test]
-    fn strict_mode_errors_on_malformed_request() {
+    fn strict_errors_on_malformed_request() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -2493,7 +2493,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_errors_when_completed_candidate_cap_drops_spans() {
+    fn strict_errors_when_completed_candidate_cap_drops_spans() {
         let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(1)
@@ -2527,7 +2527,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_errors_when_completed_candidate_cap_evicts_child_for_request() {
+    fn strict_errors_when_completed_candidate_cap_evicts_child_for_request() {
         let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(2)
@@ -2734,7 +2734,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_errors_when_raw_cap_evicts_child_before_core_excludes_ambiguous_requests() {
+    fn strict_errors_when_raw_cap_evicts_child_before_core_excludes_ambiguous_requests() {
         let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(3)
@@ -2843,30 +2843,30 @@ mod tests {
             let mut state = recorder.state.lock().unwrap();
             state.completed_stages.push(
                 SpanRecord::new("stage-a", 110, 120)
-                    .id("stage-id")
-                    .parent_id("req-id")
-                    .field(TT_KIND, "stage")
-                    .field("tt.request_id", "r1")
-                    .field("tt.stage", "db")
-                    .field("custom", "stage-custom"),
+                    .with_id("stage-id")
+                    .with_parent_id("req-id")
+                    .with_field(TT_KIND, "stage")
+                    .with_field("tt.request_id", "r1")
+                    .with_field("tt.stage", "db")
+                    .with_field("custom", "stage-custom"),
             );
             state.completed_queues.push(
                 SpanRecord::new("queue-a", 105, 109)
-                    .id("queue-id")
-                    .parent_id("req-id")
-                    .field(TT_KIND, "queue")
-                    .field("tt.request_id", "r1")
-                    .field("tt.queue", "permits")
-                    .field("custom", "queue-custom"),
+                    .with_id("queue-id")
+                    .with_parent_id("req-id")
+                    .with_field(TT_KIND, "queue")
+                    .with_field("tt.request_id", "r1")
+                    .with_field("tt.queue", "permits")
+                    .with_field("custom", "queue-custom"),
             );
             state.completed_requests.push(
                 SpanRecord::new("request-a", 100, 130)
-                    .id("req-id")
-                    .parent_id("root-id")
-                    .field(TT_KIND, "request")
-                    .field("tt.request_id", "r1")
-                    .field("tt.route", "/a")
-                    .field("custom", "request-custom"),
+                    .with_id("req-id")
+                    .with_parent_id("root-id")
+                    .with_field(TT_KIND, "request")
+                    .with_field("tt.request_id", "r1")
+                    .with_field("tt.route", "/a")
+                    .with_field("custom", "request-custom"),
             );
         }
 
@@ -2876,8 +2876,8 @@ mod tests {
             retained.iter().map(SpanRecord::name).collect::<Vec<_>>(),
             vec!["request-a", "stage-a", "queue-a"]
         );
-        assert_eq!(retained[0].id_ref(), Some("req-id"));
-        assert_eq!(retained[0].parent_id_ref(), Some("root-id"));
+        assert_eq!(retained[0].id(), Some("req-id"));
+        assert_eq!(retained[0].parent_id(), Some("root-id"));
         assert_eq!(
             retained[0].fields().get("custom"),
             Some(&FieldValue::String("request-custom".to_owned()))
@@ -2886,8 +2886,8 @@ mod tests {
             retained[0].fields().get(TT_KIND),
             Some(&FieldValue::String("request".to_owned()))
         );
-        assert_eq!(retained[1].id_ref(), Some("stage-id"));
-        assert_eq!(retained[1].parent_id_ref(), Some("req-id"));
+        assert_eq!(retained[1].id(), Some("stage-id"));
+        assert_eq!(retained[1].parent_id(), Some("req-id"));
         assert_eq!(
             retained[1].fields().get("custom"),
             Some(&FieldValue::String("stage-custom".to_owned()))
@@ -2896,8 +2896,8 @@ mod tests {
             retained[1].fields().get("tt.stage"),
             Some(&FieldValue::String("db".to_owned()))
         );
-        assert_eq!(retained[2].id_ref(), Some("queue-id"));
-        assert_eq!(retained[2].parent_id_ref(), Some("req-id"));
+        assert_eq!(retained[2].id(), Some("queue-id"));
+        assert_eq!(retained[2].parent_id(), Some("req-id"));
         assert_eq!(
             retained[2].fields().get("custom"),
             Some(&FieldValue::String("queue-custom".to_owned()))
@@ -2915,12 +2915,12 @@ mod tests {
             let recorder = LiveRecorder::builder("svc").run_id("rid").build().unwrap();
             recorder.state.lock().unwrap().completed_requests.push(
                 SpanRecord::new("request", 100, 120)
-                    .id("req-id")
-                    .field(TT_KIND, "request")
-                    .field("tt.request_id", "r1")
-                    .field("tt.route", "/a")
-                    .field("tt.outcome", "ok")
-                    .field("custom", "kept"),
+                    .with_id("req-id")
+                    .with_field(TT_KIND, "request")
+                    .with_field("tt.request_id", "r1")
+                    .with_field("tt.route", "/a")
+                    .with_field("tt.outcome", "ok")
+                    .with_field("custom", "kept"),
             );
             recorder
         };
@@ -3042,7 +3042,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_errors_when_max_open_spans_drops_candidate_spans() {
+    fn strict_errors_when_max_open_spans_drops_candidate_spans() {
         let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_open_spans(1)
@@ -3080,7 +3080,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_combines_recorder_drop_and_conversion_strict_violations() {
+    fn strict_combines_recorder_drop_and_conversion_strict_violations() {
         let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .capture_limits(tailtriage_core::CaptureLimits {
@@ -3118,7 +3118,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn incomplete_request_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
+    fn incomplete_request_does_not_consume_completed_candidate_cap_in_non_strict() {
         let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(1)
             .build()
@@ -3152,7 +3152,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn incomplete_stage_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
+    fn incomplete_stage_does_not_consume_completed_candidate_cap_in_non_strict() {
         let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
@@ -3198,7 +3198,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn incomplete_queue_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
+    fn incomplete_queue_does_not_consume_completed_candidate_cap_in_non_strict() {
         let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
@@ -3476,7 +3476,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_malformed_request_span() {
+    fn strict_fails_for_malformed_request_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3492,7 +3492,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_invalid_numeric_request_route() {
+    fn strict_fails_for_invalid_numeric_request_route() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3514,7 +3514,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_malformed_stage_span() {
+    fn strict_fails_for_malformed_stage_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3537,7 +3537,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_invalid_numeric_stage_field() {
+    fn strict_fails_for_invalid_numeric_stage_field() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3566,7 +3566,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_malformed_queue_span() {
+    fn strict_fails_for_malformed_queue_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3589,7 +3589,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_invalid_numeric_queue_field() {
+    fn strict_fails_for_invalid_numeric_queue_field() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3618,7 +3618,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_orphan_stage_span() {
+    fn strict_fails_for_orphan_stage_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3635,7 +3635,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_fails_for_orphan_queue_span() {
+    fn strict_fails_for_orphan_queue_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -3691,7 +3691,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn non_strict_mode_reports_drop_warnings_and_truncation() {
+    fn non_strict_reports_drop_warnings_and_truncation() {
         let recorder = LiveRecorder::builder("svc")
             .max_open_spans(1)
             .capture_limits(tailtriage_core::CaptureLimits {
@@ -3965,7 +3965,7 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_reports_open_and_closed_missing_kind_causes_together() {
+    fn strict_reports_open_and_closed_missing_kind_causes_together() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -4011,7 +4011,7 @@ mod tests {
     }
     // TT-TEST: support
     #[test]
-    fn strict_mode_rejects_open_candidate_spans_without_fabricating_completions() {
+    fn strict_rejects_open_candidate_spans_without_fabricating_completions() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         let err = tracing::subscriber::with_default(subscriber, || {
@@ -4064,7 +4064,7 @@ mod tests {
 
     // TT-TEST: R03 primary
     #[test]
-    fn open_candidate_span_errors_in_strict_mode() {
+    fn open_candidate_span_errors_in_strict() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -4110,37 +4110,37 @@ mod tests {
         let second_path = dir.path().join("second.jsonl");
         let sources = vec![
             SpanRecord::new("request-source", 1_700_000_000_001, 1_700_000_000_051)
-                .id("req-span")
-                .parent_id("root-span")
-                .started_at_run_us(10)
-                .finished_at_run_us(50_010)
-                .duration_us(50_000)
-                .field(TT_KIND, "request")
-                .field("tt.request_id", "r1")
-                .field("tt.route", "/exact")
-                .field("tt.outcome", "ok")
-                .field("custom.string", "value")
-                .field("custom.bool", true)
-                .field("custom.u64", 7_u64),
+                .with_id("req-span")
+                .with_parent_id("root-span")
+                .with_started_at_run_us(10)
+                .with_finished_at_run_us(50_010)
+                .with_duration_us(50_000)
+                .with_field(TT_KIND, "request")
+                .with_field("tt.request_id", "r1")
+                .with_field("tt.route", "/exact")
+                .with_field("tt.outcome", "ok")
+                .with_field("custom.string", "value")
+                .with_field("custom.bool", true)
+                .with_field("custom.u64", 7_u64),
             SpanRecord::new("stage-source", 1_700_000_000_010, 1_700_000_000_020)
-                .id("stage-span")
-                .parent_id("req-span")
-                .started_at_run_us(9_000)
-                .finished_at_run_us(19_000)
-                .duration_us(10_000)
-                .field(TT_KIND, "stage")
-                .field("tt.request_id", "r1")
-                .field("tt.stage", "db")
-                .field("custom.i64", -3_i64)
-                .field("custom.f64", 1.25_f64),
+                .with_id("stage-span")
+                .with_parent_id("req-span")
+                .with_started_at_run_us(9_000)
+                .with_finished_at_run_us(19_000)
+                .with_duration_us(10_000)
+                .with_field(TT_KIND, "stage")
+                .with_field("tt.request_id", "r1")
+                .with_field("tt.stage", "db")
+                .with_field("custom.i64", -3_i64)
+                .with_field("custom.f64", 1.25_f64),
             SpanRecord::new("queue-source", 1_700_000_000_021, 1_700_000_000_025)
-                .id("queue-span")
-                .parent_id("req-span")
-                .duration_us(4_000)
-                .field(TT_KIND, "queue")
-                .field("tt.request_id", "r1")
-                .field("tt.queue", "permits")
-                .field("custom.null", FieldValue::Null),
+                .with_id("queue-span")
+                .with_parent_id("req-span")
+                .with_duration_us(4_000)
+                .with_field(TT_KIND, "queue")
+                .with_field("tt.request_id", "r1")
+                .with_field("tt.queue", "permits")
+                .with_field("custom.null", FieldValue::Null),
         ];
 
         write_completed_span_jsonl_from_retained_sources(&sources, &first_path).unwrap();
@@ -4170,10 +4170,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let exact_path = dir.path().join("exact.jsonl");
         let source = SpanRecord::new("request", 1, 2)
-            .field(TT_KIND, "request")
-            .field("tt.request_id", "r1")
-            .field("tt.route", "/")
-            .field("padding", "x".repeat(256));
+            .with_field(TT_KIND, "request")
+            .with_field("tt.request_id", "r1")
+            .with_field("tt.route", "/")
+            .with_field("padding", "x".repeat(256));
         let wrapped = serde_json::json!({
             "format": "tailtriage.tracing-span.v1",
             "span": &source,
@@ -4226,7 +4226,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("oversize.jsonl");
         let small = SpanRecord::new("small", 1, 2);
-        let large = SpanRecord::new("large", 1, 2).field("padding", "x".repeat(256));
+        let large = SpanRecord::new("large", 1, 2).with_field("padding", "x".repeat(256));
         let small_len = serde_json::to_vec(&serde_json::json!({
             "format": "tailtriage.tracing-span.v1",
             "span": &small,
@@ -4255,7 +4255,7 @@ mod tests {
         std::fs::write(&path, sentinel).unwrap();
 
         let small = SpanRecord::new("small", 1, 2);
-        let large = SpanRecord::new("large", 1, 2).field("padding", "x".repeat(256));
+        let large = SpanRecord::new("large", 1, 2).with_field("padding", "x".repeat(256));
         let small_len = serde_json::to_vec(&serde_json::json!({
             "format": "tailtriage.tracing-span.v1",
             "span": &small,
@@ -4377,15 +4377,15 @@ mod tests {
         let spans_path = dir.path().join("completed.jsonl");
         let sources = vec![
             SpanRecord::new("http.request", 1_700_000_000_000, 1_700_000_000_120)
-                .id("span-id")
-                .parent_id("parent-id")
-                .started_at_run_us(10)
-                .finished_at_run_us(120_010)
-                .duration_us(120_000)
-                .field(TT_KIND, "request")
-                .field("tt.request_id", "req-1")
-                .field("tt.route", "/checkout")
-                .field("custom.source", "kept"),
+                .with_id("span-id")
+                .with_parent_id("parent-id")
+                .with_started_at_run_us(10)
+                .with_finished_at_run_us(120_010)
+                .with_duration_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field("tt.request_id", "req-1")
+                .with_field("tt.route", "/checkout")
+                .with_field("custom.source", "kept"),
         ];
 
         write_completed_span_jsonl_from_retained_sources(&sources, &spans_path).unwrap();
@@ -4394,14 +4394,14 @@ mod tests {
         let retained = imported.retained_sources();
         assert_eq!(retained.len(), 1);
         let span = &retained[0];
-        assert_eq!(span.id_ref(), Some("span-id"));
-        assert_eq!(span.parent_id_ref(), Some("parent-id"));
+        assert_eq!(span.id(), Some("span-id"));
+        assert_eq!(span.parent_id(), Some("parent-id"));
         assert_eq!(span.name(), "http.request");
         assert_eq!(span.started_at_unix_ms(), 1_700_000_000_000);
         assert_eq!(span.finished_at_unix_ms(), 1_700_000_000_120);
-        assert_eq!(span.started_at_run_us_ref(), Some(10));
-        assert_eq!(span.finished_at_run_us_ref(), Some(120_010));
-        assert_eq!(span.duration_us_ref(), Some(120_000));
+        assert_eq!(span.started_at_run_us(), Some(10));
+        assert_eq!(span.finished_at_run_us(), Some(120_010));
+        assert_eq!(span.duration_us(), Some(120_000));
         assert_eq!(
             span.fields().get(TT_KIND),
             Some(&FieldValue::String("request".to_owned()))
@@ -4427,55 +4427,55 @@ mod tests {
         let spans_path = dir.path().join("spans.jsonl");
         let sources = vec![
             SpanRecord::new("duplicate-request-a", 100, 150)
-                .id("dup-a")
-                .field(TT_KIND, "request")
-                .field("tt.request_id", "dup")
-                .field("tt.route", "/dup-a"),
+                .with_id("dup-a")
+                .with_field(TT_KIND, "request")
+                .with_field("tt.request_id", "dup")
+                .with_field("tt.route", "/dup-a"),
             SpanRecord::new("duplicate-request-b", 101, 151)
-                .id("dup-b")
-                .field(TT_KIND, "request")
-                .field("tt.request_id", "dup")
-                .field("tt.route", "/dup-b"),
+                .with_id("dup-b")
+                .with_field(TT_KIND, "request")
+                .with_field("tt.request_id", "dup")
+                .with_field("tt.route", "/dup-b"),
             SpanRecord::new("ambiguous-child", 110, 120)
-                .id("ambiguous")
-                .parent_id("dup-a")
-                .field(TT_KIND, "stage")
-                .field("tt.request_id", "dup")
-                .field("tt.stage", "ambiguous"),
+                .with_id("ambiguous")
+                .with_parent_id("dup-a")
+                .with_field(TT_KIND, "stage")
+                .with_field("tt.request_id", "dup")
+                .with_field("tt.stage", "ambiguous"),
             SpanRecord::new("orphan-child", 110, 120)
-                .id("orphan")
-                .field(TT_KIND, "queue")
-                .field("tt.request_id", "missing")
-                .field("tt.queue", "orphan"),
+                .with_id("orphan")
+                .with_field(TT_KIND, "queue")
+                .with_field("tt.request_id", "missing")
+                .with_field("tt.queue", "orphan"),
             SpanRecord::new("child-of-excluded-parent", 111, 121)
-                .id("excluded-child")
-                .parent_id("dup-a")
-                .field(TT_KIND, "queue")
-                .field("tt.request_id", "dup")
-                .field("tt.queue", "excluded-parent"),
+                .with_id("excluded-child")
+                .with_parent_id("dup-a")
+                .with_field(TT_KIND, "queue")
+                .with_field("tt.request_id", "dup")
+                .with_field("tt.queue", "excluded-parent"),
             SpanRecord::new("valid-request", 200, 300)
-                .id("valid-req")
-                .started_at_run_us(0)
-                .finished_at_run_us(100_000)
-                .field(TT_KIND, "request")
-                .field("tt.request_id", "ok")
-                .field("tt.route", "/ok"),
+                .with_id("valid-req")
+                .with_started_at_run_us(0)
+                .with_finished_at_run_us(100_000)
+                .with_field(TT_KIND, "request")
+                .with_field("tt.request_id", "ok")
+                .with_field("tt.route", "/ok"),
             SpanRecord::new("outside-child", 301, 310)
-                .id("outside")
-                .parent_id("valid-req")
-                .started_at_run_us(101_000)
-                .finished_at_run_us(110_000)
-                .field(TT_KIND, "stage")
-                .field("tt.request_id", "ok")
-                .field("tt.stage", "outside"),
+                .with_id("outside")
+                .with_parent_id("valid-req")
+                .with_started_at_run_us(101_000)
+                .with_finished_at_run_us(110_000)
+                .with_field(TT_KIND, "stage")
+                .with_field("tt.request_id", "ok")
+                .with_field("tt.stage", "outside"),
             SpanRecord::new("valid-child", 210, 220)
-                .id("valid-child")
-                .parent_id("valid-req")
-                .started_at_run_us(10_000)
-                .finished_at_run_us(20_000)
-                .field(TT_KIND, "stage")
-                .field("tt.request_id", "ok")
-                .field("tt.stage", "inside"),
+                .with_id("valid-child")
+                .with_parent_id("valid-req")
+                .with_started_at_run_us(10_000)
+                .with_finished_at_run_us(20_000)
+                .with_field(TT_KIND, "stage")
+                .with_field("tt.request_id", "ok")
+                .with_field("tt.stage", "inside"),
         ];
         let imported = run_from_span_records(sources, ImportOptions::new("svc")).unwrap();
 
@@ -4493,30 +4493,30 @@ mod tests {
 
     fn request(name: &str, id: &str, start: u64, finish: u64) -> SpanRecord {
         SpanRecord::new(name, start, finish)
-            .id(format!("{id}-span"))
-            .field(TT_KIND, "request")
-            .field("tt.request_id", id)
-            .field("tt.route", format!("/{id}"))
-            .field("tt.outcome", "ok")
+            .with_id(format!("{id}-span"))
+            .with_field(TT_KIND, "request")
+            .with_field("tt.request_id", id)
+            .with_field("tt.route", format!("/{id}"))
+            .with_field("tt.outcome", "ok")
     }
 
     fn stage(name: &str, id: &str, start: u64, finish: u64) -> SpanRecord {
         SpanRecord::new(name, start, finish)
-            .id(format!("{name}-span"))
-            .parent_id(format!("{id}-span"))
-            .field(TT_KIND, "stage")
-            .field("tt.request_id", id)
-            .field("tt.stage", name)
-            .field("tt.success", true)
+            .with_id(format!("{name}-span"))
+            .with_parent_id(format!("{id}-span"))
+            .with_field(TT_KIND, "stage")
+            .with_field("tt.request_id", id)
+            .with_field("tt.stage", name)
+            .with_field("tt.success", true)
     }
 
     fn queue(name: &str, id: &str, start: u64, finish: u64) -> SpanRecord {
         SpanRecord::new(name, start, finish)
-            .id(format!("{name}-span"))
-            .parent_id(format!("{id}-span"))
-            .field(TT_KIND, "queue")
-            .field("tt.request_id", id)
-            .field("tt.queue", name)
+            .with_id(format!("{name}-span"))
+            .with_parent_id(format!("{id}-span"))
+            .with_field(TT_KIND, "queue")
+            .with_field("tt.request_id", id)
+            .with_field("tt.queue", name)
     }
 
     // TT-TEST: R06 secondary
@@ -4551,28 +4551,28 @@ mod tests {
                 name: "precise custom identity and fields",
                 spans: vec![
                     request("custom-http", "precise", 1_000, 1_050)
-                        .id("req-custom")
-                        .parent_id("root")
-                        .started_at_run_us(10)
-                        .finished_at_run_us(50_010)
-                        .duration_us(50_000)
-                        .field("custom.string", "kept")
-                        .field("custom.u64", 42_u64),
+                        .with_id("req-custom")
+                        .with_parent_id("root")
+                        .with_started_at_run_us(10)
+                        .with_finished_at_run_us(50_010)
+                        .with_duration_us(50_000)
+                        .with_field("custom.string", "kept")
+                        .with_field("custom.u64", 42_u64),
                     stage("custom-db", "precise", 1_010, 1_030)
-                        .id("stage-custom")
-                        .parent_id("req-custom")
-                        .started_at_run_us(10_010)
-                        .finished_at_run_us(30_010)
-                        .duration_us(20_000)
-                        .field("custom.bool", false),
+                        .with_id("stage-custom")
+                        .with_parent_id("req-custom")
+                        .with_started_at_run_us(10_010)
+                        .with_finished_at_run_us(30_010)
+                        .with_duration_us(20_000)
+                        .with_field("custom.bool", false),
                     queue("custom-permits", "precise", 1_031, 1_040)
-                        .id("queue-custom")
-                        .parent_id("req-custom")
-                        .started_at_run_us(31_010)
-                        .finished_at_run_us(40_010)
-                        .duration_us(9_000)
-                        .field("tt.depth_at_start", 8_u64)
-                        .field("custom.null", FieldValue::Null),
+                        .with_id("queue-custom")
+                        .with_parent_id("req-custom")
+                        .with_started_at_run_us(31_010)
+                        .with_finished_at_run_us(40_010)
+                        .with_duration_us(9_000)
+                        .with_field("tt.depth_at_start", 8_u64)
+                        .with_field("custom.null", FieldValue::Null),
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: true,
@@ -4581,9 +4581,9 @@ mod tests {
             Case {
                 name: "duration only",
                 spans: vec![
-                    request("duration-request", "duration", 2_000, 2_050).duration_us(123_456),
-                    stage("duration-stage", "duration", 2_010, 2_020).duration_us(10_000),
-                    queue("duration-queue", "duration", 2_021, 2_025).duration_us(4_000),
+                    request("duration-request", "duration", 2_000, 2_050).with_duration_us(123_456),
+                    stage("duration-stage", "duration", 2_010, 2_020).with_duration_us(10_000),
+                    queue("duration-queue", "duration", 2_021, 2_025).with_duration_us(4_000),
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: true,
@@ -4593,17 +4593,17 @@ mod tests {
                 name: "repairable optional offsets",
                 spans: vec![
                     request("repair-request", "repair", 3_000, 3_050)
-                        .started_at_run_us(50)
-                        .finished_at_run_us(10)
-                        .duration_us(50_000),
+                        .with_started_at_run_us(50)
+                        .with_finished_at_run_us(10)
+                        .with_duration_us(50_000),
                     stage("repair-stage", "repair", 3_010, 3_020)
-                        .started_at_run_us(20)
-                        .finished_at_run_us(15)
-                        .duration_us(10_000),
+                        .with_started_at_run_us(20)
+                        .with_finished_at_run_us(15)
+                        .with_duration_us(10_000),
                     queue("repair-queue", "repair", 3_021, 3_030)
-                        .started_at_run_us(30)
-                        .finished_at_run_us(25)
-                        .duration_us(9_000),
+                        .with_started_at_run_us(30)
+                        .with_finished_at_run_us(25)
+                        .with_duration_us(9_000),
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
@@ -4637,10 +4637,10 @@ mod tests {
                 name: "source parser inverted parent leaves child orphan",
                 spans: vec![
                     SpanRecord::new("invalid-parent", 6_050, 6_000)
-                        .id("invalid-parent-span")
-                        .field(TT_KIND, "request")
-                        .field("tt.request_id", "bad-parent")
-                        .field("tt.route", "/bad-parent"),
+                        .with_id("invalid-parent-span")
+                        .with_field(TT_KIND, "request")
+                        .with_field("tt.request_id", "bad-parent")
+                        .with_field("tt.route", "/bad-parent"),
                     stage(
                         "child-of-parser-rejected-parent",
                         "bad-parent",
@@ -4662,14 +4662,14 @@ mod tests {
                 name: "contained parent with precise outside child",
                 spans: vec![
                     request("containment-parent", "contained", 7_000, 7_050)
-                        .started_at_run_us(0)
-                        .finished_at_run_us(50_000),
+                        .with_started_at_run_us(0)
+                        .with_finished_at_run_us(50_000),
                     stage("outside-stage", "contained", 7_060, 7_070)
-                        .started_at_run_us(60_000)
-                        .finished_at_run_us(70_000),
+                        .with_started_at_run_us(60_000)
+                        .with_finished_at_run_us(70_000),
                     queue("inside-queue", "contained", 7_010, 7_020)
-                        .started_at_run_us(10_000)
-                        .finished_at_run_us(20_000),
+                        .with_started_at_run_us(10_000)
+                        .with_finished_at_run_us(20_000),
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
@@ -4779,22 +4779,22 @@ mod tests {
         let second_path = dir.path().join("reemitted.jsonl");
         let sources = vec![
             request("repairable-request", "repair", 1_000, 1_020)
-                .id("repairable-request")
-                .started_at_run_us(50)
-                .finished_at_run_us(10)
-                .duration_us(20_000),
+                .with_id("repairable-request")
+                .with_started_at_run_us(50)
+                .with_finished_at_run_us(10)
+                .with_duration_us(20_000),
             stage("repairable-stage", "repair", 1_005, 1_015)
-                .id("repairable-stage")
-                .parent_id("repairable-request")
-                .started_at_run_us(40)
-                .finished_at_run_us(20)
-                .duration_us(10_000),
+                .with_id("repairable-stage")
+                .with_parent_id("repairable-request")
+                .with_started_at_run_us(40)
+                .with_finished_at_run_us(20)
+                .with_duration_us(10_000),
             queue("repairable-queue", "repair", 1_006, 1_012)
-                .id("repairable-queue")
-                .parent_id("repairable-request")
-                .started_at_run_us(35)
-                .finished_at_run_us(25)
-                .duration_us(6_000),
+                .with_id("repairable-queue")
+                .with_parent_id("repairable-request")
+                .with_started_at_run_us(35)
+                .with_finished_at_run_us(25)
+                .with_duration_us(6_000),
         ];
 
         let direct_provenance =
@@ -4905,45 +4905,45 @@ mod tests {
             let mut state = semantic_session.recorder.state.lock().unwrap();
             state.completed_requests.push(
                 SpanRecord::new("sem-request-kept", 100, 200)
-                    .id("sr1")
-                    .field(TT_KIND, "request")
-                    .field("tt.request_id", "sr1")
-                    .field("tt.route", "/one"),
+                    .with_id("sr1")
+                    .with_field(TT_KIND, "request")
+                    .with_field("tt.request_id", "sr1")
+                    .with_field("tt.route", "/one"),
             );
             state.completed_requests.push(
                 SpanRecord::new("sem-request-dropped", 101, 201)
-                    .id("sr2")
-                    .field(TT_KIND, "request")
-                    .field("tt.request_id", "sr2")
-                    .field("tt.route", "/two"),
+                    .with_id("sr2")
+                    .with_field(TT_KIND, "request")
+                    .with_field("tt.request_id", "sr2")
+                    .with_field("tt.route", "/two"),
             );
             state.completed_stages.push(
                 SpanRecord::new("sem-stage-kept", 110, 120)
-                    .id("ss1")
-                    .field(TT_KIND, "stage")
-                    .field("tt.request_id", "sr1")
-                    .field("tt.stage", "db"),
+                    .with_id("ss1")
+                    .with_field(TT_KIND, "stage")
+                    .with_field("tt.request_id", "sr1")
+                    .with_field("tt.stage", "db"),
             );
             state.completed_stages.push(
                 SpanRecord::new("sem-stage-dropped", 121, 130)
-                    .id("ss2")
-                    .field(TT_KIND, "stage")
-                    .field("tt.request_id", "sr1")
-                    .field("tt.stage", "cache"),
+                    .with_id("ss2")
+                    .with_field(TT_KIND, "stage")
+                    .with_field("tt.request_id", "sr1")
+                    .with_field("tt.stage", "cache"),
             );
             state.completed_queues.push(
                 SpanRecord::new("sem-queue-kept", 130, 140)
-                    .id("sq1")
-                    .field(TT_KIND, "queue")
-                    .field("tt.request_id", "sr1")
-                    .field("tt.queue", "permits"),
+                    .with_id("sq1")
+                    .with_field(TT_KIND, "queue")
+                    .with_field("tt.request_id", "sr1")
+                    .with_field("tt.queue", "permits"),
             );
             state.completed_queues.push(
                 SpanRecord::new("sem-queue-dropped", 141, 150)
-                    .id("sq2")
-                    .field(TT_KIND, "queue")
-                    .field("tt.request_id", "sr1")
-                    .field("tt.queue", "work"),
+                    .with_id("sq2")
+                    .with_field(TT_KIND, "queue")
+                    .with_field("tt.request_id", "sr1")
+                    .with_field("tt.queue", "work"),
             );
         }
         let semantic_snapshot = semantic_session.snapshot_run().unwrap();
@@ -5030,28 +5030,28 @@ mod tests {
             let mut state = session.recorder.state.lock().unwrap();
             state.completed_stages.push(
                 SpanRecord::new("live-stage-first", 10, 20)
-                    .started_at_run_us(10_000)
-                    .finished_at_run_us(20_000)
-                    .field(TT_KIND, "stage")
-                    .field("tt.request_id", "live-1")
-                    .field("tt.stage", "db"),
+                    .with_started_at_run_us(10_000)
+                    .with_finished_at_run_us(20_000)
+                    .with_field(TT_KIND, "stage")
+                    .with_field("tt.request_id", "live-1")
+                    .with_field("tt.stage", "db"),
             );
             state.completed_queues.push(
                 SpanRecord::new("live-queue-second", 21, 25)
-                    .started_at_run_us(21_000)
-                    .finished_at_run_us(25_000)
-                    .field(TT_KIND, "queue")
-                    .field("tt.request_id", "live-1")
-                    .field("tt.queue", "permits"),
+                    .with_started_at_run_us(21_000)
+                    .with_finished_at_run_us(25_000)
+                    .with_field(TT_KIND, "queue")
+                    .with_field("tt.request_id", "live-1")
+                    .with_field("tt.queue", "permits"),
             );
             state.completed_requests.push(
                 SpanRecord::new("live-request-third", 1, 50)
-                    .started_at_run_us(1_000)
-                    .finished_at_run_us(50_000)
-                    .field(TT_KIND, "request")
-                    .field("tt.request_id", "live-1")
-                    .field("tt.route", "/live")
-                    .field("custom", "identity"),
+                    .with_started_at_run_us(1_000)
+                    .with_finished_at_run_us(50_000)
+                    .with_field(TT_KIND, "request")
+                    .with_field("tt.request_id", "live-1")
+                    .with_field("tt.route", "/live")
+                    .with_field("custom", "identity"),
             );
         }
         futures_executor::block_on(session.shutdown()).unwrap()
@@ -5130,35 +5130,35 @@ mod tests {
             "precise",
             vec![
                 request("precise-reemit-request", "reemit", 10, 30)
-                    .id("precise-req")
-                    .parent_id("root")
-                    .started_at_run_us(1)
-                    .finished_at_run_us(20_001)
-                    .duration_us(20_000)
-                    .field("custom", "kept"),
+                    .with_id("precise-req")
+                    .with_parent_id("root")
+                    .with_started_at_run_us(1)
+                    .with_finished_at_run_us(20_001)
+                    .with_duration_us(20_000)
+                    .with_field("custom", "kept"),
                 stage("precise-reemit-stage", "reemit", 12, 20)
-                    .id("precise-stage")
-                    .parent_id("precise-req"),
+                    .with_id("precise-stage")
+                    .with_parent_id("precise-req"),
                 queue("precise-reemit-queue", "reemit", 21, 25)
-                    .id("precise-queue")
-                    .parent_id("precise-req"),
+                    .with_id("precise-queue")
+                    .with_parent_id("precise-req"),
             ],
         );
         assert_stable_wrapper_reemits_byte_identically(
             "repair",
             vec![
                 request("repair-reemit-request", "repair-reemit", 40, 80)
-                    .started_at_run_us(50)
-                    .finished_at_run_us(10)
-                    .duration_us(40_000),
+                    .with_started_at_run_us(50)
+                    .with_finished_at_run_us(10)
+                    .with_duration_us(40_000),
                 stage("repair-reemit-stage", "repair-reemit", 45, 55)
-                    .started_at_run_us(20)
-                    .finished_at_run_us(15)
-                    .duration_us(10_000),
+                    .with_started_at_run_us(20)
+                    .with_finished_at_run_us(15)
+                    .with_duration_us(10_000),
                 queue("repair-reemit-queue", "repair-reemit", 56, 60)
-                    .started_at_run_us(30)
-                    .finished_at_run_us(25)
-                    .duration_us(4_000),
+                    .with_started_at_run_us(30)
+                    .with_finished_at_run_us(25)
+                    .with_duration_us(4_000),
             ],
         );
     }
@@ -5247,9 +5247,9 @@ mod tests {
         let spans_path = dir.path().join("spans.jsonl");
         let imported = run_from_span_records(
             vec![SpanRecord::new("request", 100, 200)
-                .field(TT_KIND, "request")
-                .field("tt.request_id", "r1")
-                .field("tt.route", "/a")],
+                .with_field(TT_KIND, "request")
+                .with_field("tt.request_id", "r1")
+                .with_field("tt.route", "/a")],
             ImportOptions::new("svc"),
         )
         .unwrap();

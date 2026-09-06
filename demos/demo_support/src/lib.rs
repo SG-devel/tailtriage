@@ -628,8 +628,10 @@ pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
 mod tests {
     use super::{parse_demo_args_from, write_persistable_demo_run, DemoMode, InstrumentationMode};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tailtriage_core::{Outcome, RequestEvent, Run, RunBuilder, RunBuilderOptions};
-    use tailtriage_tracing::ImportedRun;
+    use tailtriage_core::{Outcome, Run};
+    use tailtriage_tracing::{
+        run_from_span_records, ImportOptions, SpanRecord, TT_KIND, TT_REQUEST_ID, TT_ROUTE,
+    };
 
     // TT-TEST: support
     #[test]
@@ -709,7 +711,8 @@ mod tests {
     #[test]
     fn tracing_shutdown_writer_rejects_zero_requests_without_writing() {
         let output = unique_temp_output_path("empty-run");
-        let imported = ImportedRun::new(sample_run_without_requests(), Vec::new());
+        let imported = run_from_span_records([], ImportOptions::new("demo-service"))
+            .expect("produce empty imported run");
 
         let err = write_persistable_demo_run(&imported, &output).expect_err("expected rejection");
         assert!(err.to_string().contains("zero request events"));
@@ -720,38 +723,18 @@ mod tests {
     #[test]
     fn tracing_shutdown_writer_persists_non_empty_run_json() {
         let output = unique_temp_output_path("non-empty-run");
-        let run = sample_run_with_one_request();
-        let imported = ImportedRun::new(run, Vec::new());
+        let record = SpanRecord::new("request", 1, 2)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "req-1")
+            .with_field(TT_ROUTE, "route-a");
+        let imported = run_from_span_records([record], ImportOptions::new("demo-service"))
+            .expect("produce imported run");
 
         write_persistable_demo_run(&imported, &output).expect("write artifact");
         let raw = std::fs::read_to_string(&output).expect("read output");
         let parsed: Run = serde_json::from_str(&raw).expect("parse run json");
         assert_eq!(parsed.requests.len(), 1);
         let _ = std::fs::remove_file(&output);
-    }
-
-    fn sample_run_without_requests() -> Run {
-        RunBuilder::new(RunBuilderOptions::new("demo-service"))
-            .expect("build run")
-            .build()
-    }
-
-    fn sample_run_with_one_request() -> Run {
-        let mut builder = RunBuilder::new(RunBuilderOptions::new("demo-service")).expect("build");
-        builder
-            .push_request(RequestEvent {
-                request_id: "req-1".to_string(),
-                route: "route-a".to_string(),
-                kind: None,
-                started_at_unix_ms: 1,
-                started_at_run_us: None,
-                finished_at_unix_ms: 2,
-                finished_at_run_us: None,
-                latency_us: 1_000,
-                outcome: Outcome::Ok.into_string(),
-            })
-            .expect("push request");
-        builder.build()
     }
 
     fn unique_temp_output_path(prefix: &str) -> std::path::PathBuf {

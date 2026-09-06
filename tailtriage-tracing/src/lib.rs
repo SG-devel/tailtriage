@@ -12,22 +12,51 @@
 //! tracing-specific analyzer path; Run JSON and the existing analyzer remain the
 //! center of the workflow.
 //!
-//! # Example
+//! # Custom-source example
+//!
+//! [`SpanRecord`] is the public adapter/input type for custom tracing-like sources.
+//! Construct records and pass them to [`run_from_span_records`]; Tailtriage produces
+//! [`ImportedRun`] and [`ImportWarning`] result values for inspection through their
+//! public accessors rather than direct caller construction.
 //!
 //! ```
 //! use tailtriage_tracing::{
-//!     ImportOptions, SpanRecord, TT_KIND, TT_OUTCOME, TT_REQUEST_ID, TT_ROUTE,
+//!     run_from_span_records, ImportOptions, SpanRecord, TT_KIND, TT_REQUEST_ID, TT_ROUTE,
 //! };
 //!
-//! let record = SpanRecord::new("http.request", 1_700_000_000_000, 1_700_000_000_120)
-//!     .field(TT_KIND, "request")
-//!     .field(TT_REQUEST_ID, "req-42")
-//!     .field(TT_ROUTE, "/checkout")
-//!     .field(TT_OUTCOME, "ok");
+//! # fn example() -> Result<(), tailtriage_tracing::ImportError> {
+//! let record = SpanRecord::new("request", 10, 20)
+//!     .with_id("span-1")
+//!     .with_parent_id("parent-1")
+//!     .with_started_at_run_us(100)
+//!     .with_finished_at_run_us(200)
+//!     .with_duration_us(100)
+//!     .with_field(TT_KIND, "request")
+//!     .with_field(TT_REQUEST_ID, "req-1")
+//!     .with_field(TT_ROUTE, "/checkout");
 //!
-//! let options = ImportOptions::new("checkout-service").strict(false);
-//! assert_eq!(record.name(), "http.request");
-//! assert_eq!(options.service_name(), "checkout-service");
+//! assert_eq!(record.id(), Some("span-1"));
+//! assert_eq!(record.parent_id(), Some("parent-1"));
+//! assert_eq!(record.started_at_run_us(), Some(100));
+//! assert_eq!(record.finished_at_run_us(), Some(200));
+//! assert_eq!(record.duration_us(), Some(100));
+//!
+//! let options = ImportOptions::new("checkout-service")
+//!     .service_version("1.2.3")
+//!     .run_id("run-123")
+//!     .strict(false)
+//!     .mode(tailtriage_core::CaptureMode::Light);
+//! assert_eq!(options.configured_service_version(), Some("1.2.3"));
+//! assert_eq!(options.configured_run_id(), Some("run-123"));
+//! assert!(!options.is_strict());
+//! assert_eq!(options.capture_mode(), tailtriage_core::CaptureMode::Light);
+//!
+//! let imported = run_from_span_records([record], options)?;
+//! assert_eq!(imported.run().metadata.service_name, "checkout-service");
+//! let _warnings = imported.warnings();
+//! # Ok(())
+//! # }
+//! # example().unwrap();
 //! ```
 
 mod convention;
@@ -189,7 +218,7 @@ where
             StringFieldState::Missing => {
                 if span_has_tailtriage_field(span) {
                     strict_or_warn(
-                        options.strict_mode(),
+                        options.is_strict(),
                         &mut warnings,
                         format!(
                             "missing required field '{TT_KIND}' in span '{}'",
@@ -202,7 +231,7 @@ where
             StringFieldState::Value(kind) => {
                 let Some(kind) = SpanKind::parse(kind) else {
                     strict_or_warn(
-                        options.strict_mode(),
+                        options.is_strict(),
                         &mut warnings,
                         format!("unknown tt.kind '{kind}' in span '{}'", span.name()),
                     )?;
@@ -212,7 +241,7 @@ where
             }
             StringFieldState::InvalidType => {
                 strict_or_warn(
-                    options.strict_mode(),
+                    options.is_strict(),
                     &mut warnings,
                     format!(
                         "invalid field '{TT_KIND}' in span '{}': expected string",
@@ -225,7 +254,7 @@ where
 
         if span.finished_at_unix_ms() < span.started_at_unix_ms() {
             strict_or_warn(
-                options.strict_mode(),
+                options.is_strict(),
                 &mut warnings,
                 format!(
                     "skipped span '{}' due to inverted timestamps: start={} finish={}",
@@ -240,11 +269,11 @@ where
         match kind {
             SpanKind::Request => {
                 let request_id =
-                    required_string(span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
-                let route = required_string(span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
+                    required_string(span, TT_REQUEST_ID, options.is_strict(), &mut warnings)?;
+                let route = required_string(span, TT_ROUTE, options.is_strict(), &mut warnings)?;
                 if let (Some(request_id), Some(route)) = (request_id, route) {
                     let Some((outcome, outcome_defaulted)) =
-                        parse_outcome(span, options.strict_mode(), &mut warnings)?
+                        parse_outcome(span, options.is_strict(), &mut warnings)?
                     else {
                         continue;
                     };
@@ -288,10 +317,10 @@ where
             }
             SpanKind::Stage => {
                 let request_id =
-                    required_string(span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
-                let stage = required_string(span, TT_STAGE, options.strict_mode(), &mut warnings)?;
+                    required_string(span, TT_REQUEST_ID, options.is_strict(), &mut warnings)?;
+                let stage = required_string(span, TT_STAGE, options.is_strict(), &mut warnings)?;
                 if let (Some(request_id), Some(stage)) = (request_id, stage) {
-                    let success_field = parse_success(span, options.strict_mode(), &mut warnings)?;
+                    let success_field = parse_success(span, options.is_strict(), &mut warnings)?;
                     let success = match success_field {
                         OptionalField::Missing => true,
                         OptionalField::Value(success) => success,
@@ -337,11 +366,11 @@ where
             }
             SpanKind::Queue => {
                 let request_id =
-                    required_string(span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
-                let queue = required_string(span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
+                    required_string(span, TT_REQUEST_ID, options.is_strict(), &mut warnings)?;
+                let queue = required_string(span, TT_QUEUE, options.is_strict(), &mut warnings)?;
                 if let (Some(request_id), Some(queue)) = (request_id, queue) {
                     let depth_at_start =
-                        match parse_depth_at_start(span, options.strict_mode(), &mut warnings)? {
+                        match parse_depth_at_start(span, options.is_strict(), &mut warnings)? {
                             OptionalField::Missing => None,
                             OptionalField::Value(depth) => Some(depth),
                             OptionalField::Invalid => continue,
@@ -385,7 +414,7 @@ where
             }
         }
     }
-    let mode = options.mode_value();
+    let mode = options.capture_mode();
 
     let request_outcome_default_count = parsed_requests
         .iter()
@@ -426,8 +455,8 @@ where
             let now = tailtriage_core::unix_time_ms();
             (now, now)
         });
-    let explicit_run_id = options.run_id_ref().is_some();
-    let run_id = options.run_id_ref().map_or_else(
+    let explicit_run_id = options.configured_run_id().is_some();
+    let run_id = options.configured_run_id().map_or_else(
         || format!("tracing-import-{started_at_unix_ms}-{finished_at_unix_ms}"),
         ToOwned::to_owned,
     );
@@ -437,7 +466,7 @@ where
         metadata: RunMetadata {
             run_id,
             service_name: options.service_name().to_owned(),
-            service_version: options.service_version_ref().map(ToOwned::to_owned),
+            service_version: options.configured_service_version().map(ToOwned::to_owned),
             started_at_unix_ms,
             finalized_at_unix_ms: Some(finished_at_unix_ms),
             mode,
@@ -461,7 +490,7 @@ where
         truncation,
     };
 
-    if options.strict_mode() {
+    if options.is_strict() {
         validate_run_strict(&candidate).map_err(|err| strict_core_error(&err))?;
     }
 
@@ -850,7 +879,7 @@ fn timestamp_derived_duration_us(started_at_unix_ms: u64, finished_at_unix_ms: u
 }
 
 fn sanitized_run_relative_offsets(span: &SpanRecord) -> (Option<u64>, Option<u64>) {
-    (span.started_at_run_us_ref(), span.finished_at_run_us_ref())
+    (span.started_at_run_us(), span.finished_at_run_us())
 }
 
 fn run_relative_derived_duration_us(
@@ -867,7 +896,7 @@ fn elapsed_duration_us(
     started_at_run_us: Option<u64>,
     finished_at_run_us: Option<u64>,
 ) -> u64 {
-    if let Some(duration_us) = span.duration_us_ref() {
+    if let Some(duration_us) = span.duration_us() {
         return duration_us;
     }
 
@@ -1054,25 +1083,25 @@ mod tests {
         for index in 0..4 {
             spans.push(
                 SpanRecord::new(format!("request-{index}"), 1, 2)
-                    .field(TT_KIND, "request")
-                    .field(TT_REQUEST_ID, format!("r{index}"))
-                    .field(TT_ROUTE, "/bounded"),
+                    .with_field(TT_KIND, "request")
+                    .with_field(TT_REQUEST_ID, format!("r{index}"))
+                    .with_field(TT_ROUTE, "/bounded"),
             );
         }
         for index in 0..4 {
             spans.push(
                 SpanRecord::new(format!("stage-{index}"), 1, 2)
-                    .field(TT_KIND, "stage")
-                    .field(TT_REQUEST_ID, "r0")
-                    .field(TT_STAGE, format!("s{index}")),
+                    .with_field(TT_KIND, "stage")
+                    .with_field(TT_REQUEST_ID, "r0")
+                    .with_field(TT_STAGE, format!("s{index}")),
             );
         }
         for index in 0..4 {
             spans.push(
                 SpanRecord::new(format!("queue-{index}"), 1, 2)
-                    .field(TT_KIND, "queue")
-                    .field(TT_REQUEST_ID, "r0")
-                    .field(TT_QUEUE, format!("q{index}")),
+                    .with_field(TT_KIND, "queue")
+                    .with_field(TT_REQUEST_ID, "r0")
+                    .with_field(TT_QUEUE, format!("q{index}")),
             );
         }
         let converted = convert_span_records_with_provenance(
@@ -1152,23 +1181,23 @@ mod tests {
 
     fn req(id: &str, start: u64, finish: u64) -> SpanRecord {
         SpanRecord::new(format!("req-{id}"), start, finish)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, id)
-            .field(TT_ROUTE, "/")
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, id)
+            .with_field(TT_ROUTE, "/")
     }
 
     fn stage(id: &str, name: &str, start: u64, finish: u64) -> SpanRecord {
         SpanRecord::new(format!("stage-{name}"), start, finish)
-            .field(TT_KIND, "stage")
-            .field(TT_REQUEST_ID, id)
-            .field(TT_STAGE, name)
+            .with_field(TT_KIND, "stage")
+            .with_field(TT_REQUEST_ID, id)
+            .with_field(TT_STAGE, name)
     }
 
     fn queue(id: &str, name: &str, start: u64, finish: u64) -> SpanRecord {
         SpanRecord::new(format!("queue-{name}"), start, finish)
-            .field(TT_KIND, "queue")
-            .field(TT_REQUEST_ID, id)
-            .field(TT_QUEUE, name)
+            .with_field(TT_KIND, "queue")
+            .with_field(TT_REQUEST_ID, id)
+            .with_field(TT_QUEUE, name)
     }
 
     fn empty_candidate_run() -> Run {
@@ -1258,8 +1287,8 @@ mod tests {
             .map(|span| {
                 (
                     span.name().to_owned(),
-                    span.id_ref().unwrap_or_default().to_owned(),
-                    span.parent_id_ref().unwrap_or_default().to_owned(),
+                    span.id().unwrap_or_default().to_owned(),
+                    span.parent_id().unwrap_or_default().to_owned(),
                 )
             })
             .collect()
@@ -1295,18 +1324,18 @@ mod tests {
     #[test]
     fn imported_run_privately_carries_exact_retained_original_sources() {
         let request = req("a", 100, 120)
-            .id("req-span")
-            .parent_id("root")
-            .started_at_run_us(10)
-            .finished_at_run_us(30)
-            .duration_us(20_000)
-            .field("custom", 7_u64);
+            .with_id("req-span")
+            .with_parent_id("root")
+            .with_started_at_run_us(10)
+            .with_finished_at_run_us(30)
+            .with_duration_us(20_000)
+            .with_field("custom", 7_u64);
         let child = stage("a", "db", 105, 110)
-            .id("stage-span")
-            .parent_id("req-span")
-            .started_at_run_us(15)
-            .finished_at_run_us(20)
-            .duration_us(5_000);
+            .with_id("stage-span")
+            .with_parent_id("req-span")
+            .with_started_at_run_us(15)
+            .with_finished_at_run_us(20)
+            .with_duration_us(5_000);
         let imported = run_from_span_records(vec![request.clone(), child.clone()], opts()).unwrap();
 
         assert_eq!(
@@ -1587,11 +1616,17 @@ mod tests {
     #[test]
     fn provenance_retained_sources_follow_original_source_order_not_canonical_sections() {
         let spans = vec![
-            stage("r1", "s1", 101, 102).id("stage-1").parent_id("req-1"),
-            req("r1", 100, 120).id("req-1"),
-            queue("r1", "q1", 103, 104).id("queue-1").parent_id("req-1"),
-            stage("r1", "s2", 105, 106).id("stage-2").parent_id("req-1"),
-            req("r2", 200, 220).id("req-2"),
+            stage("r1", "s1", 101, 102)
+                .with_id("stage-1")
+                .with_parent_id("req-1"),
+            req("r1", 100, 120).with_id("req-1"),
+            queue("r1", "q1", 103, 104)
+                .with_id("queue-1")
+                .with_parent_id("req-1"),
+            stage("r1", "s2", 105, 106)
+                .with_id("stage-2")
+                .with_parent_id("req-1"),
+            req("r2", 200, 220).with_id("req-2"),
         ];
 
         let result = convert_span_records_with_provenance(spans, opts()).unwrap();
@@ -1639,11 +1674,11 @@ mod tests {
             stage("dup", "ambiguous", 135, 140),
             stage("orphan", "orphan", 200, 210),
             req("precise", 400, 420)
-                .started_at_run_us(0)
-                .finished_at_run_us(20_000),
+                .with_started_at_run_us(0)
+                .with_finished_at_run_us(20_000),
             stage("precise", "outside", 400, 430)
-                .started_at_run_us(0)
-                .finished_at_run_us(30_000),
+                .with_started_at_run_us(0)
+                .with_finished_at_run_us(30_000),
         ];
 
         let result = convert_span_records_with_provenance(spans, opts()).unwrap();
@@ -1670,15 +1705,15 @@ mod tests {
     #[test]
     fn provenance_never_revives_source_parsing_drops() {
         let spans = vec![
-            SpanRecord::new("unsupported-kind", 90, 91).field(TT_KIND, "unsupported"),
+            SpanRecord::new("unsupported-kind", 90, 91).with_field(TT_KIND, "unsupported"),
             req("r", 100, 120)
-                .started_at_run_us(0)
-                .finished_at_run_us(20_000)
-                .field(TT_OUTCOME, "ok"),
+                .with_started_at_run_us(0)
+                .with_finished_at_run_us(20_000)
+                .with_field(TT_OUTCOME, "ok"),
             stage("r", "s", 101, 102)
-                .started_at_run_us(1_000)
-                .finished_at_run_us(2_000)
-                .field(TT_SUCCESS, true),
+                .with_started_at_run_us(1_000)
+                .with_finished_at_run_us(2_000)
+                .with_field(TT_SUCCESS, true),
         ];
 
         let result = convert_span_records_with_provenance(spans, opts()).unwrap();
@@ -1721,16 +1756,16 @@ mod tests {
         assert_eq!(missing_result.retained_sources, missing);
 
         let repaired_req = req("r", 100, 120)
-            .started_at_run_us(0)
-            .finished_at_run_us(10)
-            .duration_us(20_000);
+            .with_started_at_run_us(0)
+            .with_finished_at_run_us(10)
+            .with_duration_us(20_000);
         let repaired_stage = stage("r", "db", 105, 115)
-            .started_at_run_us(5_000)
-            .duration_us(10_000);
+            .with_started_at_run_us(5_000)
+            .with_duration_us(10_000);
         let repaired_queue = queue("r", "work", 106, 107)
-            .started_at_run_us(6_000)
-            .finished_at_run_us(6_500)
-            .duration_us(10_000);
+            .with_started_at_run_us(6_000)
+            .with_finished_at_run_us(6_500)
+            .with_duration_us(10_000);
         let repaired = vec![repaired_req, repaired_stage, repaired_queue];
         let repaired_result =
             convert_span_records_with_provenance(repaired.clone(), opts()).unwrap();
@@ -1759,11 +1794,11 @@ mod tests {
             stage("dup", "ambiguous", 135, 140),
             stage("orphan", "orphan", 200, 210),
             req("bad", 300, 320)
-                .started_at_run_us(0)
-                .finished_at_run_us(20_000),
+                .with_started_at_run_us(0)
+                .with_finished_at_run_us(20_000),
             stage("bad", "outside", 300, 330)
-                .started_at_run_us(0)
-                .finished_at_run_us(30_000),
+                .with_started_at_run_us(0)
+                .with_finished_at_run_us(30_000),
         ];
         let result = convert_span_records_with_provenance(spans, opts()).unwrap();
         assert_eq!(retained_indices(&result), vec![4]);
@@ -1901,9 +1936,9 @@ mod tests {
     #[test]
     fn request_only_conversion_creates_one_request_event() {
         let spans = vec![SpanRecord::new("req", 100, 110)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).expect("ok");
         assert_eq!(imported.run().requests.len(), 1);
     }
@@ -1913,15 +1948,15 @@ mod tests {
     fn request_and_stage_convert() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(120_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st", 105, 115)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -1936,15 +1971,15 @@ mod tests {
     fn request_and_queue_convert() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(120_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 103)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -1958,26 +1993,26 @@ mod tests {
     fn span_record_run_relative_fields_convert_to_core_events() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(10)
-                .finished_at_run_us(20_010)
-                .duration_us(20_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(10)
+                .with_finished_at_run_us(20_010)
+                .with_duration_us(20_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st", 105, 115)
-                .started_at_run_us(5_010)
-                .finished_at_run_us(15_010)
-                .duration_us(10_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_started_at_run_us(5_010)
+                .with_finished_at_run_us(15_010)
+                .with_duration_us(10_000)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q", 102, 103)
-                .started_at_run_us(2_010)
-                .finished_at_run_us(3_010)
-                .duration_us(1_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(2_010)
+                .with_finished_at_run_us(3_010)
+                .with_duration_us(1_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -1996,11 +2031,11 @@ mod tests {
     #[test]
     fn missing_duration_uses_run_relative_delta_before_unix_bounds() {
         let spans = vec![SpanRecord::new("req", 10, 11)
-            .started_at_run_us(1_000)
-            .finished_at_run_us(51_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(1_000)
+            .with_finished_at_run_us(51_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
 
@@ -2011,12 +2046,12 @@ mod tests {
     #[test]
     fn strict_duration_matching_run_relative_allows_wall_clock_mismatch() {
         let spans = vec![SpanRecord::new("req", 10, 11)
-            .started_at_run_us(1_000)
-            .finished_at_run_us(51_000)
-            .duration_us(50_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(1_000)
+            .with_finished_at_run_us(51_000)
+            .with_duration_us(50_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let imported =
             run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap();
@@ -2028,12 +2063,12 @@ mod tests {
     #[test]
     fn strict_duration_mismatching_run_relative_fails_even_if_unix_matches() {
         let spans = vec![SpanRecord::new("req", 10, 60)
-            .started_at_run_us(1_000)
-            .finished_at_run_us(11_000)
-            .duration_us(50_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(1_000)
+            .with_finished_at_run_us(11_000)
+            .with_duration_us(50_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
             .expect_err("strict import should reject duration/run-relative mismatch");
@@ -2046,12 +2081,12 @@ mod tests {
     #[test]
     fn non_strict_duration_mismatching_run_relative_warns_and_retains_duration() {
         let spans = vec![SpanRecord::new("req", 10, 60)
-            .started_at_run_us(1_000)
-            .finished_at_run_us(11_000)
-            .duration_us(50_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(1_000)
+            .with_finished_at_run_us(11_000)
+            .with_duration_us(50_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
 
@@ -2072,11 +2107,11 @@ mod tests {
     #[test]
     fn non_strict_inverted_request_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![SpanRecord::new("req", 100, 120)
-            .started_at_run_us(20_000)
-            .finished_at_run_us(10_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(20_000)
+            .with_finished_at_run_us(10_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
 
@@ -2098,11 +2133,11 @@ mod tests {
     #[test]
     fn strict_inverted_request_run_relative_offsets_fail() {
         let spans = vec![SpanRecord::new("req", 100, 120)
-            .started_at_run_us(20_000)
-            .finished_at_run_us(10_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(20_000)
+            .with_finished_at_run_us(10_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
             .expect_err("strict import should reject inverted run-relative offsets");
@@ -2115,10 +2150,10 @@ mod tests {
     #[test]
     fn non_strict_incomplete_request_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![SpanRecord::new("req", 100, 120)
-            .started_at_run_us(10_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(10_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
 
@@ -2140,15 +2175,15 @@ mod tests {
     fn non_strict_inverted_queue_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 103)
-                .started_at_run_us(3_000)
-                .finished_at_run_us(2_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(3_000)
+                .with_finished_at_run_us(2_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
@@ -2168,15 +2203,15 @@ mod tests {
     fn non_strict_inverted_stage_run_relative_without_duration_uses_coarse_delta() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 102, 105)
-                .started_at_run_us(5_000)
-                .finished_at_run_us(2_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_started_at_run_us(5_000)
+                .with_finished_at_run_us(2_000)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
@@ -2200,15 +2235,15 @@ mod tests {
     fn strict_inverted_queue_run_relative_offsets_fail() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 103)
-                .started_at_run_us(3_000)
-                .finished_at_run_us(2_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(3_000)
+                .with_finished_at_run_us(2_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
 
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
@@ -2223,14 +2258,14 @@ mod tests {
     fn non_strict_incomplete_queue_run_relative_offsets_are_dropped_with_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 103)
-                .finished_at_run_us(3_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_finished_at_run_us(3_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
 
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
@@ -2253,14 +2288,14 @@ mod tests {
     fn strict_incomplete_queue_run_relative_offsets_fail() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 103)
-                .finished_at_run_us(3_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_finished_at_run_us(3_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
 
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
@@ -2275,13 +2310,13 @@ mod tests {
     fn non_strict_orphan_stage_is_skipped_and_warning_is_durable() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st", 102, 119)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r-orphan")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r-orphan")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
@@ -2304,13 +2339,13 @@ mod tests {
     fn orphan_stage_does_not_affect_retained_bounds_or_default_stage_success_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st", 1, 1_000_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r-orphan")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r-orphan")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         let run = imported.run();
@@ -2338,13 +2373,13 @@ mod tests {
     fn strict_orphan_stage_fails() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st", 102, 119)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r-orphan")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r-orphan")
+                .with_field(TT_STAGE, "db"),
         ];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         match err {
@@ -2360,13 +2395,13 @@ mod tests {
     fn non_strict_orphan_queue_is_skipped_and_warning_is_durable() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 119)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r-orphan")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r-orphan")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
@@ -2389,13 +2424,13 @@ mod tests {
     fn strict_orphan_queue_fails() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 102, 119)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r-orphan")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r-orphan")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         match err {
@@ -2411,13 +2446,13 @@ mod tests {
     fn wall_clock_stage_before_request_start_is_retained_without_precise_containment_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 97, 110)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
@@ -2441,13 +2476,13 @@ mod tests {
     fn wall_clock_stage_after_request_finish_is_retained_without_precise_containment_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 110, 123)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
@@ -2471,13 +2506,13 @@ mod tests {
     fn wall_clock_queue_before_request_start_is_retained_without_precise_containment_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("queue", 97, 110)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 1);
@@ -2501,13 +2536,13 @@ mod tests {
     fn wall_clock_queue_after_request_finish_is_retained_without_precise_containment_warning() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("queue", 110, 123)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 1);
@@ -2531,17 +2566,17 @@ mod tests {
     fn precise_stage_outside_request_is_excluded_permissively_and_rejected_strictly() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(120_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 97, 110)
-                .started_at_run_us(97_000)
-                .finished_at_run_us(110_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_started_at_run_us(97_000)
+                .with_finished_at_run_us(110_000)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
         assert!(imported.run().stages.is_empty());
@@ -2559,17 +2594,17 @@ mod tests {
     fn precise_queue_outside_request_is_excluded_permissively_and_rejected_strictly() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(120_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("queue", 110, 123)
-                .started_at_run_us(110_000)
-                .finished_at_run_us(123_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(110_000)
+                .with_finished_at_run_us(123_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
         assert!(imported.run().queues.is_empty());
@@ -2587,13 +2622,13 @@ mod tests {
     fn wall_clock_stage_starting_before_request_is_retained_without_containment() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 99, 110)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
@@ -2604,13 +2639,13 @@ mod tests {
     fn wall_clock_queue_ending_after_request_is_retained_without_containment() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("queue", 110, 121)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 1);
@@ -2621,17 +2656,17 @@ mod tests {
     fn boundary_equal_stage_and_queue_are_accepted() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 100, 120)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("queue", 100, 120)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -2646,17 +2681,17 @@ mod tests {
     fn zero_duration_request_with_boundary_equal_stage_and_queue_is_accepted() {
         let spans = vec![
             SpanRecord::new("req", 100, 100)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage", 100, 100)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("queue", 100, 100)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -2673,18 +2708,18 @@ mod tests {
     fn non_strict_duplicate_request_id_excludes_all_duplicate_requests_and_children() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 200, 260)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/b")
-                .field(TT_OUTCOME, "error"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/b")
+                .with_field(TT_OUTCOME, "error"),
             SpanRecord::new("stage-skipped", 210, 220)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_STAGE, "downstream"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_STAGE, "downstream"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         let run = imported.run();
@@ -2723,14 +2758,14 @@ mod tests {
     fn non_strict_retained_duplicate_missing_outcome_warns_before_core_exclusion() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/a")
-                .field(TT_OUTCOME, "ok"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/a")
+                .with_field(TT_OUTCOME, "ok"),
             SpanRecord::new("req-2", 200, 260)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/b"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/b"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         let run = imported.run();
@@ -2754,13 +2789,13 @@ mod tests {
     fn strict_duplicate_request_id_fails() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 101, 121)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/b"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/b"),
         ];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
@@ -2771,17 +2806,17 @@ mod tests {
     fn strict_error_lists_unique_core_issue_codes_once_in_order() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 130, 150)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_ROUTE, "/b"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_ROUTE, "/b"),
             SpanRecord::new("stage", 135, 140)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "dup")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "dup")
+                .with_field(TT_STAGE, "db"),
         ];
 
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
@@ -2803,17 +2838,17 @@ mod tests {
     fn overflow_duplicate_request_ids_beyond_max_requests_do_not_warn() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 101, 121)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_ROUTE, "/b"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_ROUTE, "/b"),
             SpanRecord::new("req-overflow", 102, 122)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/overflow"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/overflow"),
         ];
         let imported = run_from_span_records(
             spans,
@@ -2836,23 +2871,23 @@ mod tests {
     fn invalid_extreme_timestamps_do_not_affect_metadata_bounds_or_default_run_id() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(120_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("stage-extreme", 1, 1_000_000)
-                .started_at_run_us(1_000)
-                .finished_at_run_us(1_000_000_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_started_at_run_us(1_000)
+                .with_finished_at_run_us(1_000_000_000)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("queue-extreme", 1, 1_000_000)
-                .started_at_run_us(1_000)
-                .finished_at_run_us(1_000_000_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(1_000)
+                .with_finished_at_run_us(1_000_000_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         let run = imported.run();
@@ -2868,15 +2903,15 @@ mod tests {
     fn orphan_queue_does_not_affect_retained_bounds_or_default_run_id() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(120_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(120_000)
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 1, 1_000_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r-orphan")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r-orphan")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         let run = imported.run();
@@ -2895,17 +2930,17 @@ mod tests {
         for index in 0..max_requests {
             spans.push(
                 SpanRecord::new(format!("req-{index}"), 100, 120)
-                    .field(TT_KIND, "request")
-                    .field(TT_REQUEST_ID, format!("r{index}"))
-                    .field(TT_ROUTE, "/a")
-                    .field(TT_OUTCOME, "ok"),
+                    .with_field(TT_KIND, "request")
+                    .with_field(TT_REQUEST_ID, format!("r{index}"))
+                    .with_field(TT_ROUTE, "/a")
+                    .with_field(TT_OUTCOME, "ok"),
             );
         }
         spans.push(
             SpanRecord::new("overflow", 1, 1_000_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r-overflow")
-                .field(TT_ROUTE, "/overflow"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r-overflow")
+                .with_field(TT_ROUTE, "/overflow"),
         );
         let imported = run_from_span_records(
             spans,
@@ -2933,24 +2968,24 @@ mod tests {
     fn overflow_stage_does_not_affect_metadata_bounds_or_success_warning() {
         let max_stages = 2;
         let mut spans = vec![SpanRecord::new("req", 100, 120)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")
-            .field(TT_OUTCOME, "ok")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")
+            .with_field(TT_OUTCOME, "ok")];
         for index in 0..max_stages {
             spans.push(
                 SpanRecord::new(format!("stage-{index}"), 101, 110)
-                    .field(TT_KIND, "stage")
-                    .field(TT_REQUEST_ID, "r1")
-                    .field(TT_STAGE, format!("s{index}"))
-                    .field(TT_SUCCESS, true),
+                    .with_field(TT_KIND, "stage")
+                    .with_field(TT_REQUEST_ID, "r1")
+                    .with_field(TT_STAGE, format!("s{index}"))
+                    .with_field(TT_SUCCESS, true),
             );
         }
         spans.push(
             SpanRecord::new("overflow-stage", 1, 1_000_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "overflow-stage"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "overflow-stage"),
         );
         let imported = run_from_span_records(
             spans,
@@ -2977,23 +3012,23 @@ mod tests {
     fn overflow_queue_does_not_affect_metadata_bounds() {
         let max_queues = 2;
         let mut spans = vec![SpanRecord::new("req", 100, 120)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")
-            .field(TT_OUTCOME, "ok")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")
+            .with_field(TT_OUTCOME, "ok")];
         for index in 0..max_queues {
             spans.push(
                 SpanRecord::new(format!("queue-{index}"), 101, 110)
-                    .field(TT_KIND, "queue")
-                    .field(TT_REQUEST_ID, "r1")
-                    .field(TT_QUEUE, format!("q{index}")),
+                    .with_field(TT_KIND, "queue")
+                    .with_field(TT_REQUEST_ID, "r1")
+                    .with_field(TT_QUEUE, format!("q{index}")),
             );
         }
         spans.push(
             SpanRecord::new("overflow-queue", 1, 1_000_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "overflow-queue"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "overflow-queue"),
         );
         let imported = run_from_span_records(
             spans,
@@ -3017,29 +3052,29 @@ mod tests {
     fn run_from_span_records_respects_import_mode_and_resolved_limits() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 101, 121)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_ROUTE, "/b"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_ROUTE, "/b"),
             SpanRecord::new("stage-1", 102, 110)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "s1"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "s1"),
             SpanRecord::new("stage-2", 103, 111)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "s2"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "s2"),
             SpanRecord::new("queue-1", 104, 112)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "q1"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "q1"),
             SpanRecord::new("queue-2", 105, 113)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "q2"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "q2"),
         ];
         let limits = tailtriage_core::CaptureLimitsOverride {
             max_requests: Some(1),
@@ -3077,9 +3112,9 @@ mod tests {
     #[test]
     fn retained_request_missing_outcome_still_warns() {
         let spans = vec![SpanRecord::new("req", 100, 120)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.warnings().iter().any(|w| w
             .message()
@@ -3091,14 +3126,14 @@ mod tests {
     fn retained_stage_missing_success_still_warns() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a")
-                .field(TT_OUTCOME, "ok"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a")
+                .with_field(TT_OUTCOME, "ok"),
             SpanRecord::new("stage", 105, 115)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.warnings().iter().any(|w| w
@@ -3111,17 +3146,17 @@ mod tests {
     fn matched_request_stage_queue_are_retained() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st", 105, 115)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q", 102, 103)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -3137,17 +3172,17 @@ mod tests {
     fn missing_optional_fields_default() {
         let spans = vec![
             SpanRecord::new("req", 1, 2)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
             SpanRecord::new("st", 1, 2)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "s1"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "s1"),
             SpanRecord::new("q", 1, 2)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "q1"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "q1"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -3162,8 +3197,8 @@ mod tests {
     #[test]
     fn missing_required_field_warns_and_skips_non_strict() {
         let spans = vec![SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 0);
         assert!(!imported.warnings().is_empty());
@@ -3173,8 +3208,8 @@ mod tests {
     #[test]
     fn missing_required_field_errors_in_strict() {
         let spans = vec![SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
@@ -3182,7 +3217,7 @@ mod tests {
     // TT-TEST: R02 primary
     #[test]
     fn unknown_kind_warns_non_strict() {
-        let spans = vec![SpanRecord::new("x", 1, 2).field(TT_KIND, "wat")];
+        let spans = vec![SpanRecord::new("x", 1, 2).with_field(TT_KIND, "wat")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(!imported.warnings().is_empty());
         assert!(imported
@@ -3196,7 +3231,7 @@ mod tests {
     // TT-TEST: R02 primary
     #[test]
     fn unknown_kind_errors_in_strict() {
-        let spans = vec![SpanRecord::new("x", 1, 2).field(TT_KIND, "wat")];
+        let spans = vec![SpanRecord::new("x", 1, 2).with_field(TT_KIND, "wat")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
@@ -3204,7 +3239,7 @@ mod tests {
     // TT-TEST: support
     #[test]
     fn span_without_kind_ignored_silently() {
-        let spans = vec![SpanRecord::new("x", 1, 2).field("a", "b")];
+        let spans = vec![SpanRecord::new("x", 1, 2).with_field("a", "b")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.warnings().is_empty());
     }
@@ -3213,8 +3248,8 @@ mod tests {
     #[test]
     fn tailtriage_tagged_span_missing_kind_warns_or_errors() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
         let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 0);
         assert!(imported.warnings().iter().any(|w| w
@@ -3230,25 +3265,25 @@ mod tests {
     fn missing_optional_defaults_emit_aggregate_warnings() {
         let spans = vec![
             SpanRecord::new("req1", 1, 2)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req2", 1, 2)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_ROUTE, "/b"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_ROUTE, "/b"),
             SpanRecord::new("st1", 1, 2)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("st2", 1, 2)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_STAGE, "cache"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_STAGE, "cache"),
             SpanRecord::new("q", 1, 2)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         let msgs = imported
@@ -3290,9 +3325,9 @@ mod tests {
     #[test]
     fn inverted_timestamps_warn_or_error() {
         let spans = vec![SpanRecord::new("req", 5, 4)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")];
         let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 0);
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
@@ -3302,7 +3337,7 @@ mod tests {
     // TT-TEST: support
     #[test]
     fn run_from_span_records_validates_service_name_before_strict_span_parsing() {
-        let spans = vec![SpanRecord::new("bad", 10, 20).field(TT_KIND, 123_u64)];
+        let spans = vec![SpanRecord::new("bad", 10, 20).with_field(TT_KIND, 123_u64)];
         let err = run_from_span_records(spans, ImportOptions::new("   ").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
@@ -3331,13 +3366,13 @@ mod tests {
         let imported = run_from_span_records(
             vec![
                 SpanRecord::new("req-a", 10, 20)
-                    .field(TT_KIND, "request")
-                    .field(TT_REQUEST_ID, "dup")
-                    .field(TT_ROUTE, "/a"),
+                    .with_field(TT_KIND, "request")
+                    .with_field(TT_REQUEST_ID, "dup")
+                    .with_field(TT_ROUTE, "/a"),
                 SpanRecord::new("req-b", 30, 40)
-                    .field(TT_KIND, "request")
-                    .field(TT_REQUEST_ID, "dup")
-                    .field(TT_ROUTE, "/b"),
+                    .with_field(TT_KIND, "request")
+                    .with_field(TT_REQUEST_ID, "dup")
+                    .with_field(TT_ROUTE, "/b"),
             ],
             ImportOptions::new("svc"),
         )
@@ -3421,9 +3456,9 @@ mod tests {
     #[test]
     fn tracing_import_uses_min_start_and_max_finish_as_run_bounds() {
         let spans = vec![SpanRecord::new("req", 10, 20)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
             .run()
@@ -3437,9 +3472,9 @@ mod tests {
     #[test]
     fn run_from_span_records_preserves_computed_import_run_id() {
         let spans = vec![SpanRecord::new("req", 10, 20)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
             .run()
@@ -3451,9 +3486,9 @@ mod tests {
     #[test]
     fn run_from_span_records_preserves_explicit_import_run_id() {
         let spans = vec![SpanRecord::new("req", 10, 20)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")];
         let run = run_from_span_records(spans, ImportOptions::new("svc").run_id("explicit-run"))
             .unwrap()
             .run()
@@ -3473,11 +3508,11 @@ mod tests {
     #[test]
     fn ordinary_span_without_kind_does_not_affect_metadata_bounds() {
         let spans = vec![
-            SpanRecord::new("ordinary", 1, 1_000).field("foo", "bar"),
+            SpanRecord::new("ordinary", 1, 1_000).with_field("foo", "bar"),
             SpanRecord::new("req", 10, 20)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -3491,11 +3526,11 @@ mod tests {
     #[test]
     fn unknown_kind_does_not_affect_metadata_bounds_and_is_durable_lifecycle_warning() {
         let spans = vec![
-            SpanRecord::new("unknown", 1, 1_000).field(TT_KIND, "wat"),
+            SpanRecord::new("unknown", 1, 1_000).with_field(TT_KIND, "wat"),
             SpanRecord::new("req", 10, 20)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
@@ -3518,7 +3553,7 @@ mod tests {
     // TT-TEST: support
     #[test]
     fn non_string_kind_warns_non_strict_and_errors_strict() {
-        let bad = SpanRecord::new("bad", 1, 2).field(TT_KIND, true);
+        let bad = SpanRecord::new("bad", 1, 2).with_field(TT_KIND, true);
         let imported = run_from_span_records(vec![bad.clone()], ImportOptions::new("svc")).unwrap();
         assert!(!imported.warnings().is_empty());
         assert!(run_from_span_records(vec![bad], ImportOptions::new("svc").strict(true)).is_err());
@@ -3528,9 +3563,9 @@ mod tests {
     #[test]
     fn non_string_required_and_optional_fields_warn_non_strict_and_error_strict() {
         let bad_route = SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, true);
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, true);
         let imported =
             run_from_span_records(vec![bad_route.clone()], ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
@@ -3540,10 +3575,10 @@ mod tests {
         );
 
         let bad_outcome = SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, 7_u64);
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, 7_u64);
         let imported =
             run_from_span_records(vec![bad_outcome.clone()], ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
@@ -3558,9 +3593,9 @@ mod tests {
     #[test]
     fn whitespace_only_request_id_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "   ")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "   ")
+            .with_field(TT_ROUTE, "/")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().iter().any(|w| {
@@ -3574,9 +3609,9 @@ mod tests {
     #[test]
     fn whitespace_only_route_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "  \t")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "  \t")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().iter().any(|w| {
@@ -3591,13 +3626,13 @@ mod tests {
     fn whitespace_only_stage_non_strict_skips_stage_and_warns() {
         let spans = vec![
             SpanRecord::new("req", 1, 3)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
             SpanRecord::new("stage", 1, 2)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "   "),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "   "),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().stages.is_empty());
@@ -3613,13 +3648,13 @@ mod tests {
     fn whitespace_only_queue_non_strict_skips_queue_and_warns() {
         let spans = vec![
             SpanRecord::new("req", 1, 3)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
             SpanRecord::new("queue", 1, 2)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, " "),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, " "),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().queues.is_empty());
@@ -3634,9 +3669,9 @@ mod tests {
     #[test]
     fn whitespace_only_required_field_strict_returns_strict_violation() {
         let spans = vec![SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, " ")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, " ")
+            .with_field(TT_ROUTE, "/")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
         assert!(err
@@ -3652,10 +3687,10 @@ mod tests {
             .enumerate()
             .map(|(idx, outcome)| {
                 SpanRecord::new("req", idx as u64 + 1, idx as u64 + 2)
-                    .field(TT_KIND, "request")
-                    .field(TT_REQUEST_ID, format!("r{idx}"))
-                    .field(TT_ROUTE, "/")
-                    .field(TT_OUTCOME, *outcome)
+                    .with_field(TT_KIND, "request")
+                    .with_field(TT_REQUEST_ID, format!("r{idx}"))
+                    .with_field(TT_ROUTE, "/")
+                    .with_field(TT_OUTCOME, *outcome)
             })
             .collect::<Vec<_>>();
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
@@ -3672,9 +3707,9 @@ mod tests {
     #[test]
     fn missing_outcome_defaults_ok_and_warns() {
         let spans = vec![SpanRecord::new("req", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].outcome, "ok");
@@ -3687,10 +3722,10 @@ mod tests {
     #[test]
     fn custom_outcome_is_accepted_and_preserved_exactly() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, "cache_miss_fallback")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, "cache_miss_fallback")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].outcome, "cache_miss_fallback");
@@ -3700,10 +3735,10 @@ mod tests {
     #[test]
     fn whitespace_only_outcome_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, "   ")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, "   ")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().iter().any(|w| w
@@ -3715,10 +3750,10 @@ mod tests {
     #[test]
     fn whitespace_only_outcome_strict_fails() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, " \t")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, " \t")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
         assert!(err
@@ -3730,10 +3765,10 @@ mod tests {
     #[test]
     fn non_string_outcome_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, 42_u64)];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, 42_u64)];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().iter().any(|w| w
@@ -3745,10 +3780,10 @@ mod tests {
     #[test]
     fn non_string_outcome_strict_fails() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, false)];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, false)];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
         assert!(err
@@ -3761,10 +3796,10 @@ mod tests {
     fn native_other_outcome_round_trips_through_tracing_style_outcome_field() {
         let native = tailtriage_core::Outcome::Other("custom".to_owned());
         let spans = vec![SpanRecord::new("http.request", 1, 2)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, native.as_str())];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/")
+            .with_field(TT_OUTCOME, native.as_str())];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].outcome, native.as_str());
@@ -3775,19 +3810,19 @@ mod tests {
     fn invalid_whitespace_outcome_skips_child_spans_via_existing_correlation_logic() {
         let spans = vec![
             SpanRecord::new("http.request", 1_000, 2_000)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/")
-                .field(TT_OUTCOME, "   "),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/")
+                .with_field(TT_OUTCOME, "   "),
             SpanRecord::new("db.stage", 1_100, 1_200)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db")
-                .field(TT_SUCCESS, true),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db")
+                .with_field(TT_SUCCESS, true),
             SpanRecord::new("worker.queue", 1_300, 1_350)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "worker"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "worker"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
@@ -3801,24 +3836,24 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_duplicate_request_id_overflow_keeps_retained_children() {
+    fn strict_duplicate_request_id_overflow_keeps_retained_children() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-1", 120, 150)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-1", 130, 140)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
         ];
         let imported = run_from_span_records(
             spans,
@@ -3852,24 +3887,24 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
+    fn strict_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-1", 320, 350)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-1", 330, 340)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(
             spans,
@@ -3892,21 +3927,21 @@ mod tests {
     fn non_strict_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-1", 320, 350)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-1", 330, 340)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(
             spans,
@@ -3950,32 +3985,32 @@ mod tests {
     }
     // TT-TEST: support
     #[test]
-    fn strict_mode_max_requests_overflow_children_are_retention_fallout() {
+    fn strict_max_requests_overflow_children_are_retention_fallout() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-1", 120, 150)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-1", 121, 130)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-2", 320, 350)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-2", 321, 330)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(
             spans,
@@ -3995,20 +4030,20 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_max_requests_overflow_invalid_stage_still_fails() {
+    fn strict_max_requests_overflow_invalid_stage_still_fails() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-2", 320, 450)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_STAGE, "db"),
         ];
         let err = run_from_span_records(
             spans,
@@ -4030,20 +4065,20 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_max_requests_overflow_invalid_queue_still_fails() {
+    fn strict_max_requests_overflow_invalid_queue_still_fails() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q-2", 320, 450)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r2")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r2")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let err = run_from_span_records(
             spans,
@@ -4065,32 +4100,32 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_max_requests_overflow_non_lexical_request_ids_follow_input_order() {
+    fn strict_max_requests_overflow_non_lexical_request_ids_follow_input_order() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "z-retained")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "z-retained")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-1", 120, 150)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "z-retained")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "z-retained")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-1", 121, 130)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "z-retained")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "z-retained")
+                .with_field(TT_QUEUE, "permits"),
             SpanRecord::new("req-2", 300, 400)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "a-overflow")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "a-overflow")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("st-2", 320, 350)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "a-overflow")
-                .field(TT_STAGE, "db"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "a-overflow")
+                .with_field(TT_STAGE, "db"),
             SpanRecord::new("q-2", 321, 330)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "a-overflow")
-                .field(TT_QUEUE, "permits"),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "a-overflow")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(
             spans,
@@ -4113,15 +4148,15 @@ mod tests {
     fn invalid_success_warns_and_skips_stage_non_strict() {
         let spans = vec![
             SpanRecord::new("req", 10, 20)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/")
-                .field(TT_OUTCOME, "ok"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/")
+                .with_field(TT_OUTCOME, "ok"),
             SpanRecord::new("st", 1, 1_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db")
-                .field(TT_SUCCESS, 7_u64),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db")
+                .with_field(TT_SUCCESS, 7_u64),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 0);
@@ -4142,15 +4177,15 @@ mod tests {
     fn invalid_success_errors_strict() {
         let spans = vec![
             SpanRecord::new("req", 10, 20)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/")
-                .field(TT_OUTCOME, "ok"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/")
+                .with_field(TT_OUTCOME, "ok"),
             SpanRecord::new("st", 1, 1_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db")
-                .field(TT_SUCCESS, 7_u64),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db")
+                .with_field(TT_SUCCESS, 7_u64),
         ];
         assert!(run_from_span_records(spans, ImportOptions::new("svc").strict(true)).is_err());
     }
@@ -4160,15 +4195,15 @@ mod tests {
     fn invalid_depth_warns_and_skips_queue_non_strict() {
         let spans = vec![
             SpanRecord::new("req", 10, 20)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/")
-                .field(TT_OUTCOME, "ok"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/")
+                .with_field(TT_OUTCOME, "ok"),
             SpanRecord::new("q", 1, 1_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits")
-                .field(TT_DEPTH_AT_START, -1_i64),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits")
+                .with_field(TT_DEPTH_AT_START, -1_i64),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 0);
@@ -4189,15 +4224,15 @@ mod tests {
     fn invalid_depth_errors_strict() {
         let spans = vec![
             SpanRecord::new("req", 10, 20)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/")
-                .field(TT_OUTCOME, "ok"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/")
+                .with_field(TT_OUTCOME, "ok"),
             SpanRecord::new("q", 1, 1_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits")
-                .field(TT_DEPTH_AT_START, 3.5_f64),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits")
+                .with_field(TT_DEPTH_AT_START, 3.5_f64),
         ];
         assert!(run_from_span_records(spans, ImportOptions::new("svc").strict(true)).is_err());
     }
@@ -4207,19 +4242,19 @@ mod tests {
     fn valid_optional_fields_are_applied() {
         let spans = vec![
             SpanRecord::new("req", 1, 2)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
             SpanRecord::new("st", 1, 2)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db")
-                .field(TT_SUCCESS, "false"),
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db")
+                .with_field(TT_SUCCESS, "false"),
             SpanRecord::new("q", 1, 2)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits")
-                .field(TT_DEPTH_AT_START, 9_i64),
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits")
+                .with_field(TT_DEPTH_AT_START, 9_i64),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -4231,14 +4266,14 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn mismatched_request_duration_warns_and_retains_duration_us_in_non_strict_mode() {
+    fn mismatched_request_duration_warns_and_retains_duration_us_in_non_strict() {
         let spans = vec![SpanRecord::new("req", 100, 101)
-            .started_at_run_us(100_000)
-            .finished_at_run_us(101_000)
-            .duration_us(50_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(100_000)
+            .with_finished_at_run_us(101_000)
+            .with_duration_us(50_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 50_000);
         assert!(imported
@@ -4261,10 +4296,10 @@ mod tests {
     #[test]
     fn absent_request_duration_us_derives_from_timestamps() {
         let spans = vec![SpanRecord::new("req", 100, 101)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")
-            .field(TT_OUTCOME, "ok")];
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")
+            .with_field(TT_OUTCOME, "ok")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 1_000);
         assert!(imported.warnings().iter().any(|w| w
@@ -4280,19 +4315,19 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn mismatched_stage_duration_warns_and_retains_duration_us_in_non_strict_mode() {
+    fn mismatched_stage_duration_warns_and_retains_duration_us_in_non_strict() {
         let spans = vec![
             SpanRecord::new("req", 99, 101)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
             SpanRecord::new("stage", 100, 101)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(101_000)
-                .duration_us(50_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(101_000)
+                .with_duration_us(50_000)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages[0].latency_us, 50_000);
@@ -4304,19 +4339,19 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn mismatched_queue_duration_warns_and_retains_duration_us_in_non_strict_mode() {
+    fn mismatched_queue_duration_warns_and_retains_duration_us_in_non_strict() {
         let spans = vec![
             SpanRecord::new("req", 100, 110)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 101, 102)
-                .started_at_run_us(101_000)
-                .finished_at_run_us(102_000)
-                .duration_us(50_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(101_000)
+                .with_finished_at_run_us(102_000)
+                .with_duration_us(50_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues[0].wait_us, 50_000);
@@ -4328,14 +4363,14 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_rejects_mismatched_request_duration() {
+    fn strict_rejects_mismatched_request_duration() {
         let spans = vec![SpanRecord::new("req", 100, 101)
-            .started_at_run_us(100_000)
-            .finished_at_run_us(101_000)
-            .duration_us(50_000)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_started_at_run_us(100_000)
+            .with_finished_at_run_us(101_000)
+            .with_duration_us(50_000)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
             .expect_err("strict import should reject mismatched duration_us");
         assert!(matches!(err, ImportError::StrictViolation(_)));
@@ -4345,19 +4380,19 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_rejects_contradictory_stage_duration() {
+    fn strict_rejects_contradictory_stage_duration() {
         let spans = vec![
             SpanRecord::new("req", 99, 101)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/"),
             SpanRecord::new("stage", 100, 101)
-                .started_at_run_us(100_000)
-                .finished_at_run_us(101_000)
-                .duration_us(50_000)
-                .field(TT_KIND, "stage")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_STAGE, "db"),
+                .with_started_at_run_us(100_000)
+                .with_finished_at_run_us(101_000)
+                .with_duration_us(50_000)
+                .with_field(TT_KIND, "stage")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_STAGE, "db"),
         ];
         assert!(matches!(
             run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
@@ -4367,19 +4402,19 @@ mod tests {
 
     // TT-TEST: support
     #[test]
-    fn strict_mode_rejects_contradictory_queue_duration() {
+    fn strict_rejects_contradictory_queue_duration() {
         let spans = vec![
             SpanRecord::new("req", 100, 110)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
+                .with_field(TT_KIND, "request")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_ROUTE, "/a"),
             SpanRecord::new("q", 101, 102)
-                .started_at_run_us(101_000)
-                .finished_at_run_us(102_000)
-                .duration_us(50_000)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
+                .with_started_at_run_us(101_000)
+                .with_finished_at_run_us(102_000)
+                .with_duration_us(50_000)
+                .with_field(TT_KIND, "queue")
+                .with_field(TT_REQUEST_ID, "r1")
+                .with_field(TT_QUEUE, "permits"),
         ];
         assert!(matches!(
             run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
@@ -4391,10 +4426,10 @@ mod tests {
     #[test]
     fn duration_us_within_2000_microseconds_is_accepted() {
         let spans = vec![SpanRecord::new("req", 100, 101)
-            .duration_us(2_999)
-            .field(TT_KIND, "request")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_ROUTE, "/a")];
+            .with_duration_us(2_999)
+            .with_field(TT_KIND, "request")
+            .with_field(TT_REQUEST_ID, "r1")
+            .with_field(TT_ROUTE, "/a")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 2_999);
         assert!(!imported
