@@ -17,7 +17,13 @@ class ValidateDocsContractsTests(unittest.TestCase):
 
     def _write_residual_api_sources(self, root: Path, overrides: dict[str, str] | None = None) -> None:
         sources = {
-            'tailtriage-controller/src/lib.rs': 'pub fn begin_request() {}\n',
+            'tailtriage-controller/src/lib.rs': '''pub struct TailtriageController;
+pub struct TailtriageControllerBuilder;
+pub struct TailtriageControllerTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
+pub struct ControllerActivationTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
+impl TailtriageController { pub fn builder() {} }
+impl TailtriageControllerBuilder { pub const fn mode(self, mode: CaptureMode) -> Self { self } }
+''',
             'tailtriage-tokio/src/lib.rs': 'pub fn builder() {}\n',
             'tailtriage-axum/src/lib.rs': 'pub fn middleware() {}\n',
             'tailtriage-cli/src/lib.rs': '#![doc = include_str!("../README.md")]\n',
@@ -109,6 +115,26 @@ impl ImportedRun { pub(crate) fn new() {} }
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_removed_builder_method(self) -> None:
         self._assert_residual_api_rejected('tailtriage-core/src/config.rs', 'pub fn light(self) -> Self { self }', 'TailtriageBuilder::light')
+
+    # TT-TEST: M02 secondary
+    def test_controller_residual_api_cleanup_rejects_removed_surfaces(self) -> None:
+        cases = {
+            'TailtriageControllerBuilder::new': 'pub fn new() {}',
+            'public ControllerSinkTemplate': 'pub enum ControllerSinkTemplate {}',
+            'public sink_template field': 'pub sink_template: PathBuf',
+            'public selected_mode field': 'pub selected_mode: CaptureMode',
+        }
+        for symbol, source in cases.items():
+            with self.subTest(symbol=symbol):
+                self._assert_residual_api_rejected('tailtriage-controller/src/lib.rs', source, symbol)
+
+    # TT-TEST: M02 secondary
+    def test_controller_residual_api_cleanup_accepts_canonical_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(root)
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_removed_owned_request_method(self) -> None:
@@ -300,6 +326,26 @@ pub enum DiagnosisKind {
     # TT-TEST: M01 primary
     def test_markdown_examples_validate_against_contract(self) -> None:
         validate_docs_contracts.validate_controller_readme_toml()
+
+    # TT-TEST: M01 secondary
+    def test_controller_toml_contract_accepts_flat_output_and_optional_mode(self) -> None:
+        validate_docs_contracts._validate_controller_toml_shape(
+            parsed={"controller": {"service_name": "checkout", "activation": {"output_path": "run.json", "run_end_policy": "auto_seal_on_limits_hit"}}},
+            example_name="synthetic",
+        )
+
+    # TT-TEST: M01 secondary
+    def test_controller_toml_contract_rejects_removed_nested_forms(self) -> None:
+        cases = (
+            {"output_path": "run.json", "sink": {"type": "local_json", "output_path": "old.json"}},
+            {"output_path": "run.json", "run_end_policy": {"kind": "auto_seal_on_limits_hit"}},
+        )
+        for activation in cases:
+            with self.subTest(activation=activation), self.assertRaisesRegex(ValueError, "nested controller.activation.sink|run_end_policy must be a string"):
+                validate_docs_contracts._validate_controller_toml_shape(
+                    parsed={"controller": {"service_name": "checkout", "activation": activation}},
+                    example_name="synthetic",
+                )
 
     # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation(self) -> None:

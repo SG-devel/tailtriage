@@ -12,8 +12,6 @@ initially_enabled = true
 [controller.activation]
 mode = "light"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 "#;
     fs::write(&config_path, config)?;

@@ -214,46 +214,33 @@ def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str
         )
 
     mode = activation.get("mode")
-    if not isinstance(mode, str) or not mode.strip():
+    if mode is not None and mode not in {"light", "investigation"}:
         raise ValueError(
-            f"{example_name} controller README TOML example must include non-empty controller.activation.mode"
+            f"{example_name} controller README TOML example has invalid controller.activation.mode"
         )
 
-    sink = activation.get("sink")
-    if not isinstance(sink, dict):
+    if "sink" in activation:
         raise ValueError(
-            f"{example_name} controller README TOML example must include a "
-            "[controller.activation.sink] table"
+            f"{example_name} controller README TOML example must not use nested controller.activation.sink"
         )
-
-    sink_type = sink.get("type")
-    output_path = sink.get("output_path")
-    if sink_type != "local_json":
-        raise ValueError(
-            f'{example_name} controller README TOML example must set '
-            'controller.activation.sink.type = "local_json"'
-        )
+    output_path = activation.get("output_path")
     if not isinstance(output_path, str) or not output_path.strip():
         raise ValueError(
             f"{example_name} controller README TOML example must include non-empty "
-            "controller.activation.sink.output_path"
+            "controller.activation.output_path"
         )
 
     run_end_policy = activation.get("run_end_policy")
     if run_end_policy is None:
         return
-    if not isinstance(run_end_policy, dict):
-        raise ValueError(f"{example_name} controller README run_end_policy snippet must parse as a table")
-
-    documented_kind = run_end_policy.get("kind")
-    if not isinstance(documented_kind, str):
-        raise ValueError("controller README run_end_policy.kind must be a string")
+    if not isinstance(run_end_policy, str):
+        raise ValueError(f"{example_name} controller README run_end_policy must be a string")
 
     supported_kinds = extract_run_end_policy_kinds_from_source()
-    if documented_kind not in supported_kinds:
+    if run_end_policy not in supported_kinds:
         raise ValueError(
             "controller README run_end_policy.kind drift: "
-            f"{documented_kind!r} not in supported {sorted(supported_kinds)}"
+            f"{run_end_policy!r} not in supported {sorted(supported_kinds)}"
         )
 
 
@@ -486,6 +473,12 @@ def validate_residual_public_api_cleanup() -> None:
                 )
 
     forbidden_public_patterns = {
+        REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs": (
+            ("TailtriageControllerBuilder::new", r"\bpub\s+fn\s+new\s*\("),
+            ("public ControllerSinkTemplate", r"\bpub\s+(?:struct|enum)\s+ControllerSinkTemplate\b"),
+            ("public sink_template field", r"\bpub\s+sink_template\s*:"),
+            ("public selected_mode field", r"\bpub\s+selected_mode\s*:"),
+        ),
         REPO_ROOT / "tailtriage-core" / "src" / "config.rs": (
             ("TailtriageBuilder::light", r"\bpub\s+fn\s+light\s*\("),
             ("TailtriageBuilder::investigation", r"\bpub\s+fn\s+investigation\s*\("),
@@ -550,6 +543,19 @@ def validate_residual_public_api_cleanup() -> None:
                 raise ValueError(
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
+
+    controller_source = (REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs").read_text(encoding="utf-8")
+    required_controller_patterns = (
+        ("TailtriageController::builder", r"\bpub\s+fn\s+builder\s*\("),
+        ("TailtriageControllerBuilder::mode", r"\bpub\s+const\s+fn\s+mode\s*\("),
+        ("TailtriageControllerTemplate::output_path", r"pub struct TailtriageControllerTemplate\s*\{[^}]*\bpub\s+output_path\s*:\s*PathBuf"),
+        ("TailtriageControllerTemplate::mode", r"pub struct TailtriageControllerTemplate\s*\{[^}]*\bpub\s+mode\s*:\s*CaptureMode"),
+        ("ControllerActivationTemplate::output_path", r"pub struct ControllerActivationTemplate\s*\{[^}]*\bpub\s+output_path\s*:\s*PathBuf"),
+        ("ControllerActivationTemplate::mode", r"pub struct ControllerActivationTemplate\s*\{[^}]*\bpub\s+mode\s*:\s*CaptureMode"),
+    )
+    for symbol, pattern in required_controller_patterns:
+        if re.search(pattern, controller_source, flags=re.DOTALL) is None:
+            raise ValueError(f"tailtriage-controller/src/lib.rs missing canonical public API: {symbol}")
 
     tracing_types_path = REPO_ROOT / "tailtriage-tracing" / "src" / "types.rs"
     tracing_types_source = tracing_types_path.read_text(encoding="utf-8")
