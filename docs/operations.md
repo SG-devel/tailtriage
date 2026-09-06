@@ -93,6 +93,9 @@ and automatically finalize the same generation; call `shutdown()` again for auth
 success or failure. Replays do not perform another sink write.
 
 Controller capture is usually the better production operational model.
+Configure its artifact destination explicitly with builder `.output(...)` or flat
+`controller.activation.output_path`. A TOML output overrides the builder value; sparse reloads
+fall back to the original builder output and fail transactionally when neither source supplies one.
 
 ## Capture mode guidance
 

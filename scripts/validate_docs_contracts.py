@@ -214,46 +214,33 @@ def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str
         )
 
     mode = activation.get("mode")
-    if not isinstance(mode, str) or not mode.strip():
+    if mode is not None and mode not in {"light", "investigation"}:
         raise ValueError(
-            f"{example_name} controller README TOML example must include non-empty controller.activation.mode"
+            f"{example_name} controller README TOML example has invalid controller.activation.mode"
         )
 
-    sink = activation.get("sink")
-    if not isinstance(sink, dict):
+    if "sink" in activation:
         raise ValueError(
-            f"{example_name} controller README TOML example must include a "
-            "[controller.activation.sink] table"
+            f"{example_name} controller README TOML example must not use nested controller.activation.sink"
         )
-
-    sink_type = sink.get("type")
-    output_path = sink.get("output_path")
-    if sink_type != "local_json":
-        raise ValueError(
-            f'{example_name} controller README TOML example must set '
-            'controller.activation.sink.type = "local_json"'
-        )
+    output_path = activation.get("output_path")
     if not isinstance(output_path, str) or not output_path.strip():
         raise ValueError(
             f"{example_name} controller README TOML example must include non-empty "
-            "controller.activation.sink.output_path"
+            "controller.activation.output_path"
         )
 
     run_end_policy = activation.get("run_end_policy")
     if run_end_policy is None:
         return
-    if not isinstance(run_end_policy, dict):
-        raise ValueError(f"{example_name} controller README run_end_policy snippet must parse as a table")
-
-    documented_kind = run_end_policy.get("kind")
-    if not isinstance(documented_kind, str):
-        raise ValueError("controller README run_end_policy.kind must be a string")
+    if not isinstance(run_end_policy, str):
+        raise ValueError(f"{example_name} controller README run_end_policy must be a string")
 
     supported_kinds = extract_run_end_policy_kinds_from_source()
-    if documented_kind not in supported_kinds:
+    if run_end_policy not in supported_kinds:
         raise ValueError(
             "controller README run_end_policy.kind drift: "
-            f"{documented_kind!r} not in supported {sorted(supported_kinds)}"
+            f"{run_end_policy!r} not in supported {sorted(supported_kinds)}"
         )
 
 
@@ -486,6 +473,9 @@ def validate_residual_public_api_cleanup() -> None:
                 )
 
     forbidden_public_patterns = {
+        REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs": (
+            ("public ControllerSinkTemplate", r"\bpub\s+(?:struct|enum)\s+ControllerSinkTemplate\b"),
+        ),
         REPO_ROOT / "tailtriage-core" / "src" / "config.rs": (
             ("TailtriageBuilder::light", r"\bpub\s+fn\s+light\s*\("),
             ("TailtriageBuilder::investigation", r"\bpub\s+fn\s+investigation\s*\("),
@@ -551,32 +541,69 @@ def validate_residual_public_api_cleanup() -> None:
                     f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
                 )
 
+    controller_source = (REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs").read_text(encoding="utf-8")
+    def declaration_bodies(source: str, path: Path, declaration: str) -> tuple[str, ...]:
+        declarations = tuple(re.finditer(declaration, source, re.DOTALL))
+        if not declarations:
+            raise ValueError(f"{path.relative_to(REPO_ROOT)} missing required declaration")
+        bodies = []
+        for match in declarations:
+            body_start = match.end()
+            depth = 1
+            for index in range(body_start, len(source)):
+                if source[index] == "{":
+                    depth += 1
+                elif source[index] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        bodies.append(source[body_start:index])
+                        break
+            else:
+                raise ValueError(f"{path.relative_to(REPO_ROOT)} has an unclosed declaration")
+        return tuple(bodies)
+
+    def impl_bodies(source: str, path: Path, type_name: str) -> tuple[str, ...]:
+        return declaration_bodies(
+            source, path, rf"\bimpl\s+{type_name}\s*(?:where\b[^{{]*?)?\{{"
+        )
+
+    controller_path = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
+    public_function = r"\bpub\s+(?:const\s+)?fn\s+"
+    controller_impls = impl_bodies(controller_source, controller_path, "TailtriageController")
+    builder_impls = impl_bodies(controller_source, controller_path, "TailtriageControllerBuilder")
+    if not any(re.search(rf"{public_function}builder\s*\(", body) for body in controller_impls):
+        raise ValueError("tailtriage-controller/src/lib.rs missing canonical public API: TailtriageController::builder")
+    if not any(re.search(rf"{public_function}mode\s*\(", body) for body in builder_impls):
+        raise ValueError("tailtriage-controller/src/lib.rs missing canonical public API: TailtriageControllerBuilder::mode")
+    if any(re.search(rf"{public_function}new\s*\(", body) for body in builder_impls):
+        raise ValueError("tailtriage-controller/src/lib.rs exposes removed residual public API: TailtriageControllerBuilder::new")
+
+    required_controller_patterns = (
+        ("TailtriageControllerTemplate::output_path", r"pub struct TailtriageControllerTemplate\s*\{[^}]*\bpub\s+output_path\s*:\s*PathBuf"),
+        ("TailtriageControllerTemplate::mode", r"pub struct TailtriageControllerTemplate\s*\{[^}]*\bpub\s+mode\s*:\s*CaptureMode"),
+        ("ControllerActivationTemplate::output_path", r"pub struct ControllerActivationTemplate\s*\{[^}]*\bpub\s+output_path\s*:\s*PathBuf"),
+        ("ControllerActivationTemplate::mode", r"pub struct ControllerActivationTemplate\s*\{[^}]*\bpub\s+mode\s*:\s*CaptureMode"),
+    )
+    for symbol, pattern in required_controller_patterns:
+        if re.search(pattern, controller_source, flags=re.DOTALL) is None:
+            raise ValueError(f"tailtriage-controller/src/lib.rs missing canonical public API: {symbol}")
+    for type_name in ("TailtriageControllerTemplate", "ControllerActivationTemplate"):
+        body = declaration_bodies(
+            controller_source,
+            controller_path,
+            rf"\bpub\s+struct\s+{type_name}\s*\{{",
+        )[0]
+        for field in ("sink_template", "selected_mode"):
+            if re.search(rf"\bpub\s+{field}\s*:", body):
+                raise ValueError(
+                    f"tailtriage-controller/src/lib.rs exposes removed residual public API: public {field} field"
+                )
+
     tracing_types_path = REPO_ROOT / "tailtriage-tracing" / "src" / "types.rs"
     tracing_types_source = tracing_types_path.read_text(encoding="utf-8")
 
-    def impl_bodies(type_name: str) -> tuple[str, ...]:
-        declarations = tuple(re.finditer(
-            rf"\bimpl\s+{type_name}\s*(?:where\b[^{{]*?)?\{{",
-            tracing_types_source,
-            re.DOTALL,
-        ))
-        if not declarations:
-            raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} missing impl {type_name}")
-        bodies = []
-        for declaration in declarations:
-            body_start = declaration.end()
-            depth = 1
-            for index in range(body_start, len(tracing_types_source)):
-                if tracing_types_source[index] == "{":
-                    depth += 1
-                elif tracing_types_source[index] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        bodies.append(tracing_types_source[body_start:index])
-                        break
-            else:
-                raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} has unclosed impl {type_name}")
-        return tuple(bodies)
+    def tracing_impl_bodies(type_name: str) -> tuple[str, ...]:
+        return impl_bodies(tracing_types_source, tracing_types_path, type_name)
 
     tracing_removed_methods = {
         "SpanRecord": (
@@ -591,8 +618,7 @@ def validate_residual_public_api_cleanup() -> None:
             "service_version_ref", "run_id_ref", "strict_mode", "mode_value",
         ),
     }
-    public_function = r"\bpub\s+(?:const\s+)?fn\s+"
-    span_bodies = impl_bodies("SpanRecord")
+    span_bodies = tracing_impl_bodies("SpanRecord")
     consuming_names = (
         "id", "parent_id", "field", "started_at_run_us", "finished_at_run_us", "duration_us",
     )
@@ -603,7 +629,7 @@ def validate_residual_public_api_cleanup() -> None:
                 f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: SpanRecord::{name} consuming setter"
             )
     for type_name, names in tracing_removed_methods.items():
-        bodies = impl_bodies(type_name)
+        bodies = tracing_impl_bodies(type_name)
         for name in names:
             if name.endswith(" consuming setter"):
                 continue
@@ -612,7 +638,7 @@ def validate_residual_public_api_cleanup() -> None:
                     f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: {type_name}::{name}"
                 )
     for type_name in ("ImportWarning", "ImportedRun"):
-        if any(re.search(rf"{public_function}new\s*\(", body) for body in impl_bodies(type_name)):
+        if any(re.search(rf"{public_function}new\s*\(", body) for body in tracing_impl_bodies(type_name)):
             raise ValueError(
                 f"{tracing_types_path.relative_to(REPO_ROOT)} exposes removed residual public API: {type_name}::new"
             )

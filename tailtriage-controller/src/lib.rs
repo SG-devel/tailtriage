@@ -28,7 +28,8 @@ pub struct TailtriageControllerBuilder {
     service_name: String,
     config_path: Option<PathBuf>,
     initially_enabled: bool,
-    sink_template: ControllerSinkTemplate,
+    output_path: Option<PathBuf>,
+    mode: CaptureMode,
     capture_limits_override: CaptureLimitsOverride,
     strict_lifecycle: bool,
     runtime_sampler: RuntimeSamplerTemplate,
@@ -38,14 +39,13 @@ pub struct TailtriageControllerBuilder {
 impl TailtriageControllerBuilder {
     /// Creates a controller builder for one service.
     #[must_use]
-    pub fn new(service_name: impl Into<String>) -> Self {
+    fn new(service_name: impl Into<String>) -> Self {
         Self {
             service_name: service_name.into(),
             config_path: None,
             initially_enabled: false,
-            sink_template: ControllerSinkTemplate::LocalJson {
-                output_path: PathBuf::from("tailtriage-run.json"),
-            },
+            output_path: None,
+            mode: CaptureMode::Light,
             capture_limits_override: CaptureLimitsOverride::default(),
             strict_lifecycle: false,
             runtime_sampler: RuntimeSamplerTemplate::default(),
@@ -73,9 +73,14 @@ impl TailtriageControllerBuilder {
     /// Sets the output location template for future activation runs.
     #[must_use]
     pub fn output(mut self, output_path: impl AsRef<Path>) -> Self {
-        self.sink_template = ControllerSinkTemplate::LocalJson {
-            output_path: output_path.as_ref().to_path_buf(),
-        };
+        self.output_path = Some(output_path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Sets the capture mode used when TOML does not override it.
+    #[must_use]
+    pub const fn mode(mut self, mode: CaptureMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -120,6 +125,10 @@ impl TailtriageControllerBuilder {
     /// Returns [`ControllerBuildError::EmptyServiceName`] when the final resolved
     /// `service_name` is blank.
     ///
+    /// Returns [`ControllerBuildError::MissingOutput`] when neither the builder nor
+    /// TOML supplies a non-empty output path, including when the resolved path is
+    /// explicitly empty.
+    ///
     /// Returns [`ControllerBuildError::ConfigLoad`] when `config_path(...)` is set and
     /// reading or parsing the TOML file fails.
     ///
@@ -130,32 +139,32 @@ impl TailtriageControllerBuilder {
         let config_path = self.config_path.clone();
         let loaded = config_path
             .as_ref()
-            .map(TailtriageController::load_config_from_path)
+            .map(|path| ControllerConfigFile::from_path(path))
             .transpose()
             .map_err(ControllerBuildError::ConfigLoad)?;
         let initially_enabled = loaded
             .as_ref()
-            .and_then(|config| config.initially_enabled)
+            .and_then(|config| config.controller.initially_enabled)
             .unwrap_or(self.initially_enabled);
-        let template = resolve_controller_template(
-            TailtriageControllerTemplate {
-                service_name: self.service_name,
-                config_path,
-                sink_template: self.sink_template,
-                selected_mode: CaptureMode::Light,
-                capture_limits_override: self.capture_limits_override,
-                strict_lifecycle: self.strict_lifecycle,
-                runtime_sampler: self.runtime_sampler,
-                run_end_policy: self.run_end_policy,
-            },
-            loaded,
-        )
-        .map_err(|ControllerTemplateError::EmptyServiceName| {
-            ControllerBuildError::EmptyServiceName
-        })?;
+        let base = BaseControllerTemplate {
+            service_name: self.service_name,
+            config_path: config_path.clone(),
+            output_path: self.output_path,
+            mode: self.mode,
+            capture_limits_override: self.capture_limits_override,
+            strict_lifecycle: self.strict_lifecycle,
+            runtime_sampler: self.runtime_sampler,
+            run_end_policy: self.run_end_policy,
+        };
+        let template =
+            resolve_controller_template(&base, None, loaded).map_err(|error| match error {
+                ControllerTemplateError::EmptyServiceName => ControllerBuildError::EmptyServiceName,
+                ControllerTemplateError::MissingOutput => ControllerBuildError::MissingOutput,
+            })?;
 
         let inner = Arc::new(ControllerInner {
             template: Mutex::new(Arc::new(template)),
+            base,
             lifecycle: Mutex::new(ControllerLifecycle::Disabled { next_generation: 1 }),
             inert_request_seq: AtomicU64::new(1),
         });
@@ -180,6 +189,7 @@ pub struct TailtriageController {
 #[derive(Debug)]
 struct ControllerInner {
     template: Mutex<Arc<ResolvedControllerTemplate>>,
+    base: BaseControllerTemplate,
     lifecycle: Mutex<ControllerLifecycle>,
     inert_request_seq: AtomicU64,
 }
@@ -189,17 +199,32 @@ struct ResolvedControllerTemplate {
     public: TailtriageControllerTemplate,
 }
 
+#[derive(Debug, Clone)]
+struct BaseControllerTemplate {
+    service_name: String,
+    config_path: Option<PathBuf>,
+    output_path: Option<PathBuf>,
+    mode: CaptureMode,
+    capture_limits_override: CaptureLimitsOverride,
+    strict_lifecycle: bool,
+    runtime_sampler: RuntimeSamplerTemplate,
+    run_end_policy: RunEndPolicy,
+}
+
 /// Errors emitted by controller activation-template validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControllerTemplateError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Neither the builder nor loaded TOML supplied an output path.
+    MissingOutput,
 }
 
 impl std::fmt::Display for ControllerTemplateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::MissingOutput => write!(f, "controller output_path is required"),
         }
     }
 }
@@ -207,22 +232,67 @@ impl std::fmt::Display for ControllerTemplateError {
 impl std::error::Error for ControllerTemplateError {}
 
 fn resolve_controller_template(
-    mut template: TailtriageControllerTemplate,
-    loaded: Option<LoadedControllerConfig>,
+    base: &BaseControllerTemplate,
+    current: Option<&TailtriageControllerTemplate>,
+    loaded: Option<ControllerConfigFile>,
 ) -> Result<ResolvedControllerTemplate, ControllerTemplateError> {
-    if let Some(loaded) = loaded {
-        template.service_name = loaded.service_name.unwrap_or(template.service_name);
-        let activation = loaded.activation_template;
-        template.sink_template = activation.sink_template;
-        template.selected_mode = activation.selected_mode;
-        template.capture_limits_override = activation.capture_limits_override;
-        template.strict_lifecycle = activation.strict_lifecycle;
-        template.runtime_sampler = activation.runtime_sampler;
-        template.run_end_policy = activation.run_end_policy;
-    }
-    if template.service_name.trim().is_empty() {
+    let fallback_service_name = current.map_or_else(
+        || base.service_name.clone(),
+        |template| template.service_name.clone(),
+    );
+    let config_path = current.map_or_else(
+        || base.config_path.clone(),
+        |template| template.config_path.clone(),
+    );
+    let (
+        service_name,
+        output_path,
+        mode,
+        capture_limits_override,
+        strict_lifecycle,
+        runtime_sampler,
+        run_end_policy,
+    ) = if let Some(loaded) = loaded {
+        let activation = loaded.controller.activation;
+        (
+            loaded
+                .controller
+                .service_name
+                .unwrap_or(fallback_service_name),
+            activation.output_path.or_else(|| base.output_path.clone()),
+            activation.mode.unwrap_or(base.mode),
+            activation.capture_limits_override,
+            activation.strict_lifecycle,
+            activation.runtime_sampler,
+            activation.run_end_policy.into(),
+        )
+    } else {
+        (
+            fallback_service_name,
+            base.output_path.clone(),
+            base.mode,
+            base.capture_limits_override,
+            base.strict_lifecycle,
+            base.runtime_sampler,
+            base.run_end_policy,
+        )
+    };
+    if service_name.trim().is_empty() {
         return Err(ControllerTemplateError::EmptyServiceName);
     }
+    let output_path = output_path
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or(ControllerTemplateError::MissingOutput)?;
+    let template = TailtriageControllerTemplate {
+        service_name,
+        config_path,
+        output_path,
+        mode,
+        capture_limits_override,
+        strict_lifecycle,
+        runtime_sampler,
+        run_end_policy,
+    };
     Ok(ResolvedControllerTemplate { public: template })
 }
 
@@ -354,13 +424,15 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigLoadError`] when reading or parsing the TOML file fails.
+    /// Returns [`ConfigLoadError`] when reading or parsing the TOML file fails, or
+    /// [`ConfigLoadError::MissingOutput`] when `controller.activation.output_path`
+    /// is omitted or empty.
     pub fn load_config_from_path(
         path: impl AsRef<Path>,
     ) -> Result<LoadedControllerConfig, ConfigLoadError> {
         let path = path.as_ref();
         let file = ControllerConfigFile::from_path(path)?;
-        Ok(file.into_loaded())
+        file.into_loaded()
     }
 
     /// Returns a status snapshot of controller lifecycle and template state.
@@ -399,7 +471,7 @@ impl TailtriageController {
     /// [`TailtriageController::enable`] errors.
     ///
     /// Returns [`ReloadTemplateError`] when the resolved controller template is
-    /// invalid, currently when `service_name` is blank.
+    /// invalid, when `service_name` is blank or `output_path` is empty.
     pub fn reload_template(
         &self,
         next_template: TailtriageControllerTemplate,
@@ -412,8 +484,8 @@ impl TailtriageController {
         if matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
             return Err(ReloadTemplateError::ControllerShutdown);
         }
-        let resolved = resolve_controller_template(next_template, None)
-            .map_err(ReloadTemplateError::Validate)?;
+        let resolved =
+            validate_public_template(next_template).map_err(ReloadTemplateError::Validate)?;
         let mut template = self
             .inner
             .template
@@ -446,21 +518,22 @@ impl TailtriageController {
         if matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
             return Err(ReloadConfigError::ControllerShutdown);
         }
-        let (config_path, service_name) = {
+        let current = {
             let template = self
                 .inner
                 .template
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(config_path) = template.public.config_path.clone() else {
-                return Err(ReloadConfigError::MissingConfigPath);
-            };
-            (config_path, template.public.clone())
+            template.public.clone()
         };
+        let config_path = current
+            .config_path
+            .clone()
+            .ok_or(ReloadConfigError::MissingConfigPath)?;
 
-        let loaded = TailtriageController::load_config_from_path(&config_path)
-            .map_err(ReloadConfigError::Load)?;
-        let resolved = resolve_controller_template(service_name, Some(loaded))
+        let loaded =
+            ControllerConfigFile::from_path(&config_path).map_err(ReloadConfigError::Load)?;
+        let resolved = resolve_controller_template(&self.inner.base, Some(&current), Some(loaded))
             .map_err(ReloadConfigError::Validate)?;
 
         let mut template = self
@@ -535,14 +608,14 @@ impl TailtriageController {
         next_generation: u64,
     ) -> Result<Arc<ActiveGenerationRuntime>, EnableError> {
         let template = &resolved.public;
-        let artifact_path = generated_artifact_path(&template.sink_template, next_generation);
+        let artifact_path = generated_artifact_path(&template.output_path, next_generation);
         let run_id = format!("{}-generation-{next_generation}", template.service_name);
 
         let mut builder = Tailtriage::builder(template.service_name.clone())
             .run_id(run_id)
             .output(&artifact_path);
 
-        builder = match template.selected_mode {
+        builder = match template.mode {
             CaptureMode::Light => builder.mode(CaptureMode::Light),
             CaptureMode::Investigation => builder.mode(CaptureMode::Investigation),
         };
@@ -562,8 +635,8 @@ impl TailtriageController {
                 finalization_in_progress: false,
                 last_finalization_error: None,
                 activation_config: ControllerActivationTemplate {
-                    sink_template: template.sink_template.clone(),
-                    selected_mode: template.selected_mode,
+                    output_path: template.output_path.clone(),
+                    mode: template.mode,
                     capture_limits_override: template.capture_limits_override,
                     strict_lifecycle: template.strict_lifecycle,
                     runtime_sampler: template.runtime_sampler,
@@ -1141,6 +1214,18 @@ impl TailtriageController {
     }
 }
 
+fn validate_public_template(
+    template: TailtriageControllerTemplate,
+) -> Result<ResolvedControllerTemplate, ControllerTemplateError> {
+    if template.service_name.trim().is_empty() {
+        return Err(ControllerTemplateError::EmptyServiceName);
+    }
+    if template.output_path.as_os_str().is_empty() {
+        return Err(ControllerTemplateError::MissingOutput);
+    }
+    Ok(ResolvedControllerTemplate { public: template })
+}
+
 /// Result of trying to begin one captured request in a generation.
 #[must_use = "request completion must be finished explicitly"]
 #[derive(Debug)]
@@ -1454,10 +1539,10 @@ pub struct TailtriageControllerTemplate {
     pub service_name: String,
     /// Optional source path for reloadable control config.
     pub config_path: Option<PathBuf>,
-    /// Sink/output template for bounded run artifacts.
-    pub sink_template: ControllerSinkTemplate,
+    /// Base output path for bounded run artifacts.
+    pub output_path: PathBuf,
     /// Mode selected for next activations.
-    pub selected_mode: CaptureMode,
+    pub mode: CaptureMode,
     /// Field-level capture limits override applied on top of mode defaults.
     pub capture_limits_override: CaptureLimitsOverride,
     /// Strict lifecycle behavior for next activations.
@@ -1466,16 +1551,6 @@ pub struct TailtriageControllerTemplate {
     pub runtime_sampler: RuntimeSamplerTemplate,
     /// Policy that determines how an activation run should end.
     pub run_end_policy: RunEndPolicy,
-}
-
-/// Sink/output template used by controller-generated runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ControllerSinkTemplate {
-    /// Write each generated run to a local JSON file.
-    LocalJson {
-        /// Base destination artifact path for generated runs.
-        output_path: PathBuf,
-    },
 }
 
 /// Runtime sampler template attached to controller activation settings.
@@ -1553,10 +1628,10 @@ pub struct ActiveGenerationState {
 /// One bounded activation template snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControllerActivationTemplate {
-    /// Sink/output settings for this generation.
-    pub sink_template: ControllerSinkTemplate,
+    /// Base output path used for this generation.
+    pub output_path: PathBuf,
     /// Core mode for this generation.
-    pub selected_mode: CaptureMode,
+    pub mode: CaptureMode,
     /// Field-level capture limit overrides for this generation.
     pub capture_limits_override: CaptureLimitsOverride,
     /// Strict lifecycle behavior for this generation.
@@ -1619,21 +1694,25 @@ impl ControllerConfigFile {
         })
     }
 
-    fn into_loaded(self) -> LoadedControllerConfig {
+    fn into_loaded(self) -> Result<LoadedControllerConfig, ConfigLoadError> {
         let activation = self.controller.activation;
         let run_end_policy = activation.run_end_policy();
-        LoadedControllerConfig {
+        let output_path = activation
+            .output_path
+            .filter(|path| !path.as_os_str().is_empty())
+            .ok_or(ConfigLoadError::MissingOutput)?;
+        Ok(LoadedControllerConfig {
             service_name: self.controller.service_name,
             initially_enabled: self.controller.initially_enabled,
             activation_template: ControllerActivationTemplate {
-                sink_template: activation.sink.into_template(),
-                selected_mode: activation.mode,
+                output_path,
+                mode: activation.mode.unwrap_or(CaptureMode::Light),
                 capture_limits_override: activation.capture_limits_override,
                 strict_lifecycle: activation.strict_lifecycle,
                 runtime_sampler: activation.runtime_sampler,
                 run_end_policy,
             },
-        }
+        })
     }
 }
 
@@ -1657,34 +1736,32 @@ struct ControllerConfigToml {
 
 #[derive(Debug, Clone, Deserialize)]
 struct ControllerActivationConfigToml {
-    mode: CaptureMode,
+    mode: Option<CaptureMode>,
+    output_path: Option<PathBuf>,
     #[serde(default)]
     capture_limits_override: CaptureLimitsOverride,
     #[serde(default)]
     strict_lifecycle: bool,
-    sink: ControllerSinkTemplateToml,
     #[serde(default)]
     runtime_sampler: RuntimeSamplerTemplate,
     #[serde(default)]
     run_end_policy: RunEndPolicyConfigToml,
+    #[serde(default, rename = "sink", deserialize_with = "reject_removed_sink")]
+    _removed_sink: (),
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum ControllerSinkTemplateToml {
-    LocalJson { output_path: PathBuf },
-}
-
-impl ControllerSinkTemplateToml {
-    fn into_template(self) -> ControllerSinkTemplate {
-        match self {
-            Self::LocalJson { output_path } => ControllerSinkTemplate::LocalJson { output_path },
-        }
-    }
+fn reject_removed_sink<'de, D>(deserializer: D) -> Result<(), D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let _ = serde::de::IgnoredAny::deserialize(deserializer)?;
+    Err(serde::de::Error::custom(
+        "controller.activation.sink is no longer supported",
+    ))
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 enum RunEndPolicyConfigToml {
     #[default]
     ContinueAfterLimitsHit,
@@ -1709,6 +1786,8 @@ impl ControllerActivationConfigToml {
 /// Errors emitted while loading controller TOML config from disk.
 #[derive(Debug)]
 pub enum ConfigLoadError {
+    /// Standalone loading requires an explicit activation output path.
+    MissingOutput,
     /// Reading the config file failed.
     Io {
         /// Path that failed to read.
@@ -1728,6 +1807,7 @@ pub enum ConfigLoadError {
 impl std::fmt::Display for ConfigLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::MissingOutput => write!(f, "controller.activation.output_path is required"),
             Self::Io { path, source } => {
                 write!(
                     f,
@@ -1749,6 +1829,7 @@ impl std::fmt::Display for ConfigLoadError {
 impl std::error::Error for ConfigLoadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::MissingOutput => None,
             Self::Io { source, .. } => Some(source),
             Self::Parse { source, .. } => Some(source),
         }
@@ -1760,6 +1841,8 @@ impl std::error::Error for ConfigLoadError {
 pub enum ControllerBuildError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Neither the builder nor loaded TOML supplied an output path.
+    MissingOutput,
     /// Config file load failed while building.
     ConfigLoad(ConfigLoadError),
     /// Initially-enabled controller failed to create first generation.
@@ -1770,6 +1853,7 @@ impl std::fmt::Display for ControllerBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::MissingOutput => write!(f, "controller output_path is required"),
             Self::ConfigLoad(err) => write!(f, "failed to load config for build: {err}"),
             Self::InitialEnable(err) => write!(f, "failed to start initial generation: {err}"),
         }
@@ -1956,25 +2040,21 @@ pub enum DisableOutcome {
     },
 }
 
-fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64) -> PathBuf {
-    match template {
-        ControllerSinkTemplate::LocalJson { output_path } => {
-            let parent = output_path
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_default();
-            let stem = output_path
-                .file_stem()
-                .and_then(std::ffi::OsStr::to_str)
-                .unwrap_or("tailtriage-run");
-            let extension = output_path.extension().and_then(std::ffi::OsStr::to_str);
-            let filename = match extension {
-                Some(ext) if !ext.is_empty() => format!("{stem}-generation-{generation_id}.{ext}"),
-                _ => format!("{stem}-generation-{generation_id}.json"),
-            };
-            parent.join(filename)
-        }
-    }
+fn generated_artifact_path(output_path: &Path, generation_id: u64) -> PathBuf {
+    let parent = output_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let stem = output_path
+        .file_stem()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("tailtriage-run");
+    let extension = output_path.extension().and_then(std::ffi::OsStr::to_str);
+    let filename = match extension {
+        Some(ext) if !ext.is_empty() => format!("{stem}-generation-{generation_id}.{ext}"),
+        _ => format!("{stem}-generation-{generation_id}.json"),
+    };
+    parent.join(filename)
 }
 
 #[cfg(test)]
@@ -1986,9 +2066,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        ControllerBuildError, ControllerSinkTemplate, DisableOutcome, EnableError, GenerationState,
-        ReloadConfigError, ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate,
-        TailtriageController, TailtriageControllerTemplate,
+        ControllerBuildError, DisableOutcome, EnableError, GenerationState, ReloadConfigError,
+        ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate, TailtriageController,
+        TailtriageControllerBuilder, TailtriageControllerTemplate,
     };
     use serde::Serialize;
     use tailtriage_core::{
@@ -2012,16 +2092,18 @@ mod tests {
 
     #[derive(Serialize)]
     struct TestActivationToml {
-        mode: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mode: Option<&'static str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         capture_limits_override: Option<TestCaptureLimitsOverrideToml>,
         #[serde(skip_serializing_if = "Option::is_none")]
         strict_lifecycle: Option<bool>,
-        sink: TestSinkToml,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_path: Option<PathBuf>,
         #[serde(skip_serializing_if = "Option::is_none")]
         runtime_sampler: Option<TestRuntimeSamplerToml>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        run_end_policy: Option<TestRunEndPolicyToml>,
+        run_end_policy: Option<&'static str>,
     }
 
     #[derive(Serialize)]
@@ -2040,23 +2122,11 @@ mod tests {
     }
 
     #[derive(Serialize)]
-    struct TestSinkToml {
-        #[serde(rename = "type")]
-        sink_type: &'static str,
-        output_path: PathBuf,
-    }
-
-    #[derive(Serialize)]
     struct TestRuntimeSamplerToml {
         enabled_for_armed_runs: bool,
         mode_override: &'static str,
         interval_ms: u64,
         max_runtime_snapshots: u64,
-    }
-
-    #[derive(Serialize)]
-    struct TestRunEndPolicyToml {
-        kind: &'static str,
     }
 
     fn test_output(base: &str) -> std::path::PathBuf {
@@ -2095,10 +2165,8 @@ mod tests {
     ) -> (TailtriageController, Arc<super::ActiveGenerationRuntime>) {
         let artifact_path = test_output(base);
         let activation_config = super::ControllerActivationTemplate {
-            sink_template: ControllerSinkTemplate::LocalJson {
-                output_path: artifact_path.clone(),
-            },
-            selected_mode: CaptureMode::Light,
+            output_path: artifact_path.clone(),
+            mode: CaptureMode::Light,
             capture_limits_override: CaptureLimitsOverride::default(),
             strict_lifecycle: false,
             runtime_sampler: RuntimeSamplerTemplate::default(),
@@ -2135,16 +2203,24 @@ mod tests {
                 public: super::TailtriageControllerTemplate {
                     service_name: "checkout-service".to_string(),
                     config_path: None,
-                    sink_template: ControllerSinkTemplate::LocalJson {
-                        output_path: test_output(&format!("{base}-gen2")),
-                    },
-                    selected_mode: CaptureMode::Light,
+                    output_path: test_output(&format!("{base}-gen2")),
+                    mode: CaptureMode::Light,
                     capture_limits_override: CaptureLimitsOverride::default(),
                     strict_lifecycle: false,
                     runtime_sampler: RuntimeSamplerTemplate::default(),
                     run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
                 },
             })),
+            base: super::BaseControllerTemplate {
+                service_name: "checkout-service".to_string(),
+                config_path: None,
+                output_path: Some(test_output(&format!("{base}-gen2"))),
+                mode: CaptureMode::Light,
+                capture_limits_override: CaptureLimitsOverride::default(),
+                strict_lifecycle: false,
+                runtime_sampler: RuntimeSamplerTemplate::default(),
+                run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
+            },
             lifecycle: Mutex::new(super::ControllerLifecycle::Active {
                 active: Arc::clone(&runtime),
                 next_generation: 2,
@@ -2198,7 +2274,7 @@ mod tests {
                 service_name: None,
                 initially_enabled: Some(false),
                 activation: TestActivationToml {
-                    mode,
+                    mode: Some(mode),
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(17),
                         max_stages: Some(18),
@@ -2207,19 +2283,14 @@ mod tests {
                         max_runtime_snapshots: None,
                     }),
                     strict_lifecycle: Some(strict),
-                    sink: TestSinkToml {
-                        sink_type: "local_json",
-                        output_path: output.to_path_buf(),
-                    },
+                    output_path: Some(output.to_path_buf()),
                     runtime_sampler: Some(TestRuntimeSamplerToml {
                         enabled_for_armed_runs: sampler_enabled,
                         mode_override: "investigation",
                         interval_ms: 250,
                         max_runtime_snapshots: 123,
                     }),
-                    run_end_policy: Some(TestRunEndPolicyToml {
-                        kind: "auto_seal_on_limits_hit",
-                    }),
+                    run_end_policy: Some("auto_seal_on_limits_hit"),
                 },
             },
         })
@@ -2233,7 +2304,7 @@ mod tests {
                 service_name: Some("toml-service-name".to_owned()),
                 initially_enabled: Some(true),
                 activation: TestActivationToml {
-                    mode: "investigation",
+                    mode: Some("investigation"),
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(9),
                         max_stages: None,
@@ -2242,14 +2313,9 @@ mod tests {
                         max_runtime_snapshots: None,
                     }),
                     strict_lifecycle: Some(true),
-                    sink: TestSinkToml {
-                        sink_type: "local_json",
-                        output_path: output.to_path_buf(),
-                    },
+                    output_path: Some(output.to_path_buf()),
                     runtime_sampler: None,
-                    run_end_policy: Some(TestRunEndPolicyToml {
-                        kind: "auto_seal_on_limits_hit",
-                    }),
+                    run_end_policy: Some("auto_seal_on_limits_hit"),
                 },
             },
         })
@@ -2263,13 +2329,10 @@ mod tests {
                 service_name: None,
                 initially_enabled: None,
                 activation: TestActivationToml {
-                    mode,
+                    mode: Some(mode),
                     capture_limits_override: None,
                     strict_lifecycle: None,
-                    sink: TestSinkToml {
-                        sink_type: "local_json",
-                        output_path: output.to_path_buf(),
-                    },
+                    output_path: Some(output.to_path_buf()),
                     runtime_sampler: None,
                     run_end_policy: None,
                 },
@@ -2289,13 +2352,10 @@ mod tests {
                 service_name: service_name.map(str::to_owned),
                 initially_enabled: Some(false),
                 activation: TestActivationToml {
-                    mode: "light",
+                    mode: Some("light"),
                     capture_limits_override: None,
                     strict_lifecycle: None,
-                    sink: TestSinkToml {
-                        sink_type: "local_json",
-                        output_path: output.to_path_buf(),
-                    },
+                    output_path: Some(output.to_path_buf()),
                     runtime_sampler: None,
                     run_end_policy: None,
                 },
@@ -2315,7 +2375,7 @@ mod tests {
                 service_name: Some("resolved-service".to_owned()),
                 initially_enabled: Some(false),
                 activation: TestActivationToml {
-                    mode: "investigation",
+                    mode: Some("investigation"),
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(11),
                         max_stages: Some(22),
@@ -2324,19 +2384,14 @@ mod tests {
                         max_runtime_snapshots: Some(55),
                     }),
                     strict_lifecycle: Some(true),
-                    sink: TestSinkToml {
-                        sink_type: "local_json",
-                        output_path: output.to_path_buf(),
-                    },
+                    output_path: Some(output.to_path_buf()),
                     runtime_sampler: Some(TestRuntimeSamplerToml {
                         enabled_for_armed_runs: true,
                         mode_override: "investigation",
                         interval_ms: 250,
                         max_runtime_snapshots: 34,
                     }),
-                    run_end_policy: Some(TestRunEndPolicyToml {
-                        kind: "auto_seal_on_limits_hit",
-                    }),
+                    run_end_policy: Some("auto_seal_on_limits_hit"),
                 },
             },
         })
@@ -2601,6 +2656,7 @@ mod tests {
     #[test]
     fn disabled_status_reports_next_generation() {
         let controller = TailtriageController::builder("checkout-service")
+            .output(test_output("disabled-status"))
             .build()
             .expect("build should succeed");
 
@@ -3066,6 +3122,7 @@ mod tests {
     #[test]
     fn one_active_generation_at_a_time() {
         let controller = TailtriageController::builder("checkout-service")
+            .output(test_output("one-active"))
             .build()
             .expect("build should succeed");
 
@@ -4042,7 +4099,7 @@ mod tests {
 
         let loaded =
             TailtriageController::load_config_from_path(&config).expect("valid TOML should parse");
-        assert_eq!(loaded.activation_template.selected_mode, CaptureMode::Light);
+        assert_eq!(loaded.activation_template.mode, CaptureMode::Light);
         assert_eq!(
             loaded.activation_template.capture_limits_override,
             CaptureLimitsOverride {
@@ -4080,10 +4137,8 @@ mod tests {
         let expected = TailtriageControllerTemplate {
             service_name: "resolved-service".to_owned(),
             config_path: Some(config.clone()),
-            sink_template: ControllerSinkTemplate::LocalJson {
-                output_path: output.clone(),
-            },
-            selected_mode: CaptureMode::Investigation,
+            output_path: output.clone(),
+            mode: CaptureMode::Investigation,
             capture_limits_override: CaptureLimitsOverride {
                 max_requests: Some(11),
                 max_stages: Some(22),
@@ -4146,7 +4201,7 @@ mod tests {
             ));
         }
         assert!(!output.exists());
-        assert!(!super::generated_artifact_path(&expected.sink_template, 1).exists());
+        assert!(!super::generated_artifact_path(&expected.output_path, 1).exists());
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
@@ -4159,20 +4214,16 @@ mod tests {
 [controller.activation]
 mode = "light"
    
-[controller.activation.sink]
-type = "local_json"
 output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
 "#;
 
         let parsed: super::ControllerConfigFile =
             toml::from_str(config_toml).expect("escaped Windows path should parse in TOML");
 
-        let loaded = parsed.into_loaded();
+        let loaded = parsed.into_loaded().expect("loaded config should resolve");
         assert_eq!(
-            loaded.activation_template.sink_template,
-            ControllerSinkTemplate::LocalJson {
-                output_path: PathBuf::from(r"C:\Users\someone\AppData\Local\Temp\tailtriage.json"),
-            }
+            loaded.activation_template.output_path,
+            PathBuf::from(r"C:\Users\someone\AppData\Local\Temp\tailtriage.json"),
         );
     }
 
@@ -4188,16 +4239,13 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             .config_path(&config)
             .build()
             .expect("build should succeed");
-        assert_eq!(
-            controller.status().template.selected_mode,
-            CaptureMode::Light
-        );
+        assert_eq!(controller.status().template.mode, CaptureMode::Light);
 
         write_config(&config, &output_after, "investigation", true, false);
         controller.reload_config().expect("reload should succeed");
 
         let status = controller.status();
-        assert_eq!(status.template.selected_mode, CaptureMode::Investigation);
+        assert_eq!(status.template.mode, CaptureMode::Investigation);
         assert!(status.template.strict_lifecycle);
         assert_eq!(
             status.template.run_end_policy,
@@ -4220,10 +4268,8 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
         let invalid = TailtriageControllerTemplate {
             service_name: String::new(),
             config_path: None,
-            sink_template: ControllerSinkTemplate::LocalJson {
-                output_path: output,
-            },
-            selected_mode: CaptureMode::Light,
+            output_path: output,
+            mode: CaptureMode::Light,
             capture_limits_override: CaptureLimitsOverride::default(),
             strict_lifecycle: false,
             runtime_sampler: RuntimeSamplerTemplate::default(),
@@ -4241,7 +4287,7 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             controller.status().generation,
             GenerationState::Disabled { next_generation: 1 }
         ));
-        assert!(!super::generated_artifact_path(&before.template.sink_template, 1).exists());
+        assert!(!super::generated_artifact_path(&before.template.output_path, 1).exists());
     }
 
     // TT-TEST: G04 primary
@@ -4261,13 +4307,7 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             controller.status().generation,
             GenerationState::Disabled { next_generation: 1 }
         ));
-        assert!(!super::generated_artifact_path(
-            &ControllerSinkTemplate::LocalJson {
-                output_path: output
-            },
-            1
-        )
-        .exists());
+        assert!(!super::generated_artifact_path(&output, 1).exists());
         assert!(matches!(
             controller.enable(),
             Err(super::EnableError::MissingTokioRuntimeForSampler)
@@ -4299,20 +4339,15 @@ service_name = ""
 [controller.activation]
 mode = "light"
 strict_lifecycle = false
+output_path = "tailtriage-run.json"
+run_end_policy = "continue_after_limits_hit"
 
 [controller.activation.capture_limits_override]
 max_requests = 17
 max_stages = 18
 
-[controller.activation.sink]
-type = "local_json"
-output_path = "tailtriage-run.json"
-
 [controller.activation.runtime_sampler]
 enabled_for_armed_runs = false
-
-[controller.activation.run_end_policy]
-kind = "continue_after_limits_hit"
 "#,
         )
         .expect("invalid config write should succeed");
@@ -4324,7 +4359,7 @@ kind = "continue_after_limits_hit"
             ))
         ));
         assert_eq!(controller.status(), before);
-        assert!(!super::generated_artifact_path(&before.template.sink_template, 1).exists());
+        assert!(!super::generated_artifact_path(&before.template.output_path, 1).exists());
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
@@ -4372,13 +4407,8 @@ kind = "continue_after_limits_hit"
             .expect("build should succeed");
 
         let gen1 = controller.enable().expect("first enable should succeed");
-        assert_eq!(gen1.activation_config.selected_mode, CaptureMode::Light);
-        assert_eq!(
-            gen1.activation_config.sink_template,
-            super::ControllerSinkTemplate::LocalJson {
-                output_path: output_before.clone()
-            }
-        );
+        assert_eq!(gen1.activation_config.mode, CaptureMode::Light);
+        assert_eq!(gen1.activation_config.output_path, output_before.clone());
 
         write_config(&config, &output_after, "investigation", true, false);
         controller.reload_config().expect("reload should succeed");
@@ -4387,7 +4417,7 @@ kind = "continue_after_limits_hit"
             panic!("expected active generation");
         };
         assert_eq!(
-            active_after_reload.activation_config.selected_mode,
+            active_after_reload.activation_config.mode,
             CaptureMode::Light
         );
         assert!(!active_after_reload.activation_config.strict_lifecycle);
@@ -4400,17 +4430,9 @@ kind = "continue_after_limits_hit"
         ));
 
         let gen2 = controller.enable().expect("second enable should succeed");
-        assert_eq!(
-            gen2.activation_config.selected_mode,
-            CaptureMode::Investigation
-        );
+        assert_eq!(gen2.activation_config.mode, CaptureMode::Investigation);
         assert!(gen2.activation_config.strict_lifecycle);
-        assert_eq!(
-            gen2.activation_config.sink_template,
-            super::ControllerSinkTemplate::LocalJson {
-                output_path: output_after.clone()
-            }
-        );
+        assert_eq!(gen2.activation_config.output_path, output_after.clone());
 
         assert!(matches!(
             controller.disable(),
@@ -4441,21 +4463,13 @@ kind = "continue_after_limits_hit"
             panic!("config with initially_enabled=true should start generation 1");
         };
         assert_eq!(active.generation_id, 1);
-        assert_eq!(
-            active.activation_config.selected_mode,
-            CaptureMode::Investigation
-        );
+        assert_eq!(active.activation_config.mode, CaptureMode::Investigation);
         assert!(active.activation_config.strict_lifecycle);
         assert_eq!(
             active.activation_config.run_end_policy,
             RunEndPolicy::AutoSealOnLimitsHit
         );
-        assert_eq!(
-            active.activation_config.sink_template,
-            ControllerSinkTemplate::LocalJson {
-                output_path: output.clone()
-            }
-        );
+        assert_eq!(active.activation_config.output_path, output.clone());
         assert_eq!(
             active.activation_config.runtime_sampler,
             RuntimeSamplerTemplate::default()
@@ -4545,10 +4559,7 @@ kind = "continue_after_limits_hit"
             panic!("builder initially_enabled should be preserved when TOML omits it");
         };
         assert_eq!(active.generation_id, 1);
-        assert_eq!(
-            active.activation_config.selected_mode,
-            CaptureMode::Investigation
-        );
+        assert_eq!(active.activation_config.mode, CaptureMode::Investigation);
         assert!(!active.activation_config.strict_lifecycle);
         assert_eq!(
             active.activation_config.runtime_sampler,
@@ -4562,12 +4573,7 @@ kind = "continue_after_limits_hit"
             active.activation_config.capture_limits_override,
             CaptureLimitsOverride::default()
         );
-        assert_eq!(
-            active.activation_config.sink_template,
-            ControllerSinkTemplate::LocalJson {
-                output_path: output.clone()
-            }
-        );
+        assert_eq!(active.activation_config.output_path, output.clone());
 
         assert!(matches!(
             controller.disable(),
@@ -4668,8 +4674,6 @@ service_name = ""
 [controller.activation]
 mode = "light"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 "#,
         );
@@ -4694,8 +4698,6 @@ output_path = "tailtriage-run.json"
 [controller.activation]
 mode = "not-a-real-mode"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 "#,
         );
@@ -4723,12 +4725,9 @@ output_path = "tailtriage-run.json"
 [controller.activation]
 mode = "light"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 
-[controller.activation.run_end_policy]
-kind = "not-a-real-policy"
+run_end_policy = "not-a-real-policy"
 "#,
         );
 
@@ -4755,8 +4754,6 @@ kind = "not-a-real-policy"
 [controller.activation]
 mode = "light"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 
 [controller.activation.run_end_policy]
@@ -4777,8 +4774,8 @@ output_path = "tailtriage-run.json"
 
     // TT-TEST: support
     #[test]
-    fn build_from_toml_with_invalid_sink_type_returns_parse_error() {
-        let config = test_config_path("toml-invalid-sink-type");
+    fn build_from_toml_with_removed_nested_sink_returns_parse_error() {
+        let config = test_config_path("toml-removed-nested-sink");
         write_raw_config(
             &config,
             r#"[controller]
@@ -4787,7 +4784,7 @@ output_path = "tailtriage-run.json"
 mode = "light"
 
 [controller.activation.sink]
-type = "not-a-real-sink"
+type = "local_json"
 output_path = "tailtriage-run.json"
 "#,
         );
@@ -4795,7 +4792,7 @@ output_path = "tailtriage-run.json"
         let err = TailtriageController::builder("checkout-service")
             .config_path(&config)
             .build()
-            .expect_err("invalid sink.type should fail build");
+            .expect_err("removed nested sink should fail build");
         assert!(matches!(
             err,
             ControllerBuildError::ConfigLoad(super::ConfigLoadError::Parse { .. })
@@ -4816,8 +4813,6 @@ initially_enabled = true
 [controller.activation]
 mode = "light"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 
 [controller.activation.runtime_sampler]
@@ -4981,5 +4976,255 @@ max_runtime_snapshots = 10
 
         fs::remove_file(first.artifact_path).expect("cleanup first should succeed");
         fs::remove_file(second.artifact_path).expect("cleanup second should succeed");
+    }
+
+    // TT-TEST: G05 primary
+    #[test]
+    fn explicit_output_and_mode_resolution_matrices() {
+        let missing = TailtriageController::builder("checkout-service")
+            .initially_enabled(true)
+            .build()
+            .expect_err("missing output must fail before initial activation");
+        assert!(matches!(missing, ControllerBuildError::MissingOutput));
+        assert!(!Path::new("tailtriage-run-generation-1.json").exists());
+
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .output("")
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+
+        let builder_output = test_output("matrix-builder");
+        let default_mode = TailtriageController::builder("checkout-service")
+            .output(&builder_output)
+            .build()
+            .expect("explicit output with default mode should resolve");
+        assert_eq!(default_mode.status().template.mode, CaptureMode::Light);
+
+        let builder: TailtriageControllerBuilder =
+            TailtriageController::builder("checkout-service")
+                .output(&builder_output)
+                .mode(CaptureMode::Investigation);
+        let controller = builder.build().expect("builder values should resolve");
+        assert_eq!(controller.status().template.output_path, builder_output);
+        assert_eq!(
+            controller.status().template.mode,
+            CaptureMode::Investigation
+        );
+
+        let config = test_config_path("matrix-toml");
+        let toml_output = test_output("matrix-toml");
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n\n[controller.activation]\noutput_path = {:?}\nmode = \"light\"\n",
+                toml_output.to_string_lossy()
+            ),
+        );
+        let controller = TailtriageController::builder("checkout-service")
+            .output(test_output("matrix-overridden"))
+            .mode(CaptureMode::Investigation)
+            .config_path(&config)
+            .build()
+            .expect("TOML values should override builder values");
+        assert_eq!(controller.status().template.output_path, toml_output);
+        assert_eq!(controller.status().template.mode, CaptureMode::Light);
+
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n\n[controller.activation]\noutput_path = {:?}\n",
+                toml_output.to_string_lossy()
+            ),
+        );
+        let controller = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("TOML output should suffice without builder output");
+        assert_eq!(controller.status().template.mode, CaptureMode::Light);
+
+        write_raw_config(&config, "[controller]\n[controller.activation]\n");
+        assert!(matches!(
+            TailtriageController::load_config_from_path(&config),
+            Err(super::ConfigLoadError::MissingOutput)
+        ));
+        let sparse = TailtriageController::builder("checkout-service")
+            .output(&builder_output)
+            .mode(CaptureMode::Investigation)
+            .config_path(&config)
+            .build()
+            .expect("sparse TOML should use builder output and mode");
+        assert_eq!(sparse.status().template.output_path, builder_output);
+        assert_eq!(sparse.status().template.mode, CaptureMode::Investigation);
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .config_path(&config)
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+
+        write_raw_config(
+            &config,
+            "[controller]\n[controller.activation]\noutput_path = \"\"\n",
+        );
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .config_path(&config)
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .output(&builder_output)
+                .config_path(&config)
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+        assert!(matches!(
+            TailtriageController::load_config_from_path(&config),
+            Err(super::ConfigLoadError::MissingOutput)
+        ));
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: G05 secondary
+    #[test]
+    fn unrelated_unknown_activation_key_remains_permitted() {
+        let config = test_config_path("unknown-activation-key");
+        let output = test_output("unknown-activation-key");
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {:?}\nunrelated_future_key = true\n",
+                output.to_string_lossy()
+            ),
+        );
+        let loaded = TailtriageController::load_config_from_path(&config)
+            .expect("unrelated activation keys should remain ignored");
+        assert_eq!(loaded.activation_template.output_path, output);
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: G04 primary
+    #[test]
+    fn sparse_reload_uses_original_base_and_missing_output_is_transactional() {
+        let config = test_config_path("sparse-reload-base");
+        let builder_output = test_output("sparse-reload-builder");
+        let toml_output = test_output("sparse-reload-toml");
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {:?}\nmode = \"light\"\n",
+                toml_output.to_string_lossy()
+            ),
+        );
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&builder_output)
+            .mode(CaptureMode::Investigation)
+            .config_path(&config)
+            .build()
+            .expect("initial config should resolve");
+        write_raw_config(&config, "[controller]\n[controller.activation]\n");
+        controller
+            .reload_config()
+            .expect("base output should be restored");
+        assert_eq!(controller.status().template.output_path, builder_output);
+        assert_eq!(
+            controller.status().template.mode,
+            CaptureMode::Investigation
+        );
+
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {:?}\n",
+                toml_output.to_string_lossy()
+            ),
+        );
+        let no_base = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("initial TOML output should resolve");
+        let active = no_base.enable().expect("generation should start");
+        let before = no_base.status();
+        write_raw_config(&config, "[controller]\n[controller.activation]\n");
+        assert!(matches!(
+            no_base.reload_config(),
+            Err(ReloadConfigError::Validate(
+                super::ControllerTemplateError::MissingOutput
+            ))
+        ));
+        assert_eq!(no_base.status(), before);
+        assert_eq!(active.generation_id, 1);
+        assert!(!super::generated_artifact_path(&toml_output, 2).exists());
+        let _ = no_base.disable();
+        let _ = fs::remove_file(active.artifact_path);
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: G04 primary
+    #[test]
+    fn repeated_reload_preserves_selected_path_and_builder_fallbacks() {
+        let config_b = test_config_path("selected-reload-path-b");
+        let builder_output = test_output("selected-reload-builder");
+        let toml_output = test_output("selected-reload-toml");
+        let controller = TailtriageController::builder("builder-service")
+            .output(&builder_output)
+            .mode(CaptureMode::Investigation)
+            .build()
+            .expect("builder should resolve");
+        let active = controller.enable().expect("generation should start");
+        let active_before = controller.status().generation;
+
+        write_raw_config(
+            &config_b,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {:?}\nmode = \"light\"\n",
+                toml_output.to_string_lossy()
+            ),
+        );
+        let mut selected = controller.status().template;
+        selected.config_path = Some(config_b.clone());
+        selected.service_name = "direct-service".to_owned();
+        controller
+            .reload_template(selected)
+            .expect("selecting config B should succeed");
+        controller
+            .reload_config()
+            .expect("first reload should read B");
+        let first = controller.status();
+        assert_eq!(first.template.config_path, Some(config_b.clone()));
+        assert_eq!(first.template.output_path, toml_output);
+        assert_eq!(first.template.mode, CaptureMode::Light);
+        assert_eq!(first.template.service_name, "direct-service");
+        assert_eq!(first.generation, active_before);
+
+        write_raw_config(&config_b, "[controller]\n[controller.activation]\n");
+        controller
+            .reload_config()
+            .expect("second reload should still read B");
+        let second = controller.status();
+        assert_eq!(second.template.config_path, Some(config_b.clone()));
+        assert_eq!(second.template.output_path, builder_output);
+        assert_eq!(second.template.mode, CaptureMode::Investigation);
+        assert_eq!(second.template.service_name, "direct-service");
+        assert_eq!(second.generation, active_before);
+
+        write_raw_config(
+            &config_b,
+            "[controller]\n[controller.activation]\noutput_path = \"\"\n",
+        );
+        assert!(matches!(
+            controller.reload_config(),
+            Err(ReloadConfigError::Validate(
+                super::ControllerTemplateError::MissingOutput
+            ))
+        ));
+        assert_eq!(controller.status(), second);
+
+        let _ = controller.disable();
+        let _ = fs::remove_file(active.artifact_path);
+        fs::remove_file(config_b).expect("config cleanup should succeed");
     }
 }

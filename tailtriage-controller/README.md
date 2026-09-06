@@ -23,7 +23,7 @@ cargo add tailtriage-controller
 
 ## Quick start
 
-`output("tailtriage-run.json")` configures the base artifact path template. Each activation writes a per-generation artifact with `-generation-N` in the file name (for example, generation 1 writes `tailtriage-run-generation-1.json`).
+`output("tailtriage-run.json")` configures the base artifact path template. It is required unless `controller.activation.output_path` is supplied by configured TOML. No output path is invented implicitly. Each activation writes a per-generation artifact with `-generation-N` in the file name (for example, generation 1 writes `tailtriage-run-generation-1.json`).
 
 ```rust,no_run
 use tailtriage_controller::TailtriageController;
@@ -77,8 +77,6 @@ service_name = "checkout-service"
 [controller.activation]
 mode = "light"
 
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
 ```
 
@@ -90,8 +88,10 @@ service_name = "checkout-service"
 initially_enabled = false
 
 [controller.activation]
+output_path = "tailtriage-run.json"
 mode = "investigation"
 strict_lifecycle = true
+run_end_policy = "auto_seal_on_limits_hit"
 
 [controller.activation.capture_limits_override]
 max_requests = 150000
@@ -100,18 +100,11 @@ max_queues = 300000
 max_inflight_snapshots = 300000
 max_runtime_snapshots = 150000
 
-[controller.activation.sink]
-type = "local_json"
-output_path = "tailtriage-run.json"
-
 [controller.activation.runtime_sampler]
 enabled_for_armed_runs = true
 mode_override = "investigation"
 interval_ms = 250
 max_runtime_snapshots = 20000
-
-[controller.activation.run_end_policy]
-kind = "auto_seal_on_limits_hit"
 ```
 
 ## Config precedence and reload rules
@@ -121,7 +114,9 @@ When TOML is loaded with `config_path(...)`:
 - `service_name` from TOML overrides the builder value when present.
 - builder `service_name` is a fallback only when TOML omits `service_name`.
 - `initially_enabled` falls back to the builder value when omitted.
-- activation template settings come from TOML.
+- TOML `output_path` and `mode` override builder values when present.
+- omitted TOML `output_path` falls back to the original builder output; if neither source supplies one, construction or reload fails.
+- omitted TOML `mode` falls back to the original builder mode, which defaults to `light`.
 - omitted optional activation subfields use TOML contract defaults.
 
 `reload_config()` and the result-returning `reload_template(template)` update the
@@ -150,8 +145,8 @@ Behavior:
 
 TOML contract:
 
-- `[controller.activation.run_end_policy]` is optional
-- if that table is present, `kind` is required
+- `controller.activation.run_end_policy` is optional
+- when present, it is a string value
 
 ## Runtime sampler template
 
@@ -172,13 +167,9 @@ Important constraints:
 
 ### `[controller.activation]`
 
-- `mode` _(required string)_: `light` or `investigation`
+- `mode` _(optional string)_: `light` or `investigation`; falls back to builder mode and ultimately `light`
+- `output_path` _(required unless supplied with builder `.output(...)`)_: base path template for per-generation files
 - `strict_lifecycle` _(optional bool, default `false`)_
-
-### `[controller.activation.sink]`
-
-- `type` _(required string)_: `local_json`
-- `output_path` _(required string for `local_json`)_: base path template for per-generation files
 
 ### `[controller.activation.capture_limits_override]`
 
@@ -199,12 +190,12 @@ Optional table. Default is disabled.
 - `interval_ms`
 - `max_runtime_snapshots`
 
-### `[controller.activation.run_end_policy]`
+### `controller.activation.run_end_policy`
 
-Optional table. If present, `kind` is required.
+Optional string. The default is `continue_after_limits_hit`.
 
-- `kind = "continue_after_limits_hit"`
-- `kind = "auto_seal_on_limits_hit"`
+- `run_end_policy = "continue_after_limits_hit"`
+- `run_end_policy = "auto_seal_on_limits_hit"`
 
 ## Important constraints
 

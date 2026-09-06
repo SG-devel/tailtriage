@@ -71,7 +71,18 @@ mod tests {
     #[cfg(feature = "controller")]
     #[test]
     fn controller_namespace_reexport_compiles() {
-        let _builder = crate::controller::TailtriageController::builder("default-controller");
+        use crate::controller::TailtriageControllerBuilder;
+        use tailtriage_core::CaptureMode;
+
+        let builder: TailtriageControllerBuilder =
+            crate::controller::TailtriageController::builder("default-controller")
+                .mode(CaptureMode::Investigation)
+                .output("tailtriage-run.json");
+        let controller = builder.build().expect("controller should build");
+        assert_eq!(
+            controller.status().template.mode,
+            CaptureMode::Investigation
+        );
     }
 
     // TT-TEST: P02 primary

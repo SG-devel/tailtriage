@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Controller construction now requires output from `.output(...)` or flat
+  `controller.activation.output_path`; TOML output and mode override their builder bases, sparse
+  reloads return to those original bases, `run_end_policy` is a flat string, and the former public
+  one-variant sink template and `selected_mode` fields are removed.
 - `InflightTrend::growth_delta` is now `Option<i64>`: migrate typed consumers to handle `None`
   as unavailable direction. Report JSON renders that case as `null`; `Some(0)`/JSON `0` now
   unambiguously means an observed flat multi-sample episode.

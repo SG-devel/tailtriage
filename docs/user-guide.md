@@ -342,16 +342,14 @@ Minimal TOML shape:
 service_name = "checkout-service"
 
 [controller.activation]
-mode = "light"
-
-[controller.activation.sink]
-type = "local_json"
 output_path = "tailtriage-run.json"
+mode = "light"
 ```
 
 At contract level:
 
 - set config file path with `config_path(...)`
+- supply output with builder `.output(...)` or flat `controller.activation.output_path`; no path is invented implicitly
 - call `reload_config()` to refresh the template from file
 - call the result-returning `reload_template(template)` for a direct replacement
 - reload applies to **future generations only**
