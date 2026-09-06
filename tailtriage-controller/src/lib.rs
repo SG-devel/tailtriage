@@ -125,6 +125,10 @@ impl TailtriageControllerBuilder {
     /// Returns [`ControllerBuildError::EmptyServiceName`] when the final resolved
     /// `service_name` is blank.
     ///
+    /// Returns [`ControllerBuildError::MissingOutput`] when neither the builder nor
+    /// TOML supplies a non-empty output path, including when the resolved path is
+    /// explicitly empty.
+    ///
     /// Returns [`ControllerBuildError::ConfigLoad`] when `config_path(...)` is set and
     /// reading or parsing the TOML file fails.
     ///
@@ -152,10 +156,11 @@ impl TailtriageControllerBuilder {
             runtime_sampler: self.runtime_sampler,
             run_end_policy: self.run_end_policy,
         };
-        let template = resolve_controller_template(&base, loaded).map_err(|error| match error {
-            ControllerTemplateError::EmptyServiceName => ControllerBuildError::EmptyServiceName,
-            ControllerTemplateError::MissingOutput => ControllerBuildError::MissingOutput,
-        })?;
+        let template =
+            resolve_controller_template(&base, None, loaded).map_err(|error| match error {
+                ControllerTemplateError::EmptyServiceName => ControllerBuildError::EmptyServiceName,
+                ControllerTemplateError::MissingOutput => ControllerBuildError::MissingOutput,
+            })?;
 
         let inner = Arc::new(ControllerInner {
             template: Mutex::new(Arc::new(template)),
@@ -228,8 +233,17 @@ impl std::error::Error for ControllerTemplateError {}
 
 fn resolve_controller_template(
     base: &BaseControllerTemplate,
+    current: Option<&TailtriageControllerTemplate>,
     loaded: Option<ControllerConfigFile>,
 ) -> Result<ResolvedControllerTemplate, ControllerTemplateError> {
+    let fallback_service_name = current.map_or_else(
+        || base.service_name.clone(),
+        |template| template.service_name.clone(),
+    );
+    let config_path = current.map_or_else(
+        || base.config_path.clone(),
+        |template| template.config_path.clone(),
+    );
     let (
         service_name,
         output_path,
@@ -244,7 +258,7 @@ fn resolve_controller_template(
             loaded
                 .controller
                 .service_name
-                .unwrap_or_else(|| base.service_name.clone()),
+                .unwrap_or(fallback_service_name),
             activation.output_path.or_else(|| base.output_path.clone()),
             activation.mode.unwrap_or(base.mode),
             activation.capture_limits_override,
@@ -254,7 +268,7 @@ fn resolve_controller_template(
         )
     } else {
         (
-            base.service_name.clone(),
+            fallback_service_name,
             base.output_path.clone(),
             base.mode,
             base.capture_limits_override,
@@ -266,10 +280,12 @@ fn resolve_controller_template(
     if service_name.trim().is_empty() {
         return Err(ControllerTemplateError::EmptyServiceName);
     }
-    let output_path = output_path.ok_or(ControllerTemplateError::MissingOutput)?;
+    let output_path = output_path
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or(ControllerTemplateError::MissingOutput)?;
     let template = TailtriageControllerTemplate {
         service_name,
-        config_path: base.config_path.clone(),
+        config_path,
         output_path,
         mode,
         capture_limits_override,
@@ -408,7 +424,9 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigLoadError`] when reading or parsing the TOML file fails.
+    /// Returns [`ConfigLoadError`] when reading or parsing the TOML file fails, or
+    /// [`ConfigLoadError::MissingOutput`] when `controller.activation.output_path`
+    /// is omitted or empty.
     pub fn load_config_from_path(
         path: impl AsRef<Path>,
     ) -> Result<LoadedControllerConfig, ConfigLoadError> {
@@ -453,7 +471,7 @@ impl TailtriageController {
     /// [`TailtriageController::enable`] errors.
     ///
     /// Returns [`ReloadTemplateError`] when the resolved controller template is
-    /// invalid, currently when `service_name` is blank.
+    /// invalid, when `service_name` is blank or `output_path` is empty.
     pub fn reload_template(
         &self,
         next_template: TailtriageControllerTemplate,
@@ -500,21 +518,22 @@ impl TailtriageController {
         if matches!(*lifecycle, ControllerLifecycle::Shutdown { .. }) {
             return Err(ReloadConfigError::ControllerShutdown);
         }
-        let config_path = {
+        let current = {
             let template = self
                 .inner
                 .template
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(config_path) = template.public.config_path.clone() else {
-                return Err(ReloadConfigError::MissingConfigPath);
-            };
-            config_path
+            template.public.clone()
         };
+        let config_path = current
+            .config_path
+            .clone()
+            .ok_or(ReloadConfigError::MissingConfigPath)?;
 
         let loaded =
             ControllerConfigFile::from_path(&config_path).map_err(ReloadConfigError::Load)?;
-        let resolved = resolve_controller_template(&self.inner.base, Some(loaded))
+        let resolved = resolve_controller_template(&self.inner.base, Some(&current), Some(loaded))
             .map_err(ReloadConfigError::Validate)?;
 
         let mut template = self
@@ -1680,6 +1699,7 @@ impl ControllerConfigFile {
         let run_end_policy = activation.run_end_policy();
         let output_path = activation
             .output_path
+            .filter(|path| !path.as_os_str().is_empty())
             .ok_or(ConfigLoadError::MissingOutput)?;
         Ok(LoadedControllerConfig {
             service_name: self.controller.service_name,
@@ -1715,7 +1735,6 @@ struct ControllerConfigToml {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ControllerActivationConfigToml {
     mode: Option<CaptureMode>,
     output_path: Option<PathBuf>,
@@ -1727,6 +1746,18 @@ struct ControllerActivationConfigToml {
     runtime_sampler: RuntimeSamplerTemplate,
     #[serde(default)]
     run_end_policy: RunEndPolicyConfigToml,
+    #[serde(default, rename = "sink", deserialize_with = "reject_removed_sink")]
+    _removed_sink: (),
+}
+
+fn reject_removed_sink<'de, D>(deserializer: D) -> Result<(), D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let _ = serde::de::IgnoredAny::deserialize(deserializer)?;
+    Err(serde::de::Error::custom(
+        "controller.activation.sink is no longer supported",
+    ))
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -4957,6 +4988,13 @@ max_runtime_snapshots = 10
         assert!(matches!(missing, ControllerBuildError::MissingOutput));
         assert!(!Path::new("tailtriage-run-generation-1.json").exists());
 
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .output("")
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+
         let builder_output = test_output("matrix-builder");
         let default_mode = TailtriageController::builder("checkout-service")
             .output(&builder_output)
@@ -5025,6 +5063,46 @@ max_runtime_snapshots = 10
                 .build(),
             Err(ControllerBuildError::MissingOutput)
         ));
+
+        write_raw_config(
+            &config,
+            "[controller]\n[controller.activation]\noutput_path = \"\"\n",
+        );
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .config_path(&config)
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+        assert!(matches!(
+            TailtriageController::builder("checkout-service")
+                .output(&builder_output)
+                .config_path(&config)
+                .build(),
+            Err(ControllerBuildError::MissingOutput)
+        ));
+        assert!(matches!(
+            TailtriageController::load_config_from_path(&config),
+            Err(super::ConfigLoadError::MissingOutput)
+        ));
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: G05 secondary
+    #[test]
+    fn unrelated_unknown_activation_key_remains_permitted() {
+        let config = test_config_path("unknown-activation-key");
+        let output = test_output("unknown-activation-key");
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {:?}\nunrelated_future_key = true\n",
+                output.to_string_lossy()
+            ),
+        );
+        let loaded = TailtriageController::load_config_from_path(&config)
+            .expect("unrelated activation keys should remain ignored");
+        assert_eq!(loaded.activation_template.output_path, output);
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
@@ -5083,5 +5161,70 @@ max_runtime_snapshots = 10
         let _ = no_base.disable();
         let _ = fs::remove_file(active.artifact_path);
         fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: G04 primary
+    #[test]
+    fn repeated_reload_preserves_selected_path_and_builder_fallbacks() {
+        let config_b = test_config_path("selected-reload-path-b");
+        let builder_output = test_output("selected-reload-builder");
+        let toml_output = test_output("selected-reload-toml");
+        let controller = TailtriageController::builder("builder-service")
+            .output(&builder_output)
+            .mode(CaptureMode::Investigation)
+            .build()
+            .expect("builder should resolve");
+        let active = controller.enable().expect("generation should start");
+        let active_before = controller.status().generation;
+
+        write_raw_config(
+            &config_b,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {:?}\nmode = \"light\"\n",
+                toml_output.to_string_lossy()
+            ),
+        );
+        let mut selected = controller.status().template;
+        selected.config_path = Some(config_b.clone());
+        selected.service_name = "direct-service".to_owned();
+        controller
+            .reload_template(selected)
+            .expect("selecting config B should succeed");
+        controller
+            .reload_config()
+            .expect("first reload should read B");
+        let first = controller.status();
+        assert_eq!(first.template.config_path, Some(config_b.clone()));
+        assert_eq!(first.template.output_path, toml_output);
+        assert_eq!(first.template.mode, CaptureMode::Light);
+        assert_eq!(first.template.service_name, "direct-service");
+        assert_eq!(first.generation, active_before);
+
+        write_raw_config(&config_b, "[controller]\n[controller.activation]\n");
+        controller
+            .reload_config()
+            .expect("second reload should still read B");
+        let second = controller.status();
+        assert_eq!(second.template.config_path, Some(config_b.clone()));
+        assert_eq!(second.template.output_path, builder_output);
+        assert_eq!(second.template.mode, CaptureMode::Investigation);
+        assert_eq!(second.template.service_name, "direct-service");
+        assert_eq!(second.generation, active_before);
+
+        write_raw_config(
+            &config_b,
+            "[controller]\n[controller.activation]\noutput_path = \"\"\n",
+        );
+        assert!(matches!(
+            controller.reload_config(),
+            Err(ReloadConfigError::Validate(
+                super::ControllerTemplateError::MissingOutput
+            ))
+        ));
+        assert_eq!(controller.status(), second);
+
+        let _ = controller.disable();
+        let _ = fs::remove_file(active.artifact_path);
+        fs::remove_file(config_b).expect("config cleanup should succeed");
     }
 }
