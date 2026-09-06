@@ -72,16 +72,28 @@ mod tests {
     #[test]
     fn controller_namespace_reexport_compiles() {
         use crate::controller::TailtriageControllerBuilder;
+        use std::time::Duration;
         use tailtriage_core::CaptureMode;
 
+        let sampler = crate::controller::RuntimeSamplerTemplate {
+            enabled: true,
+            mode_override: Some(CaptureMode::Investigation),
+            interval: Some(Duration::from_millis(250)),
+            max_runtime_snapshots: Some(123),
+        };
         let builder: TailtriageControllerBuilder =
             crate::controller::TailtriageController::builder("default-controller")
                 .mode(CaptureMode::Investigation)
-                .output("tailtriage-run.json");
+                .output("tailtriage-run.json")
+                .runtime_sampler(sampler);
         let controller = builder.build().expect("controller should build");
         assert_eq!(
             controller.status().template.mode,
             CaptureMode::Investigation
+        );
+        assert_eq!(
+            controller.status().template.runtime_sampler.interval,
+            Some(Duration::from_millis(250))
         );
     }
 

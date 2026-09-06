@@ -101,7 +101,7 @@ max_inflight_snapshots = 300000
 max_runtime_snapshots = 150000
 
 [controller.activation.runtime_sampler]
-enabled_for_armed_runs = true
+enabled = true
 mode_override = "investigation"
 interval_ms = 250
 max_runtime_snapshots = 20000
@@ -158,6 +158,28 @@ Important constraints:
 - sampler settings are fixed at activation time
 - runtime snapshot retention is still bounded by the resolved core capture limits
 
+Programmatic Rust configuration uses `enabled` and a native `Option<Duration>` interval:
+
+```rust
+use std::time::Duration;
+use tailtriage_controller::{RuntimeSamplerTemplate, TailtriageController};
+
+let sampler = RuntimeSamplerTemplate {
+    enabled: true,
+    mode_override: None,
+    interval: Some(Duration::from_millis(250)),
+    max_runtime_snapshots: Some(20_000),
+};
+let controller = TailtriageController::builder("checkout-service")
+    .output("tailtriage-run.json")
+    .runtime_sampler(sampler)
+    .build()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The operator-facing TOML boundary keeps the `interval_ms` integer shown above; the public
+`RuntimeSamplerTemplate` itself is not a standalone serialization type.
+
 ## TOML field reference
 
 ### `[controller]`
@@ -185,7 +207,7 @@ All fields are optional:
 
 Optional table. Default is disabled.
 
-- `enabled_for_armed_runs`
+- `enabled`
 - `mode_override`
 - `interval_ms`
 - `max_runtime_snapshots`
