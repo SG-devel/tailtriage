@@ -555,7 +555,11 @@ def validate_residual_public_api_cleanup() -> None:
     tracing_types_source = tracing_types_path.read_text(encoding="utf-8")
 
     def impl_bodies(type_name: str) -> tuple[str, ...]:
-        declarations = tuple(re.finditer(rf"\bimpl\s+{type_name}\s*\{{", tracing_types_source))
+        declarations = tuple(re.finditer(
+            rf"\bimpl\s+{type_name}\s*(?:where\b[^{{]*?)?\{{",
+            tracing_types_source,
+            re.DOTALL,
+        ))
         if not declarations:
             raise ValueError(f"{tracing_types_path.relative_to(REPO_ROOT)} missing impl {type_name}")
         bodies = []

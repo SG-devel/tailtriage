@@ -30,10 +30,14 @@ class ValidateDocsContractsTests(unittest.TestCase):
             'tailtriage-analyzer/src/lib.rs': 'pub enum DiagnosisKind { ApplicationQueuePressure, BlockingPoolPressure, ExecutorPressure, DownstreamStageDominance, InsufficientEvidence, }\n',
             'tailtriage-tracing/src/types.rs': '''impl SpanRecord {
     pub fn new() {}
-    pub fn id(&self) {}
     pub fn with_id(mut self, id: String) -> Self { self }
 }
-impl SpanRecord {}
+impl SpanRecord
+where
+    (): Sized,
+{
+    pub fn id(&self) {}
+}
 impl ImportOptions {
     pub fn new() {}
     pub fn configured_run_id(&self) {}
@@ -147,6 +151,23 @@ impl ImportedRun {}
                 self._assert_residual_api_rejected(
                     'tailtriage-tracing/src/types.rs', source, symbol
                 )
+
+    # TT-TEST: M02 secondary
+    def test_residual_public_api_cleanup_rejects_removed_tracing_surface_in_where_impl(self) -> None:
+        source = '''impl SpanRecord {}
+impl SpanRecord
+where
+    (): Sized,
+{
+    pub fn id(mut self, value: String) -> Self { self }
+}
+impl ImportOptions {}
+impl ImportWarning {}
+impl ImportedRun {}
+'''
+        self._assert_residual_api_rejected(
+            'tailtriage-tracing/src/types.rs', source, 'SpanRecord::id consuming setter'
+        )
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_const_removed_tracing_surface(self) -> None:
