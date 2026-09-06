@@ -21,6 +21,8 @@ class ValidateDocsContractsTests(unittest.TestCase):
 pub struct TailtriageControllerBuilder;
 pub struct TailtriageControllerTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
 pub struct ControllerActivationTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RuntimeSamplerTemplate { pub enabled: bool, pub mode_override: Option<CaptureMode>, pub interval: Option<Duration>, pub max_runtime_snapshots: Option<usize> }
 impl TailtriageController { pub fn builder() {} }
 impl TailtriageControllerBuilder { pub const fn mode(self, mode: CaptureMode) -> Self { self } }
 ''',
@@ -198,11 +200,37 @@ impl ImportedRun { pub(crate) fn new() {} }
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
+    # TT-TEST: M02 secondary
+    def test_runtime_sampler_template_rejects_removed_fields_and_serde(self) -> None:
+        canonical = self._controller_source()
+        cases = (
+            (canonical.replace('pub enabled: bool', 'pub enabled: bool, pub enabled_for_armed_runs: bool'), 'RuntimeSamplerTemplate::enabled_for_armed_runs'),
+            (canonical.replace('pub interval: Option<Duration>', 'pub interval: Option<Duration>, pub interval_ms: Option<u64>'), 'RuntimeSamplerTemplate::interval_ms'),
+            (canonical.replace('derive(Debug, Clone, Copy, PartialEq, Eq, Default)', 'derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)'), 'RuntimeSamplerTemplate Serialize'),
+            (canonical.replace('derive(Debug, Clone, Copy, PartialEq, Eq, Default)', 'derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)'), 'RuntimeSamplerTemplate Deserialize'),
+            (canonical + '\nimpl Serialize for RuntimeSamplerTemplate {}\n', 'RuntimeSamplerTemplate Serialize'),
+            (canonical + "\nimpl<'de> Deserialize<'de> for RuntimeSamplerTemplate {}\n", 'RuntimeSamplerTemplate Deserialize'),
+        )
+        for source, expected in cases:
+            with self.subTest(expected=expected):
+                self._assert_residual_api_rejected('tailtriage-controller/src/lib.rs', source, expected)
+
+    # TT-TEST: M02 secondary
+    def test_runtime_sampler_template_accepts_private_toml_serde_and_unrelated_milliseconds(self) -> None:
+        self._assert_controller_source_accepted(
+            self._controller_source()
+            + '\npub struct Unrelated { pub interval_ms: Option<u64> }\n'
+            + '#[derive(Deserialize)] struct RuntimeSamplerConfigToml { interval_ms: Option<u64> }\n'
+            + '#[derive(Serialize)] struct TestRuntimeSamplerToml { interval_ms: u64 }\n'
+        )
+
     def _controller_source(self) -> str:
         return '''pub struct TailtriageController;
 pub struct TailtriageControllerBuilder;
 pub struct TailtriageControllerTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
 pub struct ControllerActivationTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RuntimeSamplerTemplate { pub enabled: bool, pub mode_override: Option<CaptureMode>, pub interval: Option<Duration>, pub max_runtime_snapshots: Option<usize> }
 impl TailtriageController { pub fn builder() {} }
 impl TailtriageControllerBuilder { pub const fn mode(self, mode: CaptureMode) -> Self { self } }
 '''
@@ -413,6 +441,32 @@ pub enum DiagnosisKind {
             parsed={"controller": {"service_name": "checkout", "activation": {"output_path": "run.json", "run_end_policy": "auto_seal_on_limits_hit"}}},
             example_name="synthetic",
         )
+
+    # TT-TEST: M01 secondary
+    def test_controller_toml_contract_accepts_runtime_sampler_fields(self) -> None:
+        validate_docs_contracts._validate_controller_toml_shape(
+            parsed={"controller": {"service_name": "checkout", "activation": {
+                "output_path": "run.json", "runtime_sampler": {"enabled": True,
+                "mode_override": "investigation", "interval_ms": 250,
+                "max_runtime_snapshots": 34}}}}, example_name="synthetic",
+        )
+
+    # TT-TEST: M01 secondary
+    def test_controller_toml_contract_rejects_removed_or_mistyped_sampler_fields(self) -> None:
+        cases = (
+            ({"enabled_for_armed_runs": True}, "enabled_for_armed_runs"),
+            ({"enabled": "true"}, "enabled must be a bool"),
+            ({"enabled": True, "mode_override": "deep"}, "mode_override is invalid"),
+            ({"enabled": True, "interval_ms": "250"}, "interval_ms must be an integer"),
+            ({"enabled": True, "max_runtime_snapshots": False}, "max_runtime_snapshots must be an integer"),
+        )
+        for sampler, expected in cases:
+            with self.subTest(sampler=sampler), self.assertRaisesRegex(ValueError, expected):
+                validate_docs_contracts._validate_controller_toml_shape(
+                    parsed={"controller": {"service_name": "checkout", "activation": {
+                        "output_path": "run.json", "runtime_sampler": sampler}}},
+                    example_name="synthetic",
+                )
 
     # TT-TEST: M01 secondary
     def test_controller_toml_contract_rejects_removed_nested_forms(self) -> None:

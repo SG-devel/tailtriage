@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Controller runtime sampler Rust configuration now uses
+  `RuntimeSamplerTemplate.enabled` and `interval: Option<Duration>` instead of
+  `enabled_for_armed_runs` and `interval_ms`. Controller TOML likewise renames
+  `enabled_for_armed_runs` to `enabled` but keeps `interval_ms`. The public template no longer
+  implements standalone `Serialize` or `Deserialize`; TOML translation is controller-owned.
 - Controller construction now requires output from `.output(...)` or flat
   `controller.activation.output_path`; TOML output and mode override their builder bases, sparse
   reloads return to those original bases, `run_end_policy` is a flat string, and the former public

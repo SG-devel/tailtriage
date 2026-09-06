@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tailtriage_core::{
     BuildError, CaptureLimitsOverride, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion,
     OwnedRequestHandle, QueueTimer, RequestOptions, RunEndReason, StageTimer, Tailtriage,
@@ -263,7 +263,7 @@ fn resolve_controller_template(
             activation.mode.unwrap_or(base.mode),
             activation.capture_limits_override,
             activation.strict_lifecycle,
-            activation.runtime_sampler,
+            activation.runtime_sampler.into(),
             activation.run_end_policy.into(),
         )
     } else {
@@ -677,7 +677,7 @@ impl TailtriageController {
         runtime: &Arc<ActiveGenerationRuntime>,
         run: &Arc<Tailtriage>,
     ) -> Result<(), EnableError> {
-        if !template.runtime_sampler.enabled_for_armed_runs {
+        if !template.runtime_sampler.enabled {
             return Ok(());
         }
 
@@ -687,8 +687,8 @@ impl TailtriageController {
         if let Some(mode_override) = template.runtime_sampler.mode_override {
             sampler_builder = sampler_builder.mode(mode_override);
         }
-        if let Some(interval_ms) = template.runtime_sampler.interval_ms {
-            sampler_builder = sampler_builder.interval(Duration::from_millis(interval_ms));
+        if let Some(interval) = template.runtime_sampler.interval {
+            sampler_builder = sampler_builder.interval(interval);
         }
         if let Some(max_runtime_snapshots) = template.runtime_sampler.max_runtime_snapshots {
             sampler_builder = sampler_builder.max_runtime_snapshots(max_runtime_snapshots);
@@ -1554,14 +1554,14 @@ pub struct TailtriageControllerTemplate {
 }
 
 /// Runtime sampler template attached to controller activation settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RuntimeSamplerTemplate {
     /// Enables runtime sampler startup for armed runs.
-    pub enabled_for_armed_runs: bool,
+    pub enabled: bool,
     /// Optional mode override used by runtime sampler.
     pub mode_override: Option<CaptureMode>,
-    /// Optional interval override in milliseconds.
-    pub interval_ms: Option<u64>,
+    /// Optional runtime sampler interval override.
+    pub interval: Option<Duration>,
     /// Optional max runtime snapshots override.
     pub max_runtime_snapshots: Option<usize>,
 }
@@ -1709,7 +1709,7 @@ impl ControllerConfigFile {
                 mode: activation.mode.unwrap_or(CaptureMode::Light),
                 capture_limits_override: activation.capture_limits_override,
                 strict_lifecycle: activation.strict_lifecycle,
-                runtime_sampler: activation.runtime_sampler,
+                runtime_sampler: activation.runtime_sampler.into(),
                 run_end_policy,
             },
         })
@@ -1743,11 +1743,46 @@ struct ControllerActivationConfigToml {
     #[serde(default)]
     strict_lifecycle: bool,
     #[serde(default)]
-    runtime_sampler: RuntimeSamplerTemplate,
+    runtime_sampler: RuntimeSamplerConfigToml,
     #[serde(default)]
     run_end_policy: RunEndPolicyConfigToml,
     #[serde(default, rename = "sink", deserialize_with = "reject_removed_sink")]
     _removed_sink: (),
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+struct RuntimeSamplerConfigToml {
+    enabled: bool,
+    mode_override: Option<CaptureMode>,
+    interval_ms: Option<u64>,
+    max_runtime_snapshots: Option<usize>,
+    #[serde(
+        default,
+        rename = "enabled_for_armed_runs",
+        deserialize_with = "reject_removed_runtime_sampler_enabled"
+    )]
+    _removed_enabled_for_armed_runs: (),
+}
+
+impl From<RuntimeSamplerConfigToml> for RuntimeSamplerTemplate {
+    fn from(value: RuntimeSamplerConfigToml) -> Self {
+        Self {
+            enabled: value.enabled,
+            mode_override: value.mode_override,
+            interval: value.interval_ms.map(Duration::from_millis),
+            max_runtime_snapshots: value.max_runtime_snapshots,
+        }
+    }
+}
+
+fn reject_removed_runtime_sampler_enabled<'de, D>(deserializer: D) -> Result<(), D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let _ = serde::de::IgnoredAny::deserialize(deserializer)?;
+    Err(serde::de::Error::custom(
+        "controller.activation.runtime_sampler.enabled_for_armed_runs is no longer supported; use enabled",
+    ))
 }
 
 fn reject_removed_sink<'de, D>(deserializer: D) -> Result<(), D::Error>
@@ -2123,7 +2158,7 @@ mod tests {
 
     #[derive(Serialize)]
     struct TestRuntimeSamplerToml {
-        enabled_for_armed_runs: bool,
+        enabled: bool,
         mode_override: &'static str,
         interval_ms: u64,
         max_runtime_snapshots: u64,
@@ -2285,7 +2320,7 @@ mod tests {
                     strict_lifecycle: Some(strict),
                     output_path: Some(output.to_path_buf()),
                     runtime_sampler: Some(TestRuntimeSamplerToml {
-                        enabled_for_armed_runs: sampler_enabled,
+                        enabled: sampler_enabled,
                         mode_override: "investigation",
                         interval_ms: 250,
                         max_runtime_snapshots: 123,
@@ -2386,7 +2421,7 @@ mod tests {
                     strict_lifecycle: Some(true),
                     output_path: Some(output.to_path_buf()),
                     runtime_sampler: Some(TestRuntimeSamplerToml {
-                        enabled_for_armed_runs: true,
+                        enabled: true,
                         mode_override: "investigation",
                         interval_ms: 250,
                         max_runtime_snapshots: 34,
@@ -4110,12 +4145,7 @@ mod tests {
                 max_runtime_snapshots: None,
             }
         );
-        assert!(
-            loaded
-                .activation_template
-                .runtime_sampler
-                .enabled_for_armed_runs
-        );
+        assert!(loaded.activation_template.runtime_sampler.enabled);
         assert_eq!(
             loaded.activation_template.run_end_policy,
             RunEndPolicy::AutoSealOnLimitsHit
@@ -4148,9 +4178,9 @@ mod tests {
             },
             strict_lifecycle: true,
             runtime_sampler: RuntimeSamplerTemplate {
-                enabled_for_armed_runs: true,
+                enabled: true,
                 mode_override: Some(CaptureMode::Investigation),
-                interval_ms: Some(250),
+                interval: Some(Duration::from_millis(250)),
                 max_runtime_snapshots: Some(34),
             },
             run_end_policy: RunEndPolicy::AutoSealOnLimitsHit,
@@ -4299,7 +4329,7 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             .build()
             .expect("disabled controller should build outside a runtime");
         let mut template = controller.status().template;
-        template.runtime_sampler.enabled_for_armed_runs = true;
+        template.runtime_sampler.enabled = true;
         let result: Result<(), ReloadTemplateError> = controller.reload_template(template);
         result.expect("pure reload should not require a Tokio runtime");
 
@@ -4347,7 +4377,7 @@ max_requests = 17
 max_stages = 18
 
 [controller.activation.runtime_sampler]
-enabled_for_armed_runs = false
+enabled = false
 "#,
         )
         .expect("invalid config write should succeed");
@@ -4521,9 +4551,9 @@ enabled_for_armed_runs = false
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .runtime_sampler(RuntimeSamplerTemplate {
-                enabled_for_armed_runs: true,
+                enabled: true,
                 mode_override: None,
-                interval_ms: Some(20),
+                interval: Some(Duration::from_millis(20)),
                 max_runtime_snapshots: Some(10),
             })
             .build()
@@ -4538,6 +4568,29 @@ enabled_for_armed_runs = false
             GenerationState::Disabled { next_generation: 1 }
         ));
         assert!(!expected_artifact.exists());
+    }
+
+    // TT-TEST: T04 secondary
+    #[test]
+    fn disabled_sampler_with_populated_options_does_not_require_tokio_runtime() {
+        let output = test_output("disabled-sampler-no-runtime");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .runtime_sampler(RuntimeSamplerTemplate {
+                enabled: false,
+                mode_override: Some(CaptureMode::Investigation),
+                interval: Some(Duration::from_millis(20)),
+                max_runtime_snapshots: Some(100),
+            })
+            .build()
+            .expect("disabled sampler should build outside a runtime");
+        let active = controller
+            .enable()
+            .expect("disabled sampler should enable outside a runtime");
+        controller.disable().expect("generation should finalize");
+        let run = read_run(&active.artifact_path);
+        assert!(run.metadata.effective_tokio_sampler_config.is_none());
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
     // TT-TEST: G05 primary
@@ -4816,7 +4869,7 @@ mode = "light"
 output_path = "tailtriage-run.json"
 
 [controller.activation.runtime_sampler]
-enabled_for_armed_runs = true
+enabled = true
 interval_ms = 20
 max_runtime_snapshots = 10
 "#,
@@ -4831,6 +4884,70 @@ max_runtime_snapshots = 10
             ControllerBuildError::InitialEnable(EnableError::MissingTokioRuntimeForSampler)
         ));
 
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: T03 secondary
+    #[tokio::test]
+    async fn programmatic_zero_sampler_interval_reaches_sampler_start_validation() {
+        let controller = TailtriageController::builder("checkout-service")
+            .output(test_output("programmatic-zero-sampler-interval"))
+            .runtime_sampler(RuntimeSamplerTemplate {
+                enabled: true,
+                interval: Some(Duration::ZERO),
+                ..RuntimeSamplerTemplate::default()
+            })
+            .build()
+            .expect("build should not validate the sampler interval");
+
+        assert!(matches!(
+            controller.enable(),
+            Err(EnableError::StartRuntimeSampler(
+                tailtriage_tokio::SamplerStartError::ZeroInterval
+            ))
+        ));
+    }
+
+    // TT-TEST: T03 secondary
+    #[tokio::test]
+    async fn toml_zero_sampler_interval_reaches_sampler_start_validation() {
+        let config = test_config_path("toml-zero-sampler-interval");
+        let output = test_output("toml-zero-sampler-interval");
+        write_raw_config(
+            &config,
+            &format!(
+                "[controller]\n[controller.activation]\noutput_path = {output:?}\n[controller.activation.runtime_sampler]\nenabled = true\ninterval_ms = 0\n"
+            ),
+        );
+        let controller = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("zero interval TOML should parse and translate");
+        assert_eq!(
+            controller.status().template.runtime_sampler.interval,
+            Some(Duration::ZERO)
+        );
+        assert!(matches!(
+            controller.enable(),
+            Err(EnableError::StartRuntimeSampler(
+                tailtriage_tokio::SamplerStartError::ZeroInterval
+            ))
+        ));
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    // TT-TEST: G05 secondary
+    #[test]
+    fn removed_runtime_sampler_enabled_key_is_rejected() {
+        let config = test_config_path("removed-runtime-sampler-enabled-key");
+        write_raw_config(
+            &config,
+            "[controller]\n[controller.activation]\noutput_path = \"run.json\"\n[controller.activation.runtime_sampler]\nenabled_for_armed_runs = true\n",
+        );
+        assert!(matches!(
+            TailtriageController::load_config_from_path(&config),
+            Err(super::ConfigLoadError::Parse { .. })
+        ));
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
@@ -4860,9 +4977,9 @@ max_runtime_snapshots = 10
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .runtime_sampler(RuntimeSamplerTemplate {
-                enabled_for_armed_runs: true,
+                enabled: true,
                 mode_override: Some(CaptureMode::Investigation),
-                interval_ms: Some(15),
+                interval: Some(Duration::from_millis(20)),
                 max_runtime_snapshots: Some(8),
             })
             .capture_limits_override(CaptureLimitsOverride {
@@ -4890,7 +5007,7 @@ max_runtime_snapshots = 10
             Some(CaptureMode::Investigation)
         );
         assert_eq!(config.resolved_mode, CaptureMode::Investigation);
-        assert_eq!(config.resolved_sampler_cadence_ms, 15);
+        assert_eq!(config.resolved_sampler_cadence_ms, 20);
         assert_eq!(config.resolved_runtime_snapshot_retention, 3);
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
@@ -4903,9 +5020,9 @@ max_runtime_snapshots = 10
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .runtime_sampler(RuntimeSamplerTemplate {
-                enabled_for_armed_runs: false,
+                enabled: false,
                 mode_override: Some(CaptureMode::Investigation),
-                interval_ms: Some(5),
+                interval: Some(Duration::from_millis(5)),
                 max_runtime_snapshots: Some(100),
             })
             .build()
@@ -4932,9 +5049,9 @@ max_runtime_snapshots = 10
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .runtime_sampler(RuntimeSamplerTemplate {
-                enabled_for_armed_runs: true,
+                enabled: true,
                 mode_override: None,
-                interval_ms: Some(10),
+                interval: Some(Duration::from_millis(10)),
                 max_runtime_snapshots: Some(32),
             })
             .build()

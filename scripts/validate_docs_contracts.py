@@ -231,17 +231,32 @@ def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str
         )
 
     run_end_policy = activation.get("run_end_policy")
-    if run_end_policy is None:
-        return
-    if not isinstance(run_end_policy, str):
+    if run_end_policy is not None and not isinstance(run_end_policy, str):
         raise ValueError(f"{example_name} controller README run_end_policy must be a string")
 
     supported_kinds = extract_run_end_policy_kinds_from_source()
-    if run_end_policy not in supported_kinds:
+    if run_end_policy is not None and run_end_policy not in supported_kinds:
         raise ValueError(
             "controller README run_end_policy.kind drift: "
             f"{run_end_policy!r} not in supported {sorted(supported_kinds)}"
         )
+
+    runtime_sampler = activation.get("runtime_sampler")
+    if runtime_sampler is None:
+        return
+    if not isinstance(runtime_sampler, dict):
+        raise ValueError(f"{example_name} controller README runtime_sampler must be a table")
+    if "enabled_for_armed_runs" in runtime_sampler:
+        raise ValueError(f"{example_name} controller README runtime_sampler must not use enabled_for_armed_runs")
+    if not isinstance(runtime_sampler.get("enabled"), bool):
+        raise ValueError(f"{example_name} controller README runtime_sampler.enabled must be a bool")
+    mode_override = runtime_sampler.get("mode_override")
+    if mode_override is not None and mode_override not in {"light", "investigation"}:
+        raise ValueError(f"{example_name} controller README runtime_sampler.mode_override is invalid")
+    for field in ("interval_ms", "max_runtime_snapshots"):
+        value = runtime_sampler.get(field)
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+            raise ValueError(f"{example_name} controller README runtime_sampler.{field} must be an integer")
 
 
 def normalize_doc_link(link: str) -> str:
@@ -598,6 +613,42 @@ def validate_residual_public_api_cleanup() -> None:
                 raise ValueError(
                     f"tailtriage-controller/src/lib.rs exposes removed residual public API: public {field} field"
                 )
+
+    sampler_declaration = re.search(
+        r"(?P<attributes>(?:\s*#\[[^\]]*\]\s*)*)pub\s+struct\s+RuntimeSamplerTemplate\s*\{",
+        controller_source,
+        flags=re.DOTALL,
+    )
+    if sampler_declaration is None:
+        raise ValueError("tailtriage-controller/src/lib.rs missing canonical public API: RuntimeSamplerTemplate")
+    sampler_body = declaration_bodies(
+        controller_source,
+        controller_path,
+        r"\bpub\s+struct\s+RuntimeSamplerTemplate\s*\{",
+    )[0]
+    required_sampler_fields = (
+        ("enabled", r"\bpub\s+enabled\s*:\s*bool\b"),
+        ("mode_override", r"\bpub\s+mode_override\s*:\s*Option\s*<\s*CaptureMode\s*>"),
+        ("interval", r"\bpub\s+interval\s*:\s*Option\s*<\s*Duration\s*>"),
+        ("max_runtime_snapshots", r"\bpub\s+max_runtime_snapshots\s*:\s*Option\s*<\s*usize\s*>")
+    )
+    for field, pattern in required_sampler_fields:
+        if re.search(pattern, sampler_body) is None:
+            raise ValueError(f"tailtriage-controller/src/lib.rs missing canonical public API: RuntimeSamplerTemplate::{field}")
+    for field in ("enabled_for_armed_runs", "interval_ms"):
+        if re.search(rf"\bpub\s+{field}\s*:", sampler_body):
+            raise ValueError(f"tailtriage-controller/src/lib.rs exposes removed residual public API: RuntimeSamplerTemplate::{field}")
+    attributes = sampler_declaration.group("attributes")
+    for serde_trait in ("Serialize", "Deserialize"):
+        if re.search(rf"derive\s*\([^)]*\b{serde_trait}\b", attributes, re.DOTALL):
+            raise ValueError(f"tailtriage-controller/src/lib.rs exposes removed residual public API: RuntimeSamplerTemplate {serde_trait}")
+    explicit_serde_impls = (
+        ("Serialize", r"\bimpl(?:\s*<[^>]*>)?\s+(?:serde::)?Serialize\s+for\s+RuntimeSamplerTemplate\b"),
+        ("Deserialize", r"\bimpl\s*<[^>]*>\s+(?:serde::)?Deserialize\s*<[^>]*>\s+for\s+RuntimeSamplerTemplate\b"),
+    )
+    for serde_trait, pattern in explicit_serde_impls:
+        if re.search(pattern, controller_source, re.DOTALL):
+            raise ValueError(f"tailtriage-controller/src/lib.rs exposes removed residual public API: RuntimeSamplerTemplate {serde_trait}")
 
     tracing_types_path = REPO_ROOT / "tailtriage-tracing" / "src" / "types.rs"
     tracing_types_source = tracing_types_path.read_text(encoding="utf-8")
