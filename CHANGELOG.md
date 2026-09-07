@@ -4,6 +4,16 @@
 
 ### Changed
 
+- Tracing JSONL import now accepts only the stable `tailtriage.tracing-span.v1` wrapper through
+  `import_jsonl_reader(...)` and `import_jsonl_path(...)`. `JsonlParseMode`,
+  `import_jsonl_reader_with_mode(...)`, and `import_jsonl_path_with_mode(...)` were removed;
+  callers with legacy or pre-stable compatible records must convert them externally to the stable
+  wrapper before import.
+- The default `tailtriage` facade now explicitly reexports the supported `tailtriage-core` root
+  API instead of glob-reexporting every compiler-public core item. The doc-hidden
+  `tailtriage_core::__internal` sibling bridge is intentionally not exposed as
+  `tailtriage::__internal`; it is unsupported integration plumbing, not a user migration target.
+
 - Controller request, queue, stage, and in-flight wrappers now hide their captured/inert
   representation. Replace matching on the former `ControllerRequestHandle::{Active, Inert}`
   variants with `handle.is_captured()`, and use `handle.captured_handle()` only for explicit core

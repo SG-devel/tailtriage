@@ -64,24 +64,39 @@ pub use validation::{
     RUN_RELATIVE_DURATION_TOLERANCE_US,
 };
 
-/// Internal integration hooks for sibling crates in this workspace.
+/// Compiler-public integration hooks for sibling crates in this workspace.
+///
+/// Workspace packages are separate Rust crates, so sibling integrations cannot call core
+/// `pub(crate)` internals. These items are public only at the compiler level to provide that
+/// narrow bridge. The module is hidden from documentation, excluded from the supported end-user
+/// API contract, and may change without the compatibility guarantees of supported public APIs.
+/// Ordinary core implementation details must remain private or `pub(crate)`.
 #[doc(hidden)]
 pub mod __internal {
     use crate::{EffectiveTokioSamplerConfig, RunEndReason, Tailtriage};
 
-    /// Internal duplicate-registration signal for the Tokio integration.
+    /// Internal cross-crate protocol signal used by the Tokio integration.
+    ///
+    /// This is not a supported user-facing core error type.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DuplicateRuntimeSampler;
 
-    /// Sets controller-owned run-end provenance without exposing live mutation publicly.
+    /// Sets controller-owned run-end provenance for the controller integration.
+    ///
+    /// Controller lifecycle owns this mutation. The hook exists only so
+    /// `tailtriage-controller` can stamp controller-owned run-end provenance; exposing it as
+    /// ordinary application API would let callers forge or mutate that provenance independently
+    /// of controller state.
     pub fn set_run_end_reason_if_absent(tailtriage: &Tailtriage, reason: RunEndReason) {
         tailtriage.set_run_end_reason_if_absent(reason);
     }
 
     /// Escapes control characters for human-readable output in workspace sibling integrations.
     ///
-    /// This is not a general serialization or Unicode security mechanism. It is a doc-hidden,
-    /// unsupported integration hook for rendering dynamic fields at human-output boundaries.
+    /// This shares human-output escaping across sibling Tailtriage crates. It is not part of core
+    /// capture, Run-schema, validation, persistence, or lifecycle semantics; promoting it would
+    /// create an unrelated generic text-utility API commitment. It is also not a general
+    /// serialization or Unicode security mechanism.
     #[must_use]
     pub fn escape_control_chars(input: &str) -> String {
         let mut output = String::with_capacity(input.len());
@@ -97,9 +112,10 @@ pub mod __internal {
 
     /// Registers Tokio sampler startup metadata after real sampler preconditions pass.
     ///
-    /// This is an intentionally narrow cross-crate boundary for
-    /// `tailtriage-tokio` integration. It is hidden from docs and not a
-    /// supported end-user API surface.
+    /// Tokio sampler registration is owned by `tailtriage-tokio`, which invokes this hook only
+    /// after its runtime and startup preconditions pass. Making it ordinary public core API would
+    /// let applications forge effective Tokio sampler metadata without going through that
+    /// integration.
     ///
     /// # Errors
     ///
