@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Controller request, queue, stage, and in-flight wrappers now hide their captured/inert
+  representation. Replace matching on the former `ControllerRequestHandle::{Active, Inert}`
+  variants with `handle.is_captured()`, and use `handle.captured_handle()` only for explicit core
+  `OwnedRequestHandle` interoperability. `InertControllerRequestHandle` is no longer public.
+
 - Controller runtime sampler Rust configuration now uses
   `RuntimeSamplerTemplate.enabled` and `interval: Option<Duration>` instead of
   `enabled_for_armed_runs` and `interval_ms`. Controller TOML likewise renames
@@ -65,7 +70,7 @@
 
 - Removed the deprecated no-op `scripts/validate_all.py --include-cargo` compatibility flag. Cargo completion checks already run by default; omit the flag, or use `--skip-cargo` when intentionally running only the non-Cargo validation tracks.
 
-- Removed residual compatibility-only public APIs before 0.4.0. Migrate `controller.try_begin_request(route)` and `controller.try_begin_request_with(route, options)` to `controller.begin_request(route)` and `controller.begin_request_with(route, options)`; callers that truly need an admission branch can match `ControllerRequestHandle::{Active, Inert}`. Migrate `RuntimeSampler::start(run, interval)?` to `RuntimeSampler::builder(run).interval(interval).start()?`. The `crate_name()` smoke helpers in `tailtriage-tokio` and `tailtriage-axum` were removed without replacement because they were not product behavior. The `tailtriage-cli` command-line package and library documentation target remain supported, but its artifact loader, analyzer-option builder/error, and analyzer-options help renderer are now internal CLI plumbing: use `tailtriage-analyzer` for in-process analysis, `tailtriage-core` for generic Run validation/normalization, and invoke the CLI for saved-artifact command policy.
+- Removed residual compatibility-only public APIs before 0.4.0. Migrate `controller.try_begin_request(route)` and `controller.try_begin_request_with(route, options)` to `controller.begin_request(route)` and `controller.begin_request_with(route, options)`; callers that truly need admission inspection should use `handle.is_captured()` or the explicit core interoperability escape hatch `handle.captured_handle()`. Migrate `RuntimeSampler::start(run, interval)?` to `RuntimeSampler::builder(run).interval(interval).start()?`. The `crate_name()` smoke helpers in `tailtriage-tokio` and `tailtriage-axum` were removed without replacement because they were not product behavior. The `tailtriage-cli` command-line package and library documentation target remain supported, but its artifact loader, analyzer-option builder/error, and analyzer-options help renderer are now internal CLI plumbing: use `tailtriage-analyzer` for in-process analysis, `tailtriage-core` for generic Run validation/normalization, and invoke the CLI for saved-artifact command policy.
 
 - Simplified the analyzer API to one checked `analyze_run` operation plus separate `render_text`, `render_json`, and `render_json_pretty` functions. Migrate `try_analyze_run(...)` to `analyze_run(...)?`, `Analyzer` methods to the free function, `analyze_run_json*` / `try_analyze_run_json*` to analysis followed by `render_json*`, and analyzer strict wrappers to `tailtriage_core::validate_run_strict(...)?` followed by analysis.
 

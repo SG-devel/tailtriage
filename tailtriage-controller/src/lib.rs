@@ -851,7 +851,7 @@ impl TailtriageController {
                         active.inflight_captured.fetch_add(1, Ordering::AcqRel);
 
                         return ControllerStartedRequest {
-                            handle: ControllerRequestHandle::Active(started.handle),
+                            handle: ControllerRequestHandle::captured(started.handle),
                             completion: ControllerRequestCompletion {
                                 kind: ControllerCompletionKind::Active(
                                     ActiveControllerCompletion {
@@ -874,7 +874,7 @@ impl TailtriageController {
         }
 
         ControllerStartedRequest {
-            handle: ControllerRequestHandle::Inert(InertControllerRequestHandle::new(
+            handle: ControllerRequestHandle::inert(InertControllerRequestHandle::new(
                 route,
                 options,
                 self.next_inert_request_id(),
@@ -1360,74 +1360,112 @@ impl ActiveControllerCompletion {
     }
 }
 
-/// Instrumentation handle for requests admitted through [`TailtriageController`].
+/// Instrumentation handle for requests begun through [`TailtriageController`].
 #[derive(Debug, Clone)]
-pub enum ControllerRequestHandle {
-    /// Active request handle delegated to one admitted generation.
-    Active(OwnedRequestHandle),
-    /// Inert request handle returned while disabled/closing.
+pub struct ControllerRequestHandle {
+    kind: ControllerRequestKind,
+}
+
+#[derive(Debug, Clone)]
+enum ControllerRequestKind {
+    Captured(OwnedRequestHandle),
     Inert(InertControllerRequestHandle),
 }
 
 impl ControllerRequestHandle {
+    fn captured(handle: OwnedRequestHandle) -> Self {
+        Self {
+            kind: ControllerRequestKind::Captured(handle),
+        }
+    }
+
+    fn inert(handle: InertControllerRequestHandle) -> Self {
+        Self {
+            kind: ControllerRequestKind::Inert(handle),
+        }
+    }
+
+    /// Returns whether this request was captured by a controller generation when it began.
+    ///
+    /// This is immutable admission identity, not the controller's current enablement state.
+    #[must_use]
+    pub fn is_captured(&self) -> bool {
+        matches!(self.kind, ControllerRequestKind::Captured(_))
+    }
+
+    /// Returns the original core handle for explicit interoperability when captured.
+    #[must_use]
+    pub fn captured_handle(&self) -> Option<&OwnedRequestHandle> {
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => Some(handle),
+            ControllerRequestKind::Inert(_) => None,
+        }
+    }
+
     /// Correlation ID attached to this request.
     #[must_use]
     pub fn request_id(&self) -> &str {
-        match self {
-            Self::Active(handle) => handle.request_id(),
-            Self::Inert(handle) => handle.request_id(),
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => handle.request_id(),
+            ControllerRequestKind::Inert(handle) => handle.request_id(),
         }
     }
 
     /// Route/operation name attached to this request.
     #[must_use]
     pub fn route(&self) -> &str {
-        match self {
-            Self::Active(handle) => handle.route(),
-            Self::Inert(handle) => handle.route(),
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => handle.route(),
+            ControllerRequestKind::Inert(handle) => handle.route(),
         }
     }
 
     /// Optional kind metadata attached to this request.
     #[must_use]
     pub fn kind(&self) -> Option<&str> {
-        match self {
-            Self::Active(handle) => handle.kind(),
-            Self::Inert(handle) => handle.kind(),
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => handle.kind(),
+            ControllerRequestKind::Inert(handle) => handle.kind(),
         }
     }
 
     /// Starts queue-wait timing instrumentation for `queue`.
     #[must_use]
     pub fn queue(&self, queue: impl Into<String>) -> ControllerQueueTimer<'_> {
-        match self {
-            Self::Active(handle) => ControllerQueueTimer::Active(handle.queue(queue)),
-            Self::Inert(_) => ControllerQueueTimer::Inert,
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => {
+                ControllerQueueTimer::captured(handle.queue(queue))
+            }
+            ControllerRequestKind::Inert(_) => ControllerQueueTimer::inert(),
         }
     }
 
     /// Starts stage timing instrumentation for `stage`.
     #[must_use]
     pub fn stage(&self, stage: impl Into<String>) -> ControllerStageTimer<'_> {
-        match self {
-            Self::Active(handle) => ControllerStageTimer::Active(handle.stage(stage)),
-            Self::Inert(_) => ControllerStageTimer::Inert,
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => {
+                ControllerStageTimer::captured(handle.stage(stage))
+            }
+            ControllerRequestKind::Inert(_) => ControllerStageTimer::inert(),
         }
     }
 
     /// Creates an in-flight guard for `gauge`.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> ControllerInflightGuard<'_> {
-        match self {
-            Self::Active(handle) => ControllerInflightGuard::Active(handle.inflight(gauge)),
-            Self::Inert(_) => ControllerInflightGuard::Inert,
+        match &self.kind {
+            ControllerRequestKind::Captured(handle) => {
+                ControllerInflightGuard::captured(handle.inflight(gauge))
+            }
+            ControllerRequestKind::Inert(_) => ControllerInflightGuard::inert(),
         }
     }
 }
 
 /// Inert controller request handle metadata stored while disabled/closing.
 #[derive(Debug, Clone)]
-pub struct InertControllerRequestHandle {
+struct InertControllerRequestHandle {
     request_id: String,
     route: String,
     kind: Option<String>,
@@ -1457,20 +1495,35 @@ impl InertControllerRequestHandle {
 
 /// Controller-local queue timer wrapper.
 #[derive(Debug)]
-pub enum ControllerQueueTimer<'a> {
-    /// Queue timer delegated to an active generation.
-    Active(QueueTimer<'a>),
-    /// Inert timer used while disabled/closing.
+pub struct ControllerQueueTimer<'a> {
+    kind: ControllerQueueTimerKind<'a>,
+}
+
+#[derive(Debug)]
+enum ControllerQueueTimerKind<'a> {
+    Captured(QueueTimer<'a>),
     Inert,
 }
 
 impl ControllerQueueTimer<'_> {
+    fn captured(timer: QueueTimer<'_>) -> ControllerQueueTimer<'_> {
+        ControllerQueueTimer {
+            kind: ControllerQueueTimerKind::Captured(timer),
+        }
+    }
+    fn inert() -> Self {
+        Self {
+            kind: ControllerQueueTimerKind::Inert,
+        }
+    }
     /// Sets queue depth sample captured at wait start.
     #[must_use]
     pub fn with_depth_at_start(self, depth_at_start: u64) -> Self {
-        match self {
-            Self::Active(timer) => Self::Active(timer.with_depth_at_start(depth_at_start)),
-            Self::Inert => Self::Inert,
+        match self.kind {
+            ControllerQueueTimerKind::Captured(timer) => {
+                Self::captured(timer.with_depth_at_start(depth_at_start))
+            }
+            ControllerQueueTimerKind::Inert => Self::inert(),
         }
     }
 
@@ -1479,23 +1532,36 @@ impl ControllerQueueTimer<'_> {
     where
         Fut: std::future::Future<Output = T>,
     {
-        match self {
-            Self::Active(timer) => timer.await_on(fut).await,
-            Self::Inert => fut.await,
+        match self.kind {
+            ControllerQueueTimerKind::Captured(timer) => timer.await_on(fut).await,
+            ControllerQueueTimerKind::Inert => fut.await,
         }
     }
 }
 
 /// Controller-local stage timer wrapper.
 #[derive(Debug)]
-pub enum ControllerStageTimer<'a> {
-    /// Stage timer delegated to an active generation.
-    Active(StageTimer<'a>),
-    /// Inert timer used while disabled/closing.
+pub struct ControllerStageTimer<'a> {
+    kind: ControllerStageTimerKind<'a>,
+}
+
+#[derive(Debug)]
+enum ControllerStageTimerKind<'a> {
+    Captured(StageTimer<'a>),
     Inert,
 }
 
 impl ControllerStageTimer<'_> {
+    fn captured(timer: StageTimer<'_>) -> ControllerStageTimer<'_> {
+        ControllerStageTimer {
+            kind: ControllerStageTimerKind::Captured(timer),
+        }
+    }
+    fn inert() -> Self {
+        Self {
+            kind: ControllerStageTimerKind::Inert,
+        }
+    }
     /// Awaits `fut`, recording stage duration for active requests only.
     ///
     /// # Errors
@@ -1505,9 +1571,9 @@ impl ControllerStageTimer<'_> {
     where
         Fut: std::future::Future<Output = Result<T, E>>,
     {
-        match self {
-            Self::Active(timer) => timer.await_on(fut).await,
-            Self::Inert => fut.await,
+        match self.kind {
+            ControllerStageTimerKind::Captured(timer) => timer.await_on(fut).await,
+            ControllerStageTimerKind::Inert => fut.await,
         }
     }
 
@@ -1516,20 +1582,37 @@ impl ControllerStageTimer<'_> {
     where
         Fut: std::future::Future<Output = T>,
     {
-        match self {
-            Self::Active(timer) => timer.await_value(fut).await,
-            Self::Inert => fut.await,
+        match self.kind {
+            ControllerStageTimerKind::Captured(timer) => timer.await_value(fut).await,
+            ControllerStageTimerKind::Inert => fut.await,
         }
     }
 }
 
 /// Controller-local in-flight guard wrapper.
 #[derive(Debug)]
-pub enum ControllerInflightGuard<'a> {
-    /// In-flight guard delegated to an active generation.
-    Active(InflightGuard<'a>),
-    /// Inert guard used while disabled/closing.
+pub struct ControllerInflightGuard<'a> {
+    _kind: ControllerInflightGuardKind<'a>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)] // The captured guard is intentionally held solely for its Drop lifetime.
+enum ControllerInflightGuardKind<'a> {
+    Captured(InflightGuard<'a>),
     Inert,
+}
+
+impl ControllerInflightGuard<'_> {
+    fn captured(guard: InflightGuard<'_>) -> ControllerInflightGuard<'_> {
+        ControllerInflightGuard {
+            _kind: ControllerInflightGuardKind::Captured(guard),
+        }
+    }
+    fn inert() -> Self {
+        Self {
+            _kind: ControllerInflightGuardKind::Inert,
+        }
+    }
 }
 
 /// Template configuration that the controller applies to future activations.
@@ -2540,10 +2623,7 @@ mod tests {
         closure_reached.recv().expect("disable should reach hook");
         release_admission.send(()).expect("release admission first");
         let admitted = admitting.join().expect("admission thread should join");
-        assert!(matches!(
-            admitted.handle,
-            super::ControllerRequestHandle::Active(_)
-        ));
+        assert!(admitted.handle.is_captured());
         assert_eq!(
             admission_runtime.inflight_captured.load(Ordering::Acquire),
             1
@@ -2604,10 +2684,7 @@ mod tests {
             .send(())
             .expect("release admission second");
         let inert = admitting.join().expect("admission thread should join");
-        assert!(matches!(
-            inert.handle,
-            super::ControllerRequestHandle::Inert(_)
-        ));
+        assert!(!inert.handle.is_captured());
         assert_eq!(disable_runtime.inflight_captured.load(Ordering::Acquire), 0);
         let generation_one_run = read_run(&disable_generation.artifact_path);
         assert!(generation_one_run
@@ -2740,6 +2817,7 @@ mod tests {
 
         let active = controller.enable().expect("enable should succeed");
         let started = controller.begin_request("/checkout");
+        assert!(started.handle.is_captured());
 
         let disable = controller.disable().expect("disable should succeed");
         assert!(matches!(
@@ -2749,6 +2827,8 @@ mod tests {
                 inflight_captured_requests: 1
             } if generation_id == active.generation_id
         ));
+        assert!(started.handle.is_captured());
+        assert!(started.handle.captured_handle().is_some());
 
         started.completion.finish_ok();
 
@@ -2810,10 +2890,7 @@ mod tests {
         assert!(active_status.accepting_new_admissions);
         assert!(!active_status.closing);
         assert_eq!(active_status.inflight_captured_requests, 0);
-        assert!(matches!(
-            &refused_one.handle,
-            super::ControllerRequestHandle::Inert(_)
-        ));
+        assert!(!refused_one.handle.is_captured());
         assert_eq!(refused_one.handle.request_id(), "refused-one");
         assert_eq!(refused_one.handle.kind(), Some("test"));
 
@@ -2905,10 +2982,7 @@ mod tests {
         assert!(status.closing);
         assert!(!status.accepting_new_admissions);
         assert_eq!(status.inflight_captured_requests, 1);
-        assert!(matches!(
-            &refused.handle,
-            super::ControllerRequestHandle::Inert(_)
-        ));
+        assert!(!refused.handle.is_captured());
 
         refused.completion.finish_ok();
         assert!(matches!(
@@ -2998,10 +3072,7 @@ mod tests {
             panic!("continue policy should remain active");
         };
         assert_eq!(status.inflight_captured_requests, 0);
-        assert!(matches!(
-            &refused.handle,
-            super::ControllerRequestHandle::Inert(_)
-        ));
+        assert!(!refused.handle.is_captured());
         assert!(matches!(
             controller.disable(),
             Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
@@ -3282,6 +3353,8 @@ mod tests {
             RequestOptions::new().request_id("req-disabled"),
         );
         assert_eq!(disabled_started.handle.request_id(), "req-disabled");
+        assert!(!disabled_started.handle.is_captured());
+        assert!(disabled_started.handle.captured_handle().is_none());
         disabled_started.completion.finish_ok();
 
         let active = controller.enable().expect("enable should succeed");
@@ -3301,8 +3374,8 @@ mod tests {
     }
 
     // TT-TEST: support
-    #[test]
-    fn disabled_handle_and_completion_operations_are_noop() {
+    #[tokio::test]
+    async fn disabled_handle_and_completion_operations_are_noop() {
         let output = test_output("disabled-noop");
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
@@ -3319,10 +3392,26 @@ mod tests {
         assert_eq!(started.handle.request_id(), "req-disabled-noop");
         assert_eq!(started.handle.route(), "/checkout");
         assert_eq!(started.handle.kind(), Some("http"));
+        assert!(!started.handle.is_captured());
+        assert!(started.handle.captured_handle().is_none());
         let request = started.handle.clone();
         let _inflight = request.inflight("inflight-disabled");
-        let _queue = request.queue("queue-disabled");
-        let _stage = request.stage("stage-disabled");
+        let queued = request
+            .queue("queue-disabled")
+            .with_depth_at_start(9)
+            .await_on(async { 4_u8 })
+            .await;
+        assert_eq!(queued, 4);
+        let staged = request
+            .stage("stage-disabled")
+            .await_on(async { Err::<(), _>("stage-error") })
+            .await;
+        assert_eq!(staged, Err("stage-error"));
+        let value = request
+            .stage("value-disabled")
+            .await_value(async { 8_u8 })
+            .await;
+        assert_eq!(value, 8);
         started
             .completion
             .finish_result::<(), &str>(Err("disabled-result"))
@@ -3341,6 +3430,61 @@ mod tests {
         assert!(run.contains("req-enabled"));
         assert!(!run.contains("req-disabled-noop"));
 
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    // TT-TEST: support
+    #[tokio::test]
+    async fn captured_handle_inspection_and_branch_free_instrumentation_share_core_request() {
+        let output = test_output("captured-handle-inspection");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new()
+                .request_id("req-captured")
+                .kind("http"),
+        );
+
+        assert!(started.handle.is_captured());
+        let core = started
+            .handle
+            .captured_handle()
+            .expect("captured request should expose the original core handle");
+        assert_eq!(core.request_id(), started.handle.request_id());
+        assert_eq!(core.route(), started.handle.route());
+        assert_eq!(core.kind(), started.handle.kind());
+
+        started
+            .handle
+            .queue("db")
+            .with_depth_at_start(3)
+            .await_on(async {})
+            .await;
+        let result: Result<(), ()> = started
+            .handle
+            .stage("query")
+            .await_on(async { Ok(()) })
+            .await;
+        assert_eq!(result, Ok(()));
+        let value = started
+            .handle
+            .stage("decode")
+            .await_value(async { 7_u8 })
+            .await;
+        assert_eq!(value, 7);
+        drop(started.handle.inflight("requests"));
+        started.completion.finish_ok();
+
+        controller.disable().expect("disable should succeed");
+        let run = read_run(&active.artifact_path);
+        assert_eq!(run.queues.len(), 1);
+        assert_eq!(run.queues[0].depth_at_start, Some(3));
+        assert_eq!(run.stages.len(), 2);
+        assert_eq!(run.inflight.len(), 2);
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
@@ -3582,6 +3726,7 @@ mod tests {
             .expect("build should succeed");
         let active = controller.enable().expect("enable should succeed");
         let started = controller.begin_request("/checkout");
+        assert!(started.handle.is_captured());
 
         assert!(matches!(
             controller.shutdown(),
@@ -3599,6 +3744,12 @@ mod tests {
             controller.status().generation,
             GenerationState::Shutdown
         ));
+        assert!(started.handle.is_captured());
+        assert!(started.handle.captured_handle().is_some());
+        let post_shutdown = controller.begin_request("/post-shutdown");
+        assert!(!post_shutdown.handle.is_captured());
+        assert!(post_shutdown.handle.captured_handle().is_none());
+        post_shutdown.completion.finish_ok();
         assert!(matches!(
             controller.enable(),
             Err(EnableError::ControllerShutdown)
