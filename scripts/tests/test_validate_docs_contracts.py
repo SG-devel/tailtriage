@@ -378,6 +378,54 @@ impl ImportedRun {}
         )
 
     # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_accepts_single_explicit_item(self) -> None:
+        self._assert_facade_sources_accepted(
+            'pub use artifact::Run;\n', 'pub use tailtriage_core::Run;\n'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_single_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::Run as RunMetadata;\n', 'must not alias'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_equal_name_set_alias_swap(self) -> None:
+        self._assert_facade_sources_rejected(
+            'pub use artifact::{Run, RunMetadata};\n',
+            'pub use tailtriage_core::{\n'
+            '    Run as RunMetadata,\n'
+            '    RunMetadata as Run,\n'
+            '};\n',
+            'must not alias',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_braced_whole_crate(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use {tailtriage_core};\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_braced_whole_crate_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use {tailtriage_core as core};\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_braced_whole_crate_internal_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use {tailtriage_core as __internal};\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_mixed_braced_whole_crate(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use {tailtriage_core, some_other_crate::Thing};\n',
+            'whole tailtriage_core',
+        )
+
+    # TT-TEST: M02 secondary
     def test_facade_core_reexport_policy_rejects_glob(self) -> None:
         self._assert_facade_sources_rejected(
             'pub use artifact::{Run};\n', 'pub use tailtriage_core :: * ;\n', 'glob-reexport'

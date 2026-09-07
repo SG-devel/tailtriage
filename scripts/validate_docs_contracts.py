@@ -496,6 +496,30 @@ def _explicit_reexport_names(body: str, *, required_prefix: str | None = None) -
 def _facade_core_reexport_names(body: str) -> set[str] | None:
     """Validate and extract one public use rooted at ``tailtriage_core``."""
     compact = re.sub(r"\s+", "", re.sub(r"\bas\b", "@", body))
+
+    outer_group = re.fullmatch(r"\{(?P<items>.*)\}", compact)
+    if outer_group:
+        names: set[str] = set()
+        found_core_use = False
+        depth = 0
+        item_start = 0
+        items = outer_group.group("items")
+        for index, character in enumerate(items + ","):
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+            elif character == "," and depth == 0:
+                item = items[item_start:index]
+                item_start = index + 1
+                if not item:
+                    continue
+                item_names = _facade_core_reexport_names(item)
+                if item_names is not None:
+                    found_core_use = True
+                    names.update(item_names)
+        return names if found_core_use else None
+
     if compact == "tailtriage_core" or compact.startswith("tailtriage_core@"):
         raise ValueError("tailtriage/src/lib.rs must not reexport the whole tailtriage_core crate")
     if not compact.startswith("tailtriage_core::"):
@@ -511,17 +535,19 @@ def _facade_core_reexport_names(body: str) -> set[str] | None:
     for item in items:
         if not item:
             continue
-        source, separator, alias = item.partition("@")
+        source, separator, _alias = item.partition("@")
         source_segments = source.split("::")
         if "__internal" in source_segments:
             raise ValueError("tailtriage/src/lib.rs must not reexport tailtriage_core::__internal")
         if source == "self":
             raise ValueError("tailtriage/src/lib.rs must not reexport the whole tailtriage_core crate")
+        if separator:
+            raise ValueError("tailtriage/src/lib.rs must not alias tailtriage_core reexports")
         if len(source_segments) != 1:
             raise ValueError(
                 "tailtriage/src/lib.rs may only explicitly reexport tailtriage_core root items"
             )
-        names.add(alias if separator else source)
+        names.add(source)
     return names
 
 
