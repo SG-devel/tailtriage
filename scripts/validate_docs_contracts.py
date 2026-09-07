@@ -493,6 +493,38 @@ def _explicit_reexport_names(body: str, *, required_prefix: str | None = None) -
     return names
 
 
+def _facade_core_reexport_names(body: str) -> set[str] | None:
+    """Validate and extract one public use rooted at ``tailtriage_core``."""
+    compact = re.sub(r"\s+", "", re.sub(r"\bas\b", "@", body))
+    if compact == "tailtriage_core" or compact.startswith("tailtriage_core@"):
+        raise ValueError("tailtriage/src/lib.rs must not reexport the whole tailtriage_core crate")
+    if not compact.startswith("tailtriage_core::"):
+        return None
+
+    remainder = compact[len("tailtriage_core::") :]
+    if "*" in remainder:
+        raise ValueError("tailtriage/src/lib.rs must not glob-reexport tailtriage_core")
+
+    group = re.fullmatch(r"\{(?P<items>[^{}]*)\}", remainder)
+    items = group.group("items").split(",") if group else [remainder]
+    names: set[str] = set()
+    for item in items:
+        if not item:
+            continue
+        source, separator, alias = item.partition("@")
+        source_segments = source.split("::")
+        if "__internal" in source_segments:
+            raise ValueError("tailtriage/src/lib.rs must not reexport tailtriage_core::__internal")
+        if source == "self":
+            raise ValueError("tailtriage/src/lib.rs must not reexport the whole tailtriage_core crate")
+        if len(source_segments) != 1:
+            raise ValueError(
+                "tailtriage/src/lib.rs may only explicitly reexport tailtriage_core root items"
+            )
+        names.add(alias if separator else source)
+    return names
+
+
 def validate_facade_core_reexport_policy() -> None:
     """Require the facade to mirror supported core root reexports without internals."""
     core_path = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
@@ -504,17 +536,14 @@ def validate_facade_core_reexport_policy() -> None:
     for body in _root_public_use_bodies(core_source):
         expected.update(_explicit_reexport_names(body))
 
-    if re.search(r"(?m)^pub[ \t]+use[ \t]+tailtriage_core[ \t]*::[ \t]*\*[ \t]*;", facade_source):
-        raise ValueError("tailtriage/src/lib.rs must not glob-reexport tailtriage_core")
     if re.search(r"(?m)^[ \t]*pub[ \t]+mod[ \t]+__internal\b", facade_source):
         raise ValueError("tailtriage/src/lib.rs must not declare __internal")
 
     actual: set[str] = set()
     for body in _root_public_use_bodies(facade_source):
-        names = _explicit_reexport_names(body, required_prefix="tailtriage_core")
-        if "__internal" in names:
-            raise ValueError("tailtriage/src/lib.rs must not reexport tailtriage_core::__internal")
-        actual.update(names)
+        names = _facade_core_reexport_names(body)
+        if names is not None:
+            actual.update(names)
 
     if actual != expected:
         missing = sorted(expected - actual)

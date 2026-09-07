@@ -384,6 +384,58 @@ impl ImportedRun {}
         )
 
     # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_whole_crate_reexport(self) -> None:
+        self._assert_facade_bypass_rejected('pub use tailtriage_core;\n', 'whole tailtriage_core')
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_whole_crate_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core as core;\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_whole_crate_internal_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core as __internal;\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_group_self(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::{self, Run};\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_group_aliased_self(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::{self as core, Run};\n', 'whole tailtriage_core'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_nested_internal_glob(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::__internal::*;\n', 'glob-reexport'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_non_internal_nested_glob(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::some_public_module::*;\n', 'glob-reexport'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_explicit_internal_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::__internal as internal;\n', '__internal'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_grouped_internal_alias(self) -> None:
+        self._assert_facade_bypass_rejected(
+            'pub use tailtriage_core::{Run, __internal as internal};\n', '__internal'
+        )
+
+    # TT-TEST: M02 secondary
     def test_facade_core_reexport_policy_rejects_internal_exposure(self) -> None:
         core = 'pub use artifact::{Run};\n#[doc(hidden)]\npub mod __internal {}\n'
         for facade in (
@@ -421,6 +473,13 @@ impl ImportedRun {}
         self._assert_facade_sources_accepted(
             'pub use artifact::Run;\n#[doc(hidden)]\npub mod __internal {}\n',
             'pub use tailtriage_core::{Run};\n',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_accepts_private_core_use(self) -> None:
+        self._assert_facade_sources_accepted(
+            'pub use artifact::Run;\n',
+            'pub use tailtriage_core::Run;\nuse tailtriage_core::__internal as internal;\n',
         )
 
     # TT-TEST: M02 secondary
@@ -466,6 +525,11 @@ impl ImportedRun {}
     def _assert_facade_sources_rejected(self, core: str, facade: str, error: str) -> None:
         with self.assertRaisesRegex(ValueError, error):
             self._assert_facade_sources_accepted(core, facade)
+
+    def _assert_facade_bypass_rejected(self, bypass: str, error: str) -> None:
+        core = 'pub use artifact::{Run, RunMetadata};\n'
+        facade = 'pub use tailtriage_core::{Run, RunMetadata};\n' + bypass
+        self._assert_facade_sources_rejected(core, facade, error)
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_removed_tracing_surface_in_where_impl(self) -> None:
