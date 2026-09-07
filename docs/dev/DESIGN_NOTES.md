@@ -747,6 +747,19 @@ Core Run integrity contract:
 - Strict entry points validate the original unnormalized candidate and reject error-level core findings. Warning-only missing optional precision does not reject.
 - Tracing provenance keeps retained source spans private through normalization and writes completed-span JSONL directly from retained original sources. Stable JSONL intake accepts only the `tailtriage.tracing-span.v1` wrapper.
 
+## Cross-crate internal integration hooks
+
+Prefer private or `pub(crate)` visibility for implementation details inside one crate. Rust has no
+friend-crate visibility for separate workspace crates, so `tailtriage_core::__internal` is an
+intentionally doc-hidden, compiler-public bridge for narrow sibling integration protocols. Every
+hook placed there must have Rustdoc naming the owning sibling integration and explaining why the
+hook should not be ordinary user API. Do not use `__internal` as a dumping ground for convenience
+APIs or general utilities.
+
+If a hook becomes genuinely appropriate for downstream users, promote it deliberately into the
+supported API with normal documentation, tests, and changelog treatment. The default `tailtriage`
+facade intentionally excludes this bridge and exposes only the supported core root API.
+
 
 
 ### Partial queue and stage events

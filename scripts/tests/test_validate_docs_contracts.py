@@ -47,6 +47,7 @@ impl TailtriageControllerBuilder { pub const fn mode(self, mode: CaptureMode) ->
             'tailtriage-core/src/collector.rs': '',
             'tailtriage-core/src/run_builder.rs': '',
             'tailtriage-core/src/lib.rs': '',
+            'tailtriage/src/lib.rs': '',
             'tailtriage-analyzer/src/options/mod.rs': 'pub struct AnalyzeOptionDescriptor { path: &\'static str }\nimpl AnalyzeOptionDescriptor { pub(crate) fn new() {} }\n',
             'tailtriage-analyzer/src/options/overrides.rs': 'fn valid_override_paths() {}\npub(crate) fn valid_override_paths_for_crate() {}\n',
             'tailtriage-analyzer/src/lib.rs': 'pub enum DiagnosisKind { ApplicationQueuePressure, BlockingPoolPressure, ExecutorPressure, DownstreamStageDominance, InsufficientEvidence, }\n',
@@ -68,6 +69,10 @@ impl ImportOptions {
 impl ImportOptions {}
 impl ImportWarning { pub(crate) fn new() {} }
 impl ImportedRun { pub(crate) fn new() {} }
+''',
+            'tailtriage-tracing/src/jsonl.rs': '''enum JsonlParseMode {}
+fn import_jsonl_reader_with_mode() {}
+fn import_jsonl_path_with_mode() {}
 ''',
         }
         sources.update(overrides or {})
@@ -363,6 +368,104 @@ impl ImportedRun {}
                 self._assert_residual_api_rejected(
                     'tailtriage-tracing/src/types.rs', source, symbol
                 )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_accepts_canonical_explicit_set(self) -> None:
+        self._assert_facade_sources_accepted(
+            'pub use artifact::{Run, RunMetadata};\npub use sink::{RunSink, SinkError};\n'
+            '#[doc(hidden)]\npub mod __internal {}\n',
+            'pub use tailtriage_core::{Run, RunMetadata, RunSink, SinkError};\n',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_glob(self) -> None:
+        self._assert_facade_sources_rejected(
+            'pub use artifact::{Run};\n', 'pub use tailtriage_core :: * ;\n', 'glob-reexport'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_internal_exposure(self) -> None:
+        core = 'pub use artifact::{Run};\n#[doc(hidden)]\npub mod __internal {}\n'
+        for facade in (
+            'pub use tailtriage_core::{Run, __internal};\n',
+            'pub use tailtriage_core::{Run};\npub mod __internal;\n',
+        ):
+            with self.subTest(facade=facade):
+                self._assert_facade_sources_rejected(core, facade, '__internal')
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_missing_supported_item(self) -> None:
+        self._assert_facade_sources_rejected(
+            'pub use artifact::{Run, RunMetadata};\n',
+            'pub use tailtriage_core::{Run};\n',
+            'missing=',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_rejects_extra_item(self) -> None:
+        self._assert_facade_sources_rejected(
+            'pub use artifact::{Run};\n',
+            'pub use tailtriage_core::{Run, Unsupported};\n',
+            'extra=',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_ignores_order_grouping_and_whitespace(self) -> None:
+        self._assert_facade_sources_accepted(
+            'pub use artifact::{Run, RunMetadata};\npub use sink::RunSink;\n',
+            'pub use tailtriage_core :: {\n RunSink,\nRunMetadata , Run\n};\n',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_facade_core_reexport_policy_accepts_doc_hidden_core_internal_module(self) -> None:
+        self._assert_facade_sources_accepted(
+            'pub use artifact::Run;\n#[doc(hidden)]\npub mod __internal {}\n',
+            'pub use tailtriage_core::{Run};\n',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_removed_jsonl_parse_mode_public_enum_is_rejected(self) -> None:
+        self._assert_residual_api_rejected(
+            'tailtriage-tracing/src/jsonl.rs', 'pub enum JsonlParseMode {}\n', 'JsonlParseMode'
+        )
+
+    # TT-TEST: M02 secondary
+    def test_removed_jsonl_reader_with_mode_public_function_is_rejected(self) -> None:
+        self._assert_residual_api_rejected(
+            'tailtriage-tracing/src/jsonl.rs',
+            'pub fn import_jsonl_reader_with_mode<R: Read>(reader: R) {}\n',
+            'import_jsonl_reader_with_mode',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_removed_jsonl_path_with_mode_public_function_is_rejected(self) -> None:
+        self._assert_residual_api_rejected(
+            'tailtriage-tracing/src/jsonl.rs',
+            'pub fn import_jsonl_path_with_mode(path: &Path) {}\n',
+            'import_jsonl_path_with_mode',
+        )
+
+    # TT-TEST: M02 secondary
+    def test_removed_jsonl_compatibility_names_are_accepted_when_private(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(root)
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
+
+    def _assert_facade_sources_accepted(self, core: str, facade: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            self._write_residual_api_sources(root, {
+                'tailtriage-core/src/lib.rs': core,
+                'tailtriage/src/lib.rs': facade,
+            })
+            with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
+
+    def _assert_facade_sources_rejected(self, core: str, facade: str, error: str) -> None:
+        with self.assertRaisesRegex(ValueError, error):
+            self._assert_facade_sources_accepted(core, facade)
 
     # TT-TEST: M02 secondary
     def test_residual_public_api_cleanup_rejects_removed_tracing_surface_in_where_impl(self) -> None:

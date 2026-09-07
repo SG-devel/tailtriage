@@ -461,7 +461,73 @@ def validate_crate_rustdocs_include_readmes() -> None:
         raise ValueError("crate rustdoc README include contract violation:\n" + "\n".join(failures))
 
 
+def _root_public_use_bodies(source: str) -> tuple[str, ...]:
+    """Return semicolon-terminated public-use bodies that begin at the crate root."""
+    return tuple(
+        match.group("body")
+        for match in re.finditer(
+            r"(?ms)^pub[ \t]+use[ \t]+(?P<body>.*?);", source
+        )
+    )
+
+
+def _explicit_reexport_names(body: str, *, required_prefix: str | None = None) -> set[str]:
+    compact = re.sub(r"\s+", "", body)
+    if required_prefix is not None:
+        prefix = f"{required_prefix}::"
+        if not compact.startswith(prefix):
+            return set()
+        compact = compact[len(prefix):]
+    if compact == "*" or "::*" in compact:
+        return set()
+
+    group = re.fullmatch(r"[^{}]*\{(?P<items>[^{}]*)\}", compact)
+    items = group.group("items").split(",") if group else [compact]
+    names: set[str] = set()
+    for item in items:
+        if not item:
+            continue
+        name = item.rsplit("::", 1)[-1]
+        if name != "self":
+            names.add(name)
+    return names
+
+
+def validate_facade_core_reexport_policy() -> None:
+    """Require the facade to mirror supported core root reexports without internals."""
+    core_path = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
+    facade_path = REPO_ROOT / "tailtriage" / "src" / "lib.rs"
+    core_source = core_path.read_text(encoding="utf-8")
+    facade_source = facade_path.read_text(encoding="utf-8")
+
+    expected: set[str] = set()
+    for body in _root_public_use_bodies(core_source):
+        expected.update(_explicit_reexport_names(body))
+
+    if re.search(r"(?m)^pub[ \t]+use[ \t]+tailtriage_core[ \t]*::[ \t]*\*[ \t]*;", facade_source):
+        raise ValueError("tailtriage/src/lib.rs must not glob-reexport tailtriage_core")
+    if re.search(r"(?m)^[ \t]*pub[ \t]+mod[ \t]+__internal\b", facade_source):
+        raise ValueError("tailtriage/src/lib.rs must not declare __internal")
+
+    actual: set[str] = set()
+    for body in _root_public_use_bodies(facade_source):
+        names = _explicit_reexport_names(body, required_prefix="tailtriage_core")
+        if "__internal" in names:
+            raise ValueError("tailtriage/src/lib.rs must not reexport tailtriage_core::__internal")
+        actual.update(names)
+
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise ValueError(
+            "tailtriage facade supported core reexport set mismatch: "
+            f"missing={missing}, extra={extra}"
+        )
+
+
 def validate_residual_public_api_cleanup() -> None:
+    validate_facade_core_reexport_policy()
+
     forbidden_by_path = {
         REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs": (
             "pub fn try_begin_request(",
@@ -545,6 +611,17 @@ def validate_residual_public_api_cleanup() -> None:
             (
                 "AnalyzeOptions::valid_override_paths",
                 r"\bpub\s+(?:const\s+)?fn\s+valid_override_paths\s*\(",
+            ),
+        ),
+        REPO_ROOT / "tailtriage-tracing" / "src" / "jsonl.rs": (
+            ("public JsonlParseMode", r"\bpub\s+enum\s+JsonlParseMode\b"),
+            (
+                "public import_jsonl_reader_with_mode",
+                r"\bpub\s+fn\s+import_jsonl_reader_with_mode\s*(?:<[^>{}]*>)?\s*\(",
+            ),
+            (
+                "public import_jsonl_path_with_mode",
+                r"\bpub\s+fn\s+import_jsonl_path_with_mode\s*(?:<[^>{}]*>)?\s*\(",
             ),
         ),
     }

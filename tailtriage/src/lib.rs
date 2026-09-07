@@ -2,11 +2,24 @@
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-/// Re-export of `tailtriage-core`, always available at the crate root.
+/// Explicit re-export of the supported `tailtriage-core` API, always available at the crate root.
 ///
-/// This crate is the recommended default entry point: start with core APIs here,
-/// then enable optional integration namespaces via feature flags as needed.
-pub use tailtriage_core::*;
+/// Internal sibling integration hooks are deliberately excluded.
+pub use tailtriage_core::{
+    decode_run_json_path, inspect_run, normalize_run_permissive, summarize_run_validation,
+    summarize_run_validation_lifecycle, system_time_to_unix_ms, unix_time_ms, validate_run_strict,
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, DiscardSink,
+    EffectiveCoreConfig, EffectiveTokioSamplerConfig, InFlightSnapshot, InflightGuard,
+    LocalJsonSink, MemorySink, NormalizedRun, Outcome, OwnedRequestCompletion, OwnedRequestHandle,
+    OwnedStartedRequest, QueueEvent, QueueTimer, RequestCompletion, RequestEvent, RequestHandle,
+    RequestOptions, Run, RunBuilder, RunBuilderError, RunBuilderEventError, RunBuilderOptions,
+    RunEndReason, RunEventDisposition, RunEventDispositionKind, RunJsonDecodeError, RunMetadata,
+    RunSection, RunSink, RunValidationError, RunValidationIssue, RunValidationIssueCode,
+    RunValidationLocation, RunValidationReport, RunValidationSeverity, RuntimeSnapshot,
+    ShutdownError, SinkError, StageEvent, StageTimer, StartedRequest, Tailtriage,
+    TailtriageBuilder, TruncationSummary, UnfinishedRequestSample, UnfinishedRequests,
+    RUN_RELATIVE_DURATION_TOLERANCE_US, SCHEMA_VERSION,
+};
 
 #[cfg(feature = "axum")]
 #[cfg_attr(docsrs, doc(cfg(feature = "axum")))]
@@ -40,9 +53,33 @@ pub use tailtriage_tracing as tracing;
 mod tests {
     // TT-TEST: P01 primary
     #[test]
-    fn core_reexport_exposes_tailtriage() {
-        let _builder =
-            crate::Tailtriage::builder("default-smoke").sink(tailtriage_core::DiscardSink);
+    fn core_reexport_exposes_supported_cross_section() {
+        use crate::{
+            validate_run_strict, EffectiveTokioSamplerConfig, OwnedRequestHandle, QueueTimer, Run,
+            RunBuilder, RunSink, RunValidationReport, ShutdownError, SinkError, Tailtriage,
+            TailtriageBuilder, SCHEMA_VERSION,
+        };
+
+        type CoreTypes<'a> = (
+            TailtriageBuilder,
+            OwnedRequestHandle,
+            ShutdownError,
+            Run,
+            RunBuilder,
+            &'a dyn RunSink,
+            SinkError,
+            RunValidationReport,
+            QueueTimer<'a>,
+            EffectiveTokioSamplerConfig,
+        );
+
+        let _builder = Tailtriage::builder("default-smoke").sink(crate::DiscardSink);
+        let _: Option<CoreTypes<'_>> = None;
+        std::hint::black_box(
+            validate_run_strict as fn(&Run) -> Result<(), crate::RunValidationError>,
+        );
+        std::hint::black_box(crate::unix_time_ms as fn() -> u64);
+        std::hint::black_box(SCHEMA_VERSION);
     }
 
     // TT-TEST: P01 primary
