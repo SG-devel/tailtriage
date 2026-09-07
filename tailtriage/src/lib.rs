@@ -71,7 +71,7 @@ mod tests {
     #[cfg(feature = "controller")]
     #[test]
     fn controller_namespace_reexport_compiles() {
-        use crate::controller::TailtriageControllerBuilder;
+        use crate::controller::{ControllerRequestHandle, TailtriageControllerBuilder};
         use std::time::Duration;
         use tailtriage_core::CaptureMode;
 
@@ -95,6 +95,11 @@ mod tests {
             controller.status().template.runtime_sampler.interval,
             Some(Duration::from_millis(250))
         );
+        let started = controller.begin_request("/checkout");
+        let handle: &ControllerRequestHandle = &started.handle;
+        let _captured: bool = handle.is_captured();
+        let _core: Option<&crate::OwnedRequestHandle> = handle.captured_handle();
+        started.completion.finish_ok();
     }
 
     // TT-TEST: P02 primary

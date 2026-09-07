@@ -23,6 +23,20 @@ pub struct TailtriageControllerTemplate { pub output_path: PathBuf, pub mode: Ca
 pub struct ControllerActivationTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RuntimeSamplerTemplate { pub enabled: bool, pub mode_override: Option<CaptureMode>, pub interval: Option<Duration>, pub max_runtime_snapshots: Option<usize> }
+pub struct ControllerRequestHandle { kind: ControllerRequestKind }
+pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }
+pub struct ControllerStageTimer<'a> { kind: ControllerStageTimerKind<'a> }
+pub struct ControllerInflightGuard<'a> { kind: ControllerInflightGuardKind<'a> }
+enum ControllerRequestKind { Active(OwnedRequestHandle), Inert(InertControllerRequestHandle) }
+enum ControllerQueueTimerKind<'a> { Active(QueueTimer<'a>), Inert }
+enum ControllerStageTimerKind<'a> { Active(StageTimer<'a>), Inert }
+enum ControllerInflightGuardKind<'a> { Active(InflightGuard<'a>), Inert }
+struct InertControllerRequestHandle;
+impl ControllerRequestHandle {
+    pub fn is_captured(&self) -> bool { true }
+    pub fn captured_handle(&self) -> Option<&OwnedRequestHandle> { None }
+}
+pub enum UnrelatedPublicEnum { Active, Inert }
 impl TailtriageController { pub fn builder() {} }
 impl TailtriageControllerBuilder { pub const fn mode(self, mode: CaptureMode) -> Self { self } }
 ''',
@@ -201,6 +215,56 @@ impl ImportedRun { pub(crate) fn new() {} }
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M02 secondary
+    def test_controller_request_wrappers_accept_private_tuple_representation(self) -> None:
+        source = self._controller_source()
+        for named, tuple_struct in (
+            ('pub struct ControllerRequestHandle { kind: ControllerRequestKind }',
+             'pub struct ControllerRequestHandle(ControllerRequestKind);'),
+            ("pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }",
+             "pub struct ControllerQueueTimer<'a>(ControllerQueueTimerKind<'a>);"),
+            ("pub struct ControllerStageTimer<'a> { kind: ControllerStageTimerKind<'a> }",
+             "pub struct ControllerStageTimer<'a>(ControllerStageTimerKind<'a>);"),
+            ("pub struct ControllerInflightGuard<'a> { kind: ControllerInflightGuardKind<'a> }",
+             "pub struct ControllerInflightGuard<'a>(ControllerInflightGuardKind<'a>);"),
+        ):
+            source = source.replace(named, tuple_struct)
+        self._assert_controller_source_accepted(source)
+
+    # TT-TEST: M02 secondary
+    def test_controller_request_wrappers_must_be_opaque_public_structs(self) -> None:
+        canonical = self._controller_source()
+        declarations = (
+            ("ControllerRequestHandle", "pub struct ControllerRequestHandle { kind: ControllerRequestKind }", "pub enum ControllerRequestHandle { Active(OwnedRequestHandle), Inert(InertControllerRequestHandle) }"),
+            ("ControllerQueueTimer", "pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }", "pub enum ControllerQueueTimer<'a> { Active(QueueTimer<'a>), Inert }"),
+            ("ControllerStageTimer", "pub struct ControllerStageTimer<'a> { kind: ControllerStageTimerKind<'a> }", "pub enum ControllerStageTimer<'a> { Active(StageTimer<'a>), Inert }"),
+            ("ControllerInflightGuard", "pub struct ControllerInflightGuard<'a> { kind: ControllerInflightGuardKind<'a> }", "pub enum ControllerInflightGuard<'a> { Active(InflightGuard<'a>), Inert }"),
+        )
+        for name, current, exposed in declarations:
+            with self.subTest(name=name):
+                self._assert_residual_api_rejected(
+                    'tailtriage-controller/src/lib.rs',
+                    canonical.replace(current, exposed),
+                    f'public enum {name}',
+                )
+
+        cases = (
+            (canonical.replace('struct InertControllerRequestHandle;', 'pub struct InertControllerRequestHandle;'), 'public InertControllerRequestHandle'),
+            (canonical.replace('kind: ControllerRequestKind', 'pub kind: ControllerRequestKind', 1), 'public representation field on ControllerRequestHandle'),
+            (canonical.replace('kind: ControllerRequestKind', 'pub(crate) kind: ControllerRequestKind', 1), 'public representation field on ControllerRequestHandle'),
+            (canonical.replace('pub struct ControllerRequestHandle { kind: ControllerRequestKind }', 'pub struct ControllerRequestHandle(pub ControllerRequestKind);'), 'public tuple representation field on ControllerRequestHandle'),
+            (canonical.replace("pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }", "pub struct ControllerQueueTimer<'a>(pub ControllerQueueTimerKind<'a>);"), 'public tuple representation field on ControllerQueueTimer'),
+            (canonical.replace('pub struct ControllerRequestHandle { kind: ControllerRequestKind }', 'pub struct ControllerRequestHandle(pub(crate) ControllerRequestKind);'), 'public tuple representation field on ControllerRequestHandle'),
+            (canonical.replace('    pub fn is_captured(&self) -> bool { true }\n', ''), 'ControllerRequestHandle::is_captured'),
+            (canonical.replace('    pub fn captured_handle(&self) -> Option<&OwnedRequestHandle> { None }\n', ''), 'ControllerRequestHandle::captured_handle'),
+            (canonical.replace('Option<&OwnedRequestHandle>', 'Option<OwnedRequestHandle>'), 'ControllerRequestHandle::captured_handle'),
+        )
+        for source, expected in cases:
+            with self.subTest(expected=expected):
+                self._assert_residual_api_rejected(
+                    'tailtriage-controller/src/lib.rs', source, expected
+                )
+
+    # TT-TEST: M02 secondary
     def test_runtime_sampler_template_rejects_removed_fields_and_serde(self) -> None:
         canonical = self._controller_source()
         cases = (
@@ -231,6 +295,20 @@ pub struct TailtriageControllerTemplate { pub output_path: PathBuf, pub mode: Ca
 pub struct ControllerActivationTemplate { pub output_path: PathBuf, pub mode: CaptureMode }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RuntimeSamplerTemplate { pub enabled: bool, pub mode_override: Option<CaptureMode>, pub interval: Option<Duration>, pub max_runtime_snapshots: Option<usize> }
+pub struct ControllerRequestHandle { kind: ControllerRequestKind }
+pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }
+pub struct ControllerStageTimer<'a> { kind: ControllerStageTimerKind<'a> }
+pub struct ControllerInflightGuard<'a> { kind: ControllerInflightGuardKind<'a> }
+enum ControllerRequestKind { Active(OwnedRequestHandle), Inert(InertControllerRequestHandle) }
+enum ControllerQueueTimerKind<'a> { Active(QueueTimer<'a>), Inert }
+enum ControllerStageTimerKind<'a> { Active(StageTimer<'a>), Inert }
+enum ControllerInflightGuardKind<'a> { Active(InflightGuard<'a>), Inert }
+struct InertControllerRequestHandle;
+impl ControllerRequestHandle {
+    pub fn is_captured(&self) -> bool { true }
+    pub fn captured_handle(&self) -> Option<&OwnedRequestHandle> { None }
+}
+pub enum UnrelatedPublicEnum { Active, Inert }
 impl TailtriageController { pub fn builder() {} }
 impl TailtriageControllerBuilder { pub const fn mode(self, mode: CaptureMode) -> Self { self } }
 '''

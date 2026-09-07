@@ -321,11 +321,27 @@ let controller = TailtriageController::builder("checkout-service")
 
 let _generation = controller.enable()?;
 let started = controller.begin_request("/checkout");
+{
+    let _guard = started.handle.inflight("requests");
+    started.handle.queue("db").await_on(async {}).await;
+    let _: Result<(), ()> = started
+        .handle
+        .stage("query")
+        .await_on(async { Ok(()) })
+        .await;
+}
 started.completion.finish_ok();
 let _ = controller.disable()?;
 # Ok(())
 # }
 ```
+
+Ordinary queue, stage, and in-flight instrumentation does not need a capture-state branch.
+Disabled, closing, and shut-down admissions use inert wrappers that execute work transparently
+without recording, while already-captured wrappers stay bound to their original generation.
+When explicit inspection or core interoperability is necessary, use `handle.is_captured()` and
+`handle.captured_handle()`. Captured status records admission identity; it does not report current
+controller enablement.
 
 Controller details: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
 

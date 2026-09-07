@@ -66,6 +66,46 @@ Requests started while the controller is disabled or closing are **inert**:
 
 Each activation writes a per-generation artifact whose file name includes `-generation-N`.
 
+## Request wrappers
+
+Instrument through the controller request wrapper without branching on capture state:
+
+```rust,ignore
+let started = controller.begin_request("/checkout");
+
+started.handle.queue("db").await_on(async {
+    // work
+}).await;
+
+let _: Result<(), ()> = started
+    .handle
+    .stage("query")
+    .await_on(async { Ok(()) })
+    .await;
+
+let _guard = started.handle.inflight("requests");
+```
+
+No capture-state branch is needed for ordinary instrumentation. Admissions made while capture is
+disabled, closing, or shut down return inert wrappers that await work unchanged and record nothing.
+An already-captured wrapper remains tied to the generation that admitted it.
+
+Inspect admission identity only when needed:
+
+```rust,ignore
+if started.handle.is_captured() {
+    // This request was captured when it began.
+}
+
+if let Some(core_handle) = started.handle.captured_handle() {
+    // Explicit interoperability with the core OwnedRequestHandle.
+}
+```
+
+“Captured” is historical admission identity, not the controller's current enablement state.
+`captured_handle()` is the explicit core-interoperability escape hatch; normal instrumentation
+should continue through the controller wrapper.
+
 ## Minimal TOML example
 
 Use TOML when you want repeatable operational settings, including mode selection.

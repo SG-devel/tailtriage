@@ -577,6 +577,18 @@ def validate_residual_public_api_cleanup() -> None:
                 raise ValueError(f"{path.relative_to(REPO_ROOT)} has an unclosed declaration")
         return tuple(bodies)
 
+    def delimited_body(source: str, path: Path, body_start: int, opener: str) -> str:
+        closer = {"{": "}", "(": ")"}[opener]
+        depth = 1
+        for index in range(body_start, len(source)):
+            if source[index] == opener:
+                depth += 1
+            elif source[index] == closer:
+                depth -= 1
+                if depth == 0:
+                    return source[body_start:index]
+        raise ValueError(f"{path.relative_to(REPO_ROOT)} has an unclosed declaration")
+
     def impl_bodies(source: str, path: Path, type_name: str) -> tuple[str, ...]:
         return declaration_bodies(
             source, path, rf"\bimpl\s+{type_name}\s*(?:where\b[^{{]*?)?\{{"
@@ -592,6 +604,68 @@ def validate_residual_public_api_cleanup() -> None:
         raise ValueError("tailtriage-controller/src/lib.rs missing canonical public API: TailtriageControllerBuilder::mode")
     if any(re.search(rf"{public_function}new\s*\(", body) for body in builder_impls):
         raise ValueError("tailtriage-controller/src/lib.rs exposes removed residual public API: TailtriageControllerBuilder::new")
+
+    wrapper_names = (
+        "ControllerRequestHandle",
+        "ControllerQueueTimer",
+        "ControllerStageTimer",
+        "ControllerInflightGuard",
+    )
+    for type_name in wrapper_names:
+        if re.search(rf"\bpub\s+enum\s+{type_name}\b", controller_source):
+            raise ValueError(
+                "tailtriage-controller/src/lib.rs exposes removed residual public API: "
+                f"public enum {type_name}"
+            )
+        declaration = re.search(
+            rf"\bpub\s+struct\s+{type_name}(?:\s*<[^>]+>)?\s*(?P<opener>[{{(])",
+            controller_source,
+        )
+        if declaration is None:
+            raise ValueError(
+                "tailtriage-controller/src/lib.rs missing required declaration: "
+                f"public struct {type_name}"
+            )
+        opener = declaration.group("opener")
+        body = delimited_body(
+            controller_source, controller_path, declaration.end(), opener
+        )
+        if opener == "{" and re.search(
+            r"\bpub(?:\([^)]*\))?\s+[A-Za-z_]\w*\s*:", body
+        ):
+            raise ValueError(
+                "tailtriage-controller/src/lib.rs exposes removed residual public API: "
+                f"public representation field on {type_name}"
+            )
+        if opener == "(" and re.search(
+            r"(?:^|,)\s*pub(?:\s*\([^)]*\))?\s+", body
+        ):
+            raise ValueError(
+                "tailtriage-controller/src/lib.rs exposes removed residual public API: "
+                f"public tuple representation field on {type_name}"
+            )
+
+    if re.search(
+        r"\bpub\s+(?:struct|enum|type)\s+InertControllerRequestHandle\b",
+        controller_source,
+    ):
+        raise ValueError(
+            "tailtriage-controller/src/lib.rs exposes removed residual public API: "
+            "public InertControllerRequestHandle"
+        )
+
+    request_handle_impls = impl_bodies(
+        controller_source, controller_path, "ControllerRequestHandle"
+    )
+    required_request_inspection = (
+        ("ControllerRequestHandle::is_captured", r"\bpub\s+fn\s+is_captured\s*\(\s*&self\s*\)\s*->\s*bool\b"),
+        ("ControllerRequestHandle::captured_handle", r"\bpub\s+fn\s+captured_handle\s*\(\s*&self\s*\)\s*->\s*Option\s*<\s*&\s*OwnedRequestHandle\s*>"),
+    )
+    for symbol, pattern in required_request_inspection:
+        if not any(re.search(pattern, body) for body in request_handle_impls):
+            raise ValueError(
+                f"tailtriage-controller/src/lib.rs missing canonical public API: {symbol}"
+            )
 
     required_controller_patterns = (
         ("TailtriageControllerTemplate::output_path", r"pub struct TailtriageControllerTemplate\s*\{[^}]*\bpub\s+output_path\s*:\s*PathBuf"),
