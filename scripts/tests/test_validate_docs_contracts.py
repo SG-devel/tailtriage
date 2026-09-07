@@ -215,6 +215,22 @@ impl ImportedRun { pub(crate) fn new() {} }
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
     # TT-TEST: M02 secondary
+    def test_controller_request_wrappers_accept_private_tuple_representation(self) -> None:
+        source = self._controller_source()
+        for named, tuple_struct in (
+            ('pub struct ControllerRequestHandle { kind: ControllerRequestKind }',
+             'pub struct ControllerRequestHandle(ControllerRequestKind);'),
+            ("pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }",
+             "pub struct ControllerQueueTimer<'a>(ControllerQueueTimerKind<'a>);"),
+            ("pub struct ControllerStageTimer<'a> { kind: ControllerStageTimerKind<'a> }",
+             "pub struct ControllerStageTimer<'a>(ControllerStageTimerKind<'a>);"),
+            ("pub struct ControllerInflightGuard<'a> { kind: ControllerInflightGuardKind<'a> }",
+             "pub struct ControllerInflightGuard<'a>(ControllerInflightGuardKind<'a>);"),
+        ):
+            source = source.replace(named, tuple_struct)
+        self._assert_controller_source_accepted(source)
+
+    # TT-TEST: M02 secondary
     def test_controller_request_wrappers_must_be_opaque_public_structs(self) -> None:
         canonical = self._controller_source()
         declarations = (
@@ -234,7 +250,10 @@ impl ImportedRun { pub(crate) fn new() {} }
         cases = (
             (canonical.replace('struct InertControllerRequestHandle;', 'pub struct InertControllerRequestHandle;'), 'public InertControllerRequestHandle'),
             (canonical.replace('kind: ControllerRequestKind', 'pub kind: ControllerRequestKind', 1), 'public representation field on ControllerRequestHandle'),
+            (canonical.replace('kind: ControllerRequestKind', 'pub(crate) kind: ControllerRequestKind', 1), 'public representation field on ControllerRequestHandle'),
             (canonical.replace('pub struct ControllerRequestHandle { kind: ControllerRequestKind }', 'pub struct ControllerRequestHandle(pub ControllerRequestKind);'), 'public tuple representation field on ControllerRequestHandle'),
+            (canonical.replace("pub struct ControllerQueueTimer<'a> { kind: ControllerQueueTimerKind<'a> }", "pub struct ControllerQueueTimer<'a>(pub ControllerQueueTimerKind<'a>);"), 'public tuple representation field on ControllerQueueTimer'),
+            (canonical.replace('pub struct ControllerRequestHandle { kind: ControllerRequestKind }', 'pub struct ControllerRequestHandle(pub(crate) ControllerRequestKind);'), 'public tuple representation field on ControllerRequestHandle'),
             (canonical.replace('    pub fn is_captured(&self) -> bool { true }\n', ''), 'ControllerRequestHandle::is_captured'),
             (canonical.replace('    pub fn captured_handle(&self) -> Option<&OwnedRequestHandle> { None }\n', ''), 'ControllerRequestHandle::captured_handle'),
             (canonical.replace('Option<&OwnedRequestHandle>', 'Option<OwnedRequestHandle>'), 'ControllerRequestHandle::captured_handle'),

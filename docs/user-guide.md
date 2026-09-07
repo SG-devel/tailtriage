@@ -321,13 +321,15 @@ let controller = TailtriageController::builder("checkout-service")
 
 let _generation = controller.enable()?;
 let started = controller.begin_request("/checkout");
-started.handle.queue("db").await_on(async {}).await;
-let _: Result<(), ()> = started
-    .handle
-    .stage("query")
-    .await_on(async { Ok(()) })
-    .await;
-let _guard = started.handle.inflight("requests");
+{
+    let _guard = started.handle.inflight("requests");
+    started.handle.queue("db").await_on(async {}).await;
+    let _: Result<(), ()> = started
+        .handle
+        .stage("query")
+        .await_on(async { Ok(()) })
+        .await;
+}
 started.completion.finish_ok();
 let _ = controller.disable()?;
 # Ok(())

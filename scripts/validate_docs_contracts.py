@@ -577,6 +577,18 @@ def validate_residual_public_api_cleanup() -> None:
                 raise ValueError(f"{path.relative_to(REPO_ROOT)} has an unclosed declaration")
         return tuple(bodies)
 
+    def delimited_body(source: str, path: Path, body_start: int, opener: str) -> str:
+        closer = {"{": "}", "(": ")"}[opener]
+        depth = 1
+        for index in range(body_start, len(source)):
+            if source[index] == opener:
+                depth += 1
+            elif source[index] == closer:
+                depth -= 1
+                if depth == 0:
+                    return source[body_start:index]
+        raise ValueError(f"{path.relative_to(REPO_ROOT)} has an unclosed declaration")
+
     def impl_bodies(source: str, path: Path, type_name: str) -> tuple[str, ...]:
         return declaration_bodies(
             source, path, rf"\bimpl\s+{type_name}\s*(?:where\b[^{{]*?)?\{{"
@@ -605,20 +617,32 @@ def validate_residual_public_api_cleanup() -> None:
                 "tailtriage-controller/src/lib.rs exposes removed residual public API: "
                 f"public enum {type_name}"
             )
-        if re.search(
-            rf"\bpub\s+struct\s+{type_name}(?:\s*<[^>]+>)?\s*\(\s*pub\b",
+        declaration = re.search(
+            rf"\bpub\s+struct\s+{type_name}(?:\s*<[^>]+>)?\s*(?P<opener>[{{(])",
             controller_source,
+        )
+        if declaration is None:
+            raise ValueError(
+                "tailtriage-controller/src/lib.rs missing required declaration: "
+                f"public struct {type_name}"
+            )
+        opener = declaration.group("opener")
+        body = delimited_body(
+            controller_source, controller_path, declaration.end(), opener
+        )
+        if opener == "{" and re.search(
+            r"\bpub(?:\([^)]*\))?\s+[A-Za-z_]\w*\s*:", body
+        ):
+            raise ValueError(
+                "tailtriage-controller/src/lib.rs exposes removed residual public API: "
+                f"public representation field on {type_name}"
+            )
+        if opener == "(" and re.search(
+            r"(?:^|,)\s*pub(?:\s*\([^)]*\))?\s+", body
         ):
             raise ValueError(
                 "tailtriage-controller/src/lib.rs exposes removed residual public API: "
                 f"public tuple representation field on {type_name}"
-            )
-        declaration = rf"\bpub\s+struct\s+{type_name}(?:\s*<[^>]+>)?\s*\{{"
-        body = declaration_bodies(controller_source, controller_path, declaration)[0]
-        if re.search(r"\bpub(?:\([^)]*\))?\s+[A-Za-z_]\w*\s*:", body):
-            raise ValueError(
-                "tailtriage-controller/src/lib.rs exposes removed residual public API: "
-                f"public representation field on {type_name}"
             )
 
     if re.search(
