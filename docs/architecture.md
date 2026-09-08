@@ -9,7 +9,7 @@ The default user path is:
 1. instrument capture in service code (`tailtriage` default crate)
 2. optionally enrich with runtime sampling (`tailtriage-tokio`)
 3. finalize capture to a sink:
-   - default local run artifact JSON via `LocalJsonSink`
+   - explicitly selected local run artifact JSON via `.output(...)` / `LocalJsonSink`
    - optional finalized typed `Run` in memory via `MemorySink`
    - optional no persisted finalized run via `DiscardSink`
 4. analyze with `tailtriage-analyzer` in process (typed `Report`, text rendering, Report JSON rendering) or with `tailtriage-cli` for file artifacts

@@ -68,9 +68,14 @@ Optimize docs for:
 
 ## Documentation contract
 
-Published crate READMEs are current-state, self-contained package artifacts. Migration, upgrade,
-and release history belongs in `CHANGELOG.md`; essential package use and constraints must not
-depend on mutable or repository-relative documentation outside the package.
+Published crate READMEs are current-state, self-contained package artifacts. They contain no
+external documentation links or directions to external material, and package essentials must not
+depend on mutable or repository-relative documentation outside the package. Each README owns the
+reader jobs of crate purpose and selection, installation/features, one complete representative
+example, and critical constraints. Relevant public-item Rustdoc owns exhaustive units, defaults,
+ranges, errors and panics, ownership, lifecycle/Drop behavior, side effects, and feature conditions;
+concise safety-critical README repetition is intentional. Migration, upgrade, and release history
+belongs in `CHANGELOG.md`. All surfaces make bounded, precise claims supported by current code.
 
 Markdown files directly under `docs/` are user-facing product documentation. The `docs/dev/`
 subtree contains repository-development, contributor, and maintainer documentation.

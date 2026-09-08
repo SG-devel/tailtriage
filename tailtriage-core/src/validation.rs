@@ -142,14 +142,17 @@ pub struct RunEventDisposition {
     pub disposition: RunEventDispositionKind,
 }
 
-/// Permissively normalized run plus issues and per-input event dispositions.
+/// Permissively normalized run plus issues owned by this result and a
+/// disposition for every input event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedRun {
     /// Normalized run artifact.
     pub run: Run,
-    /// Validation report observed while normalizing.
+    /// Complete deterministic report for the original input, including issues
+    /// whose evidence was excluded or whose optional precision was cleared.
     pub report: RunValidationReport,
-    /// Per-input event dispositions.
+    /// Per-input retention/exclusion dispositions. Retained dispositions do not
+    /// list optional fields cleared during normalization; consult [`Self::report`].
     pub dispositions: Vec<RunEventDisposition>,
 }
 
@@ -205,7 +208,22 @@ pub fn validate_run_strict(run: &Run) -> Result<(), RunValidationError> {
     }
 }
 
-/// Returns a deterministic permissive normalized run.
+/// Returns a deterministic permissive normalization and owns its issue report.
+///
+/// Invalid request, stage, queue, and in-flight events are excluded. Every
+/// otherwise-valid request sharing a duplicate completed request ID is excluded,
+/// and request-scoped children of duplicate, excluded, missing, or temporally
+/// incompatible parents are consequently excluded. Invalid optional
+/// run-relative interval endpoints are cleared in pairs while authoritative
+/// duration evidence is retained; a zero optional runtime worker count is
+/// cleared while its snapshot is retained. Metadata issues are reported but do
+/// not remove event evidence or repair metadata.
+///
+/// Normalization does not synthesize requests or child relationships,
+/// reconstruct missing precision, rewrite authoritative durations, or promise
+/// that arbitrary input becomes strictly valid. [`NormalizedRun::report`]
+/// describes the original input and [`NormalizedRun::dispositions`] maps every
+/// input event to its retained output index or exclusion reasons.
 #[must_use]
 pub fn normalize_run_permissive(run: &Run) -> NormalizedRun {
     normalize_inner(run, true)

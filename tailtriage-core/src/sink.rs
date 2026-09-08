@@ -111,7 +111,8 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// Local file sink that writes one JSON document per run at shutdown.
 ///
-/// This is the default sink used by [`crate::TailtriageBuilder`].
+/// [`crate::TailtriageBuilder::output`] selects this sink. The builder has no
+/// default sink: callers must explicitly select an output path or custom sink.
 #[derive(Debug, Clone)]
 pub struct LocalJsonSink {
     path: PathBuf,

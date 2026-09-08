@@ -356,7 +356,12 @@ Common causes:
 * missing completion calls
 * early returns
 * canceled tasks
-* dropped completion handles
+* completion tokens intentionally kept alive past the shutdown attempt
+
+Dropping an admitted unfinished completion token while capture is still open normally resolves it
+once as `cancelled`; it does not leave that request pending. A strict-shutdown error instead means
+an admitted completion token was still alive when shutdown inspected pending requests. Finish it
+with the known outcome, or drop it to record cancellation, and retry shutdown.
 
 Use stricter request lifecycle review before increasing capture density.
 

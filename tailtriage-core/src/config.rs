@@ -61,12 +61,14 @@ impl CaptureMode {
 
 /// Limits that bound in-memory capture growth for one run.
 ///
-/// Limits apply to retained in-memory data while capture is active. When a
-/// section reaches its cap, additional entries are dropped and truncation
-/// counters are updated.
+/// Limits apply to in-memory data while capture is active. `max_requests`
+/// bounds pending plus retained completed requests at admission; a request
+/// refused at that boundary receives inert instrumentation and completion
+/// values. Other limits bound retained evidence in their corresponding
+/// sections. Refusal or retention drops update truncation counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureLimits {
-    /// Maximum number of request events retained in-memory for the run.
+    /// Maximum pending plus retained completed requests admitted for the run.
     pub max_requests: usize,
     /// Maximum number of stage events retained in-memory for the run.
     pub max_stages: usize,

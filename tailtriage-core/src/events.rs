@@ -176,8 +176,11 @@ pub struct RunMetadata {
     pub unfinished_requests: UnfinishedRequests,
     /// Why the run lifecycle ended.
     ///
-    /// This field may be `None` for older artifacts and for runs that do not
-    /// record an explicit end reason (including direct `tailtriage-core` runs today).
+    /// Successful direct [`crate::Tailtriage::shutdown`] sets this to
+    /// [`RunEndReason::Shutdown`] unless an integration recorded a more specific
+    /// reason first. It is `None` in active snapshots, may be absent from older
+    /// artifacts, and can remain absent in manually assembled or externally
+    /// supplied runs whose producer did not set provenance.
     #[serde(default)]
     pub run_end_reason: Option<RunEndReason>,
 }
