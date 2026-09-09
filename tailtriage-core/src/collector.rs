@@ -572,7 +572,17 @@ impl Tailtriage {
         *guard = listener;
     }
 
-    /// Creates an in-flight guard for `gauge`.
+    /// Creates an in-flight guard for `gauge` while capture is open.
+    ///
+    /// Creation increments the live count immediately when tracking is enabled.
+    /// A new gauge also requires an available distinct-gauge slot, whose
+    /// cardinality is bounded by [`crate::CaptureLimits::max_inflight_snapshots`];
+    /// an already tracked gauge needs no additional slot. If capture is no
+    /// longer open or new-gauge capacity is exhausted, the guard is inert.
+    /// Retaining the increment snapshot is separately subject to the bounded
+    /// in-flight snapshot capacity. Enabled Drop decrements while capture is
+    /// open, with its transition retention subject to the same bound; Drop
+    /// after finalization is inert. The guard does not complete a request.
     #[must_use]
     pub(crate) fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         let gauge = gauge.into();
@@ -851,10 +861,16 @@ impl RequestHandle<'_> {
 
     /// Increments in-flight gauge tracking for `gauge` until the returned guard drops.
     ///
-    /// An admitted handle increments the gauge immediately; dropping the guard
-    /// decrements it and records that transition while capture is open, subject
-    /// to bounds. After capture closes, Drop is inert. A refused handle returns
-    /// an inert guard. In-flight instrumentation never finishes the request.
+    /// A refused handle returns an inert guard. For an admitted handle, guard
+    /// creation is also inert after capture stops being open or when a new
+    /// gauge has no available distinct-gauge slot; that live cardinality is
+    /// bounded by [`crate::CaptureLimits::max_inflight_snapshots`], while an
+    /// already tracked gauge needs no additional slot. When enabled, creation
+    /// increments the live count immediately, but retention of that transition
+    /// snapshot remains subject to the bounded snapshot capacity. Enabled Drop
+    /// decrements while capture is open, with transition retention likewise
+    /// bounded; Drop after finalization is inert. None of this finishes the
+    /// request.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         if self.admitted {
@@ -954,9 +970,16 @@ impl OwnedRequestHandle {
 
     /// Creates an in-flight guard for `gauge`.
     ///
-    /// An admitted handle increments immediately; guard Drop decrements and
-    /// records while capture is open. A refused handle returns an inert guard.
-    /// This does not complete the request.
+    /// A refused handle returns an inert guard. For an admitted handle, guard
+    /// creation is also inert after capture stops being open or when a new
+    /// gauge has no available distinct-gauge slot; that live cardinality is
+    /// bounded by [`crate::CaptureLimits::max_inflight_snapshots`], while an
+    /// already tracked gauge needs no additional slot. When enabled, creation
+    /// increments the live count immediately, but retention of that transition
+    /// snapshot remains subject to the bounded snapshot capacity. Enabled Drop
+    /// decrements while capture is open, with transition retention likewise
+    /// bounded; Drop after finalization is inert. None of this finishes the
+    /// request.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         if self.admitted {

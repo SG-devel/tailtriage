@@ -6,11 +6,16 @@ use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
 ///
-/// Creation from an admitted request handle increments the named gauge and
-/// records the transition immediately, subject to capture limits. Drop
-/// decrements and records while capture remains open; after finalization it is
-/// inert. A guard from a refused request is inert. Keep the guard around the
-/// work it measures. It does not own or complete the request lifecycle.
+/// A guard from a refused request is inert. For an admitted request, creation
+/// is also inert unless capture is open and a new gauge has available live
+/// gauge capacity; [`crate::CaptureLimits::max_inflight_snapshots`] bounds that
+/// distinct-gauge cardinality, while an already tracked gauge needs no new
+/// slot. When enabled, creation increments the live count immediately, with
+/// retention of the transition snapshot separately subject to the bounded
+/// snapshot capacity. Enabled Drop decrements while capture is open, again
+/// with bounded transition retention; Drop after finalization is inert. Keep
+/// the guard around the work it measures. It does not own or complete the
+/// request lifecycle.
 #[derive(Debug)]
 pub struct InflightGuard<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
@@ -209,6 +214,10 @@ impl StageTimer<'_> {
     /// duration is an observed lower bound, not proof that the operation
     /// stopped; it has `completed = false` and `success = false`.
     ///
+    /// The example uses the development dependency `futures-executor = "0.3"`
+    /// to run its async block. Applications can instead await this code in
+    /// their existing async context.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -283,6 +292,10 @@ impl QueueTimer<'_> {
     /// The value is an application-provided point sample, not a continuously
     /// observed gauge. It is retained on either the completed wait or a
     /// polled-then-dropped partial wait, subject to capture limits.
+    ///
+    /// The example uses the development dependency `futures-executor = "0.3"`
+    /// to run its async block. Applications can instead await this code in
+    /// their existing async context.
     ///
     /// # Example
     ///

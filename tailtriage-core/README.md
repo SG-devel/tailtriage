@@ -19,8 +19,8 @@ cargo add tailtriage-core
 The crate has no optional Cargo features. Construction requires an explicit output strategy:
 
 - `.output(path)` selects `LocalJsonSink` and writes one finalized Run JSON document at shutdown.
-- `.sink(MemorySink)` retains a clone of the last finalized typed `Run` in memory, replacing any
-  earlier value.
+- `.sink(MemorySink::new())` retains a clone of the last finalized typed `Run` in memory, replacing
+  any earlier value.
 - `.sink(DiscardSink)` finalizes capture without retaining or persisting the `Run`.
 - `.sink(custom_sink)` accepts another `RunSink` implementation.
 
@@ -51,11 +51,16 @@ async fn capture_checkout() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     drop(in_flight);
 
-    started.completion.finish_result(result)?;
+    let result = started.completion.finish_result(result);
     run.shutdown()?;
+    result?;
     Ok(())
 }
 ```
+
+Shutdown is attempted before the measured-operation result is propagated. If both fail, the
+shutdown error takes precedence; otherwise the original operation error is returned after a
+successful shutdown.
 
 ## Lifecycle and limits
 
@@ -98,8 +103,9 @@ specific reason is present. Older or manually assembled artifacts can omit the r
 - Queue and stage helper timing starts on first poll. Never-polled Drop records no event. Dropping
   a polled pending helper while capture remains open may retain one bounded partial event ending at
   observed Drop. That duration is a lower bound, not proof that the operation stopped.
-- An `InflightGuard` increments its named gauge when created and decrements it on Drop while
-  capture is open; keep it around exactly the work being measured. It does not finish a request.
+- An `InflightGuard` conditionally tracks its named gauge while capture is open and limits permit;
+  retained transition evidence is separately bounded. Keep it around exactly the work being
+  measured. It does not finish a request.
 - Duration fields in microseconds are authoritative elapsed evidence. Unix-millisecond fields are
   coarse wall-clock anchors; complete run-relative offsets provide monotonic precision.
 - Request IDs identify completed logical work within one Run and should be unique. Queue and stage
