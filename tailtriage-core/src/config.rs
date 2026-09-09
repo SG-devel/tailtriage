@@ -61,18 +61,33 @@ impl CaptureMode {
 
 /// Limits that bound in-memory capture growth for one run.
 ///
-/// Limits apply to retained in-memory data while capture is active. When a
-/// section reaches its cap, additional entries are dropped and truncation
-/// counters are updated.
+/// Limits apply to in-memory data while capture is active. In live capture,
+/// [`CaptureLimits::max_requests`] is checked at admission against completed
+/// retained requests plus currently pending admitted requests. A request
+/// refused at that boundary receives inert instrumentation and completion
+/// handles; refusal updates request truncation accounting. For completed-run
+/// assembly, the same field directly bounds retained request events.
+///
+/// The remaining fields independently bound retained evidence or live gauge
+/// cardinality as documented on each field. When a section reaches its cap,
+/// additional entries are dropped and truncation counters are updated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureLimits {
-    /// Maximum number of request events retained in-memory for the run.
+    /// Maximum request capacity.
+    ///
+    /// During live capture this bounds pending admitted requests plus retained
+    /// completed requests at admission. During [`crate::RunBuilder`] assembly
+    /// it bounds the retained request-event vector.
     pub max_requests: usize,
     /// Maximum number of stage events retained in-memory for the run.
     pub max_stages: usize,
     /// Maximum number of queue events retained in-memory for the run.
     pub max_queues: usize,
-    /// Maximum number of in-flight snapshots retained in-memory for the run.
+    /// Maximum live distinct-gauge cardinality and retained in-flight snapshots.
+    ///
+    /// While capture is open, tracking a new gauge requires a distinct-gauge
+    /// slot; an already tracked gauge needs no additional slot. Transition
+    /// snapshot retention is bounded separately by the same capacity.
     pub max_inflight_snapshots: usize,
     /// Maximum number of runtime snapshots retained in-memory for the run.
     pub max_runtime_snapshots: usize,
@@ -251,6 +266,9 @@ impl TailtriageBuilder {
     }
 
     /// Sets the capture mode. [`CaptureMode::Light`] is the default.
+    ///
+    /// Mode selects the base [`CaptureLimits`] only; it does not change request
+    /// lifecycle or start runtime sampling.
     #[must_use]
     pub fn mode(mut self, mode: CaptureMode) -> Self {
         self.mode = mode;
@@ -292,7 +310,11 @@ impl TailtriageBuilder {
         self
     }
 
-    /// Overrides default capture limits for bounded in-memory collection.
+    /// Overrides every default capture limit for bounded in-memory collection.
+    ///
+    /// In live capture, `limits.max_requests` bounds pending plus retained
+    /// requests at admission. If this and [`Self::capture_limits_override`] are
+    /// both called, this full override is authoritative.
     #[must_use]
     pub fn capture_limits(mut self, limits: CaptureLimits) -> Self {
         self.capture_limits = Some(limits);
@@ -303,7 +325,8 @@ impl TailtriageBuilder {
     ///
     /// This additive override path does not change full-override behavior from
     /// [`Self::capture_limits`]. If both are provided, `capture_limits(...)`
-    /// remains authoritative.
+    /// remains authoritative. In live capture, the effective `max_requests`
+    /// bounds pending plus retained requests at admission.
     #[must_use]
     pub fn capture_limits_override(mut self, overrides: CaptureLimitsOverride) -> Self {
         self.capture_limits_override = self.capture_limits_override.merge(overrides);
@@ -313,7 +336,8 @@ impl TailtriageBuilder {
     /// Enables strict lifecycle validation on shutdown.
     ///
     /// When enabled, [`crate::Tailtriage::shutdown`] returns an error if unfinished
-    /// requests remain pending.
+    /// requests remain pending. That lifecycle error occurs before finalization
+    /// or a sink attempt and can be retried after the requests resolve.
     #[must_use]
     pub fn strict_lifecycle(mut self, strict_lifecycle: bool) -> Self {
         self.strict_lifecycle = strict_lifecycle;

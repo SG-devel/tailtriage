@@ -353,10 +353,14 @@ This usually means requests were started but not completed.
 
 Common causes:
 
-* missing completion calls
-* early returns
-* canceled tasks
-* dropped completion handles
+* an outstanding completion token is still held when shutdown runs
+* a completion token was intentionally forgotten or leaked instead of being finished or dropped
+* shutdown races task cleanup before admitted completion tokens are dropped
+
+An ordinary early return or task cancellation is not independently sufficient: dropping its
+admitted completion token while capture is still open records a `cancelled` request and resolves
+that lifecycle. Find tokens that remain alive or were deliberately forgotten, then finish or drop
+them before retrying strict shutdown. The retryable lifecycle error performs no sink attempt.
 
 Use stricter request lifecycle review before increasing capture density.
 

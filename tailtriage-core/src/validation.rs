@@ -143,13 +143,20 @@ pub struct RunEventDisposition {
 }
 
 /// Permissively normalized run plus issues and per-input event dispositions.
+///
+/// This value owns all three outputs: the normalized [`Run`], the complete
+/// deterministic [`RunValidationReport`] found in the input, and one
+/// [`RunEventDisposition`] for every input event/snapshot. Dispositions map
+/// retained entries to normalized output indices or give the issue codes that
+/// excluded them. Metadata issues have report entries but no event disposition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedRun {
     /// Normalized run artifact.
     pub run: Run,
-    /// Validation report observed while normalizing.
+    /// Complete validation report for the original input, including issues
+    /// that normalization cannot repair.
     pub report: RunValidationReport,
-    /// Per-input event dispositions.
+    /// Per-input event dispositions in section/input order.
     pub dispositions: Vec<RunEventDisposition>,
 }
 
@@ -205,7 +212,29 @@ pub fn validate_run_strict(run: &Run) -> Result<(), RunValidationError> {
     }
 }
 
-/// Returns a deterministic permissive normalized run.
+/// Returns owned deterministic permissive output, issues, and dispositions.
+///
+/// Normalization keeps authoritative duration fields. For request, stage, and
+/// queue events with partial, inverted, or duration-mismatched run-relative
+/// offsets, it clears both optional offsets when the event is otherwise valid;
+/// missing offsets remain missing and are reported as a precision warning.
+/// A zero runtime worker count is cleared to `None` while retaining its
+/// snapshot.
+///
+/// Events with invalid required strings or inverted wall-clock intervals are
+/// excluded. Every otherwise-valid request sharing a duplicated completed
+/// request ID is excluded; request-scoped children of that ambiguous ID are
+/// excluded too. Children are also excluded when their parent is missing or
+/// excluded, or when complete precise child timing lies outside complete
+/// precise parent timing. Blank in-flight gauges are excluded. Other sections
+/// and metadata are cloned rather than reconstructed.
+///
+/// This function is permissive because it returns usable unambiguous evidence
+/// where possible, not because it makes every input valid. In particular it
+/// does not change an unsupported schema version, repair required metadata,
+/// synthesize missing requests/completions, infer missing timing, or clip
+/// durations. Inspect [`NormalizedRun::report`] for every original issue and
+/// [`NormalizedRun::dispositions`] for ownership of each event outcome.
 #[must_use]
 pub fn normalize_run_permissive(run: &Run) -> NormalizedRun {
     normalize_inner(run, true)

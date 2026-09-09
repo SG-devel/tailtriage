@@ -287,7 +287,8 @@ started.completion.finish_ok();
 Important semantics:
 
 - finish exactly once (`finish`, `finish_ok`, `finish_result`)
-- drop does not auto-finish
+- dropping an admitted unfinished completion token while capture is open records one `cancelled`
+  completion; explicit completion remains preferred when the outcome is known
 - `shutdown()` does not fabricate completion/outcome
 - `strict_lifecycle(true)` can fail shutdown when unfinished requests remain
 - direct shutdown distinguishes retryable `ShutdownError::UnfinishedRequests { count }` from sink persistence/serialization failure in `ShutdownError::Sink(...)`

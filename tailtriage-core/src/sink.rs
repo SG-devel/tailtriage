@@ -65,6 +65,25 @@ impl RunSink for DiscardSink {
 ///
 /// Storing finalized runs clones captured data and can increase memory use for
 /// large captures.
+///
+/// # Example
+///
+/// ```
+/// use tailtriage_core::{MemorySink, Tailtriage};
+///
+/// let sink = MemorySink::new();
+/// let run = Tailtriage::builder("checkout-service")
+///     .sink(sink.clone())
+///     .build()?;
+///
+/// let started = run.begin_request("/checkout");
+/// started.completion.finish_ok();
+/// run.shutdown()?;
+///
+/// let finalized = sink.last_run().expect("shutdown stored the finalized Run");
+/// assert_eq!(finalized.requests.len(), 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct MemorySink {
     run: Arc<Mutex<Option<Run>>>,
@@ -111,7 +130,8 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// Local file sink that writes one JSON document per run at shutdown.
 ///
-/// This is the default sink used by [`crate::TailtriageBuilder`].
+/// [`crate::TailtriageBuilder::output`] selects this sink. Construction requires
+/// an explicit output path or custom sink; the builder has no default sink.
 #[derive(Debug, Clone)]
 pub struct LocalJsonSink {
     path: PathBuf,

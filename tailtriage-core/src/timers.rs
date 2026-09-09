@@ -5,6 +5,17 @@ use crate::time::IntervalStart;
 use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
+///
+/// A guard from a refused request is inert. For an admitted request, creation
+/// is also inert unless capture is open and a new gauge has available live
+/// gauge capacity; [`crate::CaptureLimits::max_inflight_snapshots`] bounds that
+/// distinct-gauge cardinality, while an already tracked gauge needs no new
+/// slot. When enabled, creation increments the live count immediately, with
+/// retention of the transition snapshot separately subject to the bounded
+/// snapshot capacity. Enabled Drop decrements while capture is open, again
+/// with bounded transition retention; Drop after finalization is inert. Keep
+/// the guard around the work it measures. It does not own or complete the
+/// request lifecycle.
 #[derive(Debug)]
 pub struct InflightGuard<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
@@ -199,7 +210,39 @@ impl StageTimer<'_> {
     ///
     /// Timing begins on first poll. A future dropped before first poll records
     /// no evidence. A polled helper future dropped before normal readiness
-    /// records one bounded partial event ending at observed Drop.
+    /// records one bounded partial event ending at observed Drop. That partial
+    /// duration is an observed lower bound, not proof that the operation
+    /// stopped; it has `completed = false` and `success = false`.
+    ///
+    /// The example uses the development dependency `futures-executor = "0.3"`
+    /// to run its async block. Applications can instead await this code in
+    /// their existing async context.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use tailtriage_core::{DiscardSink, Tailtriage};
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     futures_executor::block_on(async {
+    ///         let run = Tailtriage::builder("checkout-service")
+    ///             .sink(DiscardSink)
+    ///             .build()?;
+    ///         let started = run.begin_request("/checkout");
+    ///
+    ///         let value = started
+    ///             .handle
+    ///             .stage("cache")
+    ///             .await_value(async { 42 })
+    ///             .await;
+    ///         assert_eq!(value, 42);
+    ///
+    ///         started.completion.finish_ok();
+    ///         run.shutdown()?;
+    ///         Ok::<(), Box<dyn std::error::Error>>(())
+    ///     })
+    /// }
+    /// ```
     pub async fn await_value<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
@@ -245,6 +288,40 @@ pub struct QueueTimer<'a> {
 
 impl QueueTimer<'_> {
     /// Sets the queue depth sample captured at wait start.
+    ///
+    /// The value is an application-provided point sample, not a continuously
+    /// observed gauge. It is retained on either the completed wait or a
+    /// polled-then-dropped partial wait, subject to capture limits.
+    ///
+    /// The example uses the development dependency `futures-executor = "0.3"`
+    /// to run its async block. Applications can instead await this code in
+    /// their existing async context.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use tailtriage_core::{DiscardSink, Tailtriage};
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     futures_executor::block_on(async {
+    ///         let run = Tailtriage::builder("checkout-service")
+    ///             .sink(DiscardSink)
+    ///             .build()?;
+    ///         let started = run.begin_request("/checkout");
+    ///
+    ///         started
+    ///             .handle
+    ///             .queue("ingress")
+    ///             .with_depth_at_start(12)
+    ///             .await_on(async {})
+    ///             .await;
+    ///
+    ///         started.completion.finish_ok();
+    ///         run.shutdown()?;
+    ///         Ok::<(), Box<dyn std::error::Error>>(())
+    ///     })
+    /// }
+    /// ```
     #[must_use]
     pub fn with_depth_at_start(mut self, depth_at_start: u64) -> Self {
         self.depth_at_start = Some(depth_at_start);
