@@ -147,8 +147,9 @@ pub struct RunMetadata {
     pub started_at_unix_ms: u64,
     /// Finalization timestamp (milliseconds since epoch UTC) for completed artifacts.
     ///
-    /// This is `None` for active in-memory snapshots. Completed Run JSON
-    /// artifacts use a numeric finalization timestamp.
+    /// This is `None` before finalization. A snapshot obtained after shutdown
+    /// may contain the finalized timestamp. Completed Run JSON artifacts use a
+    /// numeric finalization timestamp.
     #[serde(default)]
     pub finalized_at_unix_ms: Option<u64>,
     /// Capture mode, such as "light" or "investigation".
@@ -176,8 +177,11 @@ pub struct RunMetadata {
     pub unfinished_requests: UnfinishedRequests,
     /// Why the run lifecycle ended.
     ///
-    /// This field may be `None` for older artifacts and for runs that do not
-    /// record an explicit end reason (including direct `tailtriage-core` runs today).
+    /// Direct shutdown sets [`RunEndReason::Shutdown`] if the field is absent.
+    /// An integration may set a more specific reason when it closes admissions,
+    /// before core finalization, and shutdown preserves that value. The field
+    /// can be `None` before such a lifecycle boundary, in older artifacts, or
+    /// in manually assembled artifacts whose producer omitted it.
     #[serde(default)]
     pub run_end_reason: Option<RunEndReason>,
 }
@@ -298,9 +302,13 @@ pub struct StageEvent {
     pub success: bool,
     /// Whether the instrumented stage future completed normally.
     ///
-    /// Older schema-v2 JSON without this field deserializes as completed.
-    /// Completed events omit the field when serialized; partial events serialize
-    /// `completed: false`.
+    /// Helper timing begins on first poll. Normal readiness records a completed
+    /// event. Dropping a never-polled helper records none; dropping a polled
+    /// pending helper while capture is open may record a bounded partial event
+    /// ending at observed Drop. Its duration is a lower bound, not proof the
+    /// operation stopped. Older schema-v2 JSON without this field deserializes
+    /// as completed. Completed events omit the field when serialized; partial
+    /// events serialize `completed: false`.
     #[serde(default = "default_completed", skip_serializing_if = "is_completed")]
     pub completed: bool,
 }
@@ -382,9 +390,13 @@ pub struct QueueEvent {
     pub depth_at_start: Option<u64>,
     /// Whether the instrumented queue future completed normally.
     ///
-    /// Older schema-v2 JSON without this field deserializes as completed.
-    /// Completed events omit the field when serialized; partial events serialize
-    /// `completed: false`.
+    /// Helper timing begins on first poll. Normal readiness records a completed
+    /// event. Dropping a never-polled helper records none; dropping a polled
+    /// pending helper while capture is open may record a bounded partial event
+    /// ending at observed Drop. Its duration is a lower bound, not proof the
+    /// operation stopped. Older schema-v2 JSON without this field deserializes
+    /// as completed. Completed events omit the field when serialized; partial
+    /// events serialize `completed: false`.
     #[serde(default = "default_completed", skip_serializing_if = "is_completed")]
     pub completed: bool,
 }

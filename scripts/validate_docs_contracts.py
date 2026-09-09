@@ -368,7 +368,7 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
 def validate_published_crate_readmes_are_self_contained(
     paths: tuple[Path, ...] = PUBLISHED_CRATE_READMES,
 ) -> None:
-    """Require every package README and keep its local links inside that package."""
+    """Require package-local, self-contained READMEs without external documentation links."""
     failures: list[str] = []
     for path in paths:
         if not path.is_file():
@@ -379,7 +379,13 @@ def validate_published_crate_readmes_are_self_contained(
         links = markdown_links(text) | markdown_reference_destinations(text)
         for link in links:
             path_text = link.split("#", 1)[0]
-            if not path_text or urlsplit(path_text).scheme:
+            if not path_text:
+                continue
+            scheme = urlsplit(path_text).scheme.lower()
+            if scheme in {"http", "https"}:
+                failures.append(f"{path}: external documentation link {link}")
+                continue
+            if scheme:
                 continue
             destination = (path.parent / path_text).resolve()
             try:
@@ -388,7 +394,8 @@ def validate_published_crate_readmes_are_self_contained(
                 failures.append(f"{path}: {link}")
     if failures:
         raise ValueError(
-            "published crate READMEs must exist and local links must stay inside the package: "
+            "published crate READMEs must exist; local links must stay inside the package; "
+            "and they must contain no external documentation links: "
             + ", ".join(failures)
         )
 

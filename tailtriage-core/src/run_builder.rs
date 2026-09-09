@@ -186,6 +186,38 @@ impl std::error::Error for RunBuilderError {}
 /// Push methods use first-N retention through the same bounded
 /// retention/truncation helper used by the live collector. Overflow items are
 /// dropped and reflected in [`Run::truncation`].
+///
+/// # Example
+///
+/// ```
+/// use tailtriage_core::{QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions};
+///
+/// let mut builder = RunBuilder::new(
+///     RunBuilderOptions::new("checkout-service")
+///         .started_at_unix_ms(1_000)
+///         .finalized_at_unix_ms(1_100),
+/// )?;
+/// builder.push_request(RequestEvent {
+///     request_id: "req-1".into(),
+///     route: "/checkout".into(),
+///     kind: Some("http".into()),
+///     started_at_unix_ms: 1_010,
+///     started_at_run_us: Some(10_000),
+///     finished_at_unix_ms: 1_020,
+///     finished_at_run_us: Some(20_000),
+///     latency_us: 10_000,
+///     outcome: "ok".into(),
+/// })?;
+/// builder.push_queue(
+///     QueueEvent::new("req-1", "ingress", 1_010, 1_012, 2_000)
+///         .with_run_interval(Some(10_000), Some(12_000)),
+/// )?;
+///
+/// let run = builder.build();
+/// assert_eq!(run.requests.len(), 1);
+/// assert_eq!(run.queues.len(), 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug)]
 pub struct RunBuilder {
     run: Run,
@@ -354,8 +386,21 @@ impl RunBuilder {
     }
     /// Consumes the builder and returns the assembled finalized [`Run`].
     ///
-    /// This does not perform lifecycle validation or synthesize missing
-    /// completions.
+    /// Each `push_*` method has already performed intrinsic shape checks and
+    /// bounded first-N retention. At build time, canonical permissive
+    /// cross-event normalization is applied: ambiguous duplicated requests and
+    /// invalid/orphaned request-scoped children can be excluded, invalid
+    /// optional run-relative precision can be cleared, and invalid optional
+    /// worker count is cleared. Duration fields remain authoritative.
+    /// Output-changing validation summaries are appended to
+    /// [`RunMetadata::lifecycle_warnings`](crate::RunMetadata::lifecycle_warnings)
+    /// without duplicating an existing identical warning.
+    ///
+    /// This is not live lifecycle validation and does not synthesize missing
+    /// requests or completions. Permissive normalization also does not repair
+    /// unsupported schema or required metadata; callers needing the complete
+    /// issue report and per-input dispositions should call
+    /// [`crate::normalize_run_permissive`] on their candidate directly.
     #[must_use]
     pub fn build(self) -> Run {
         let normalized = crate::normalize_run_permissive(&self.run);
