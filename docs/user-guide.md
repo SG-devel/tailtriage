@@ -314,7 +314,7 @@ Minimal controller window example:
 ```rust,no_run
 use tailtriage::controller::TailtriageController;
 
-# fn demo() -> Result<(), Box<dyn std::error::Error>> {
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 let controller = TailtriageController::builder("checkout-service")
     .initially_enabled(false)
     .output("tailtriage-run.json")
@@ -333,6 +333,8 @@ let started = controller.begin_request("/checkout");
 }
 started.completion.finish_ok();
 let _ = controller.disable()?;
+// disable is reversible; shutdown is the separate terminal process-lifecycle step.
+controller.shutdown()?;
 # Ok(())
 # }
 ```

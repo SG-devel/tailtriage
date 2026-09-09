@@ -180,7 +180,13 @@ impl TailtriageControllerBuilder {
     }
 }
 
-/// Long-lived live-capture controller for arm/disarm workflows.
+/// Long-lived live-capture controller for repeated arm/disarm workflows.
+///
+/// A controller owns a reloadable template and at most one active bounded generation.
+/// [`Self::disable`] reversibly closes the current generation; [`Self::shutdown`] is terminal.
+/// Clones share controller state, but no controller clone or [`ControllerRequestHandle`] clone
+/// owns request completion. That responsibility stays with the corresponding
+/// [`ControllerRequestCompletion`].
 #[derive(Debug, Clone)]
 pub struct TailtriageController {
     inner: Arc<ControllerInner>,
@@ -458,7 +464,8 @@ impl TailtriageController {
 
     /// Replaces the template used to create the next activation generation.
     ///
-    /// Validation is pure: it creates no generation or runtime sampler. The replacement
+    /// Validation completes before replacement. On validation failure, the previous usable
+    /// template remains installed. Replacement creates no generation or runtime sampler and
     /// affects only future activations; an active generation keeps its immutable snapshot.
     ///
     /// # Errors
@@ -498,8 +505,10 @@ impl TailtriageController {
 
     /// Reloads controller config from the configured template file path.
     ///
-    /// Reload only updates the template for future activations. Any active generation
-    /// keeps the activation config it started with.
+    /// Loading and validation complete before replacement. If either fails, the previous usable
+    /// template remains installed. A successful reload only updates future activations; any
+    /// active generation keeps the immutable activation config it started with. Reload neither
+    /// creates a generation nor starts a runtime sampler.
     ///
     /// # Errors
     ///
@@ -548,6 +557,11 @@ impl TailtriageController {
     }
 
     /// Arms capture by creating a fresh active generation with a bounded run.
+    ///
+    /// Runtime sampler configuration is inert until this activation boundary. When the template
+    /// enables sampling, sampler startup is part of `enable()`; capture mode by itself never
+    /// starts it. A later call may create a fresh generation after reversible [`Self::disable`]
+    /// has finalized the previous one.
     ///
     /// # Errors
     ///
@@ -704,16 +718,22 @@ impl TailtriageController {
         Ok(())
     }
 
-    /// Disarms capture for the active generation.
+    /// Reversibly disarms capture for the active generation.
     ///
     /// This stops new request admissions immediately. If no admitted captured requests
     /// remain in flight, disarm finalizes immediately. Otherwise the generation is marked
-    /// closing and finalization happens after the admitted captured requests drain.
+    /// closing and finalization happens after the admitted captured requests drain. Thus closing
+    /// admissions and finalizing the artifact need not happen at the same instant. The completion
+    /// token that reduces the last admitted count attempts finalization.
     ///
     /// # Errors
     ///
     /// Returns [`GenerationFinalizationError::Finalize`] when strict lifecycle validation finds
-    /// unfinished requests or when artifact persistence or serialization fails.
+    /// unfinished core requests or when artifact persistence or serialization fails. An
+    /// unfinished-request error occurs before a sink attempt and leaves this closing generation
+    /// retryable: later completion/drop can drain and retry finalization, and a later controller
+    /// operation returns the authoritative stored result. A sink-attempted failure is terminal
+    /// for that generation and later operations replay it without another sink write.
     ///
     pub fn disable(&self) -> Result<DisableOutcome, GenerationFinalizationError> {
         let active = {
@@ -761,7 +781,9 @@ impl TailtriageController {
     ///
     /// Inert handles preserve explicit metadata from [`RequestOptions`] (`request_id` and
     /// `kind`). When `request_id` is omitted, the controller assigns a local fallback ID in
-    /// `inert-{N}` form for predictable non-empty metadata.
+    /// `inert-{N}` form for predictable non-empty metadata. Their queue/stage helpers still await
+    /// the supplied work and in-flight guards remain harmless, but they record no evidence and
+    /// never migrate into a later generation.
     ///
     pub fn begin_request_with(
         &self,
@@ -894,13 +916,16 @@ impl TailtriageController {
     ///
     /// Shutdown is terminal: it immediately stops new admissions and prevents future generations.
     /// Repeated calls authoritatively check or replay finalization for the same terminal generation
-    /// and never write its artifact more than once.
+    /// and never write its artifact more than once. Later `enable`, config reload, and template
+    /// reload operations are rejected.
     ///
     /// # Errors
     ///
     /// In strict lifecycle mode, returns [`GenerationFinalizationError::Finalize`] containing
     /// [`tailtriage_core::ShutdownError::UnfinishedRequests`] before any sink attempt while admitted
-    /// requests remain. That condition can be checked again on the same terminal generation.
+    /// requests remain. No artificial outcomes are recorded. The terminal generation remains
+    /// retryable: completion/drop of admitted tokens updates drain accounting and may finalize it;
+    /// another `shutdown()` returns or replays the authoritative stored result.
     /// Persistence and serialization failures are reported through
     /// [`tailtriage_core::ShutdownError::Sink`].
     ///
@@ -1226,17 +1251,33 @@ fn validate_public_template(
     Ok(ResolvedControllerTemplate { public: template })
 }
 
-/// Result of trying to begin one captured request in a generation.
+/// Request instrumentation and completion ownership returned by controller admission.
+///
+/// Keep both fields alive through the measured work, then consume [`Self::completion`] explicitly.
+/// The handle may be cloned for instrumentation across helper layers; those clones do not own or
+/// finish the request.
 #[must_use = "request completion must be finished explicitly"]
 #[derive(Debug)]
 pub struct ControllerStartedRequest {
     /// Instrumentation handle for queue/stage/inflight timing.
     pub handle: ControllerRequestHandle,
-    /// Completion token bound to one generation.
+    /// Sole controller token that owns completion of this request.
     pub completion: ControllerRequestCompletion,
 }
 
-/// Completion token for a request admitted through [`TailtriageController`].
+/// Completion owner for a request begun through [`TailtriageController`].
+///
+/// For an admitted request, [`Self::finish`], [`Self::finish_ok`], and [`Self::finish_result`]
+/// consume and disarm this token, record the chosen outcome in the bound core generation when it
+/// is still open, and leave that generation's controller drain count. An inert token records
+/// nothing.
+///
+/// Dropping an unfinished admitted token drops its core completion first. While the core capture
+/// remains open, that records the core completion token's documented `cancelled` outcome; if
+/// closure/finalization has already won, it records no invented late outcome. Drop then leaves the
+/// admitted generation's drain count. If it was the last admitted completion in a closing
+/// generation, that transition attempts generation finalization. A handle or controller clone
+/// never owns these completion duties.
 #[must_use = "request completion must be finished explicitly"]
 #[derive(Debug)]
 pub struct ControllerRequestCompletion {
@@ -1244,7 +1285,7 @@ pub struct ControllerRequestCompletion {
 }
 
 impl ControllerRequestCompletion {
-    /// Finishes this request with an explicit outcome.
+    /// Finishes this request with an explicit outcome and disarms Drop completion.
     pub fn finish(mut self, outcome: Outcome) {
         if let ControllerCompletionKind::Active(active) = &mut self.kind {
             if let Some(completion) = active.completion.take() {
@@ -1360,7 +1401,11 @@ impl ActiveControllerCompletion {
     }
 }
 
-/// Instrumentation handle for requests begun through [`TailtriageController`].
+/// Cloneable instrumentation handle for a controller request.
+///
+/// Captured handles stay bound to their admission generation; inert handles retain request
+/// identity metadata but record no evidence and never join a later generation. This value does
+/// not own request completion.
 #[derive(Debug, Clone)]
 pub struct ControllerRequestHandle {
     kind: ControllerRequestKind,
@@ -1387,13 +1432,50 @@ impl ControllerRequestHandle {
 
     /// Returns whether this request was captured by a controller generation when it began.
     ///
-    /// This is immutable admission identity, not the controller's current enablement state.
+    /// `true` means this wrapper was associated with a captured generation when the request began.
+    /// This immutable historical identity is not a live query: disabling, closing, draining, or
+    /// finalizing that generation does not change it and does not imply new evidence is accepted.
     #[must_use]
     pub fn is_captured(&self) -> bool {
         matches!(self.kind, ControllerRequestKind::Captured(_))
     }
 
-    /// Returns the original core handle for explicit interoperability when captured.
+    /// Borrows the admitted core [`OwnedRequestHandle`] for explicit interoperability.
+    ///
+    /// Captured controller requests return `Some`; inert requests return `None`. This is an escape
+    /// hatch for APIs that specifically require the core handle. Prefer [`Self::queue`],
+    /// [`Self::stage`], and [`Self::inflight`] for ordinary controller instrumentation.
+    ///
+    /// The returned handle preserves historical admission identity, not current recording state:
+    /// later instrumentation may be rejected after the bound generation closes. It neither
+    /// transfers nor owns request completion.
+    ///
+    /// This example is an `async fn` intended to run inside the application's existing async
+    /// runtime; it requires no executor crate merely to compile.
+    ///
+    /// ```
+    /// use tailtriage_controller::{ControllerRequestHandle, TailtriageController};
+    ///
+    /// async fn instrument(handle: &ControllerRequestHandle) {
+    ///     if let Some(core) = handle.captured_handle() {
+    ///         // Interoperate with an API that specifically accepts the core handle.
+    ///         let _request_id = core.request_id();
+    ///     }
+    /// }
+    ///
+    /// async fn capture() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let controller = TailtriageController::builder("checkout-service")
+    ///         .output("tailtriage-run.json")
+    ///         .build()?;
+    ///     controller.enable()?;
+    ///     let started = controller.begin_request("/checkout");
+    ///     instrument(&started.handle).await;
+    ///     started.completion.finish_ok();
+    ///     controller.disable()?;
+    ///     controller.shutdown()?;
+    ///     Ok(())
+    /// }
+    /// ```
     #[must_use]
     pub fn captured_handle(&self) -> Option<&OwnedRequestHandle> {
         match &self.kind {
@@ -1493,7 +1575,36 @@ impl InertControllerRequestHandle {
     }
 }
 
-/// Controller-local queue timer wrapper.
+/// Queue-wait future wrapper for captured and inert controller requests.
+///
+/// Calling [`ControllerRequestHandle::queue`] constructs the wrapper, but timing begins only when
+/// [`Self::await_on`] is first polled. Normal readiness records one completed wait. Dropping before
+/// first poll records nothing; dropping after a pending poll may record one bounded partial,
+/// lower-bound wait ending at observed Drop, subject to capture openness and limits. If the
+/// generation closes while work is pending, no late event is forced into the closed capture.
+///
+/// An inert wrapper awaits the supplied future unchanged and records nothing. Dropping this
+/// measuring future observes only the instrumentation future's lifetime; it does not prove that
+/// an underlying external operation stopped.
+///
+/// This example is an `async fn` intended for an application's existing async runtime.
+///
+/// ```
+/// use tailtriage_controller::TailtriageController;
+///
+/// async fn capture() -> Result<(), Box<dyn std::error::Error>> {
+///     let controller = TailtriageController::builder("checkout-service")
+///         .output("tailtriage-run.json")
+///         .build()?;
+///     controller.enable()?;
+///     let started = controller.begin_request("/checkout");
+///     started.handle.queue("db-pool").await_on(async {}).await;
+///     started.completion.finish_ok();
+///     controller.disable()?;
+///     controller.shutdown()?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug)]
 pub struct ControllerQueueTimer<'a> {
     kind: ControllerQueueTimerKind<'a>,
@@ -1527,7 +1638,7 @@ impl ControllerQueueTimer<'_> {
         }
     }
 
-    /// Awaits `fut`, recording queue wait for active requests only.
+    /// Awaits `fut`, recording queue-wait evidence for captured requests when accepted.
     pub async fn await_on<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
@@ -1539,7 +1650,41 @@ impl ControllerQueueTimer<'_> {
     }
 }
 
-/// Controller-local stage timer wrapper.
+/// Stage future wrapper for captured and inert controller requests.
+///
+/// Timing starts on the first poll of [`Self::await_on`] or [`Self::await_value`], not when the
+/// wrapper is constructed. Normal readiness records one completed stage (with success derived from
+/// `Result` for `await_on`). Drop before first poll records nothing; Drop after a pending poll may
+/// record one bounded partial, lower-bound stage ending at observed Drop, subject to capture
+/// openness and limits. Closing the generation while work is pending prevents forced late writes.
+/// Inert wrappers still await work unchanged and record nothing.
+///
+/// A dropped measuring future describes the observed instrumentation lifetime only; it is not
+/// proof that an underlying external operation stopped.
+///
+/// This example is an `async fn` intended for an application's existing async runtime.
+///
+/// ```
+/// use tailtriage_controller::TailtriageController;
+///
+/// async fn capture() -> Result<(), Box<dyn std::error::Error>> {
+///     let controller = TailtriageController::builder("checkout-service")
+///         .output("tailtriage-run.json")
+///         .build()?;
+///     controller.enable()?;
+///     let started = controller.begin_request("/checkout");
+///     let value: Result<u8, std::io::Error> = started
+///         .handle
+///         .stage("inventory")
+///         .await_on(async { Ok(1) })
+///         .await;
+///     value?;
+///     started.completion.finish_ok();
+///     controller.disable()?;
+///     controller.shutdown()?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug)]
 pub struct ControllerStageTimer<'a> {
     kind: ControllerStageTimerKind<'a>,
@@ -1589,7 +1734,12 @@ impl ControllerStageTimer<'_> {
     }
 }
 
-/// Controller-local in-flight guard wrapper.
+/// In-flight gauge guard for a controller request.
+///
+/// A captured guard increments the named gauge when constructed and decrements it on Drop, while
+/// capture remains able to retain those snapshots. Keep it around exactly the work whose
+/// concurrency it represents. An inert guard has no recording side effects and never joins a
+/// later generation.
 #[derive(Debug)]
 pub struct ControllerInflightGuard<'a> {
     _kind: ControllerInflightGuardKind<'a>,
@@ -1636,25 +1786,44 @@ pub struct TailtriageControllerTemplate {
     pub run_end_policy: RunEndPolicy,
 }
 
-/// Runtime sampler template attached to controller activation settings.
+/// Tokio runtime-sampler settings copied into each generation at activation.
+///
+/// `Default` disables sampling and leaves every override as `None`. Configuring this value or
+/// reloading a controller template does not start a sampler. [`TailtriageController::enable`]
+/// starts one only when [`Self::enabled`] is true; capture mode alone never starts it. Values are
+/// then fixed in that generation's [`ControllerActivationTemplate`].
+///
+/// Rust callers configure [`Self::interval`] with [`Duration`]. TOML is a distinct decoding
+/// boundary and uses the integer `interval_ms` key; this template is not a serde representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RuntimeSamplerTemplate {
-    /// Enables runtime sampler startup for armed runs.
+    /// Whether `enable()` starts a sampler for each newly armed generation; defaults to `false`.
     pub enabled: bool,
-    /// Optional mode override used by runtime sampler.
+    /// Optional sampler-mode override; `None` inherits the generation's resolved capture mode.
     pub mode_override: Option<CaptureMode>,
-    /// Optional runtime sampler interval override.
+    /// Optional sampling interval as a Rust [`Duration`]; `None` uses the sampler mode's default.
+    /// A zero duration is accepted as template data but sampler startup rejects it from
+    /// [`TailtriageController::enable`] as [`EnableError::StartRuntimeSampler`].
     pub interval: Option<Duration>,
-    /// Optional max runtime snapshots override.
+    /// Optional sampler-local maximum snapshot attempts; `None` uses the sampler mode default.
+    /// Retained snapshots remain bounded by the generation's resolved core capture limit, so this
+    /// setting does not enlarge `capture_limits_override.max_runtime_snapshots`.
     pub max_runtime_snapshots: Option<usize>,
 }
 
-/// Policy for bounded activation run completion.
+/// Policy applied after a bounded generation first reports `limits_hit`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunEndPolicy {
-    /// Keep cheap-dropping after limits are hit until manual disarm or shutdown.
+    /// Keep the generation active and keep admissions open after the first limit is hit.
+    ///
+    /// Evidence beyond exhausted limits is cheaply refused/dropped by the bounded core collector.
+    /// Already-admitted requests continue normally. Finalization waits for an explicit
+    /// [`TailtriageController::disable`] or [`TailtriageController::shutdown`].
     ContinueAfterLimitsHit,
-    /// On first transition to `limits_hit`, stop admissions and seal/finalize the run.
+    /// Begin closing on the first transition to `limits_hit` and stop new admissions.
+    ///
+    /// Already-admitted requests remain bound to the generation and drain normally. Finalization
+    /// is immediate if none remain, otherwise the last admitted completion/drop triggers it.
     AutoSealOnLimitsHit,
 }
 
@@ -1799,7 +1968,47 @@ impl ControllerConfigFile {
     }
 }
 
-/// Parsed controller config loaded from a TOML file.
+/// Validated public view of a standalone controller TOML file.
+///
+/// # Supported TOML
+///
+/// The required `[controller]` table accepts optional `service_name` and `initially_enabled`.
+/// `service_name`, when used to build/reload a controller, overrides the corresponding fallback
+/// and must be nonblank after resolution. `initially_enabled` defaults to the builder choice when
+/// omitted during build and causes build to call `enable()` when true.
+///
+/// The required `[controller.activation]` table accepts:
+///
+/// - `output_path`: a non-empty path. During builder/config reload resolution an explicit TOML
+///   value overrides the original builder output and omission falls back to that base output.
+///   Standalone [`TailtriageController::load_config_from_path`] has no builder fallback, so the
+///   key is required there.
+/// - `mode`: `"light"` or `"investigation"`; omission during controller resolution falls back to
+///   the original builder mode (default `light`), while standalone loading resolves to `light`.
+/// - `strict_lifecycle`: boolean, default `false` in TOML.
+/// - `run_end_policy`: `"continue_after_limits_hit"` (default) or
+///   `"auto_seal_on_limits_hit"`.
+///
+/// `[controller.activation.capture_limits_override]` is optional. It accepts optional nonnegative
+/// integer `max_requests`, `max_stages`, `max_queues`, `max_inflight_snapshots`, and
+/// `max_runtime_snapshots`; omitted fields inherit the selected mode's core limits.
+///
+/// `[controller.activation.runtime_sampler]` is optional and defaults to disabled. It accepts
+/// `enabled` (boolean, default `false`), `mode_override` (`"light"` or `"investigation"`, default
+/// inheritance from the resolved capture mode), `interval_ms` (nonnegative integer milliseconds,
+/// default sampler-mode interval), and `max_runtime_snapshots` (nonnegative integer, default
+/// sampler-mode maximum). Core snapshot retention remains independently bounded by the resolved
+/// capture limits. `interval_ms = 0` parses but fails sampler startup at activation.
+///
+/// Unknown type/value syntax is rejected by TOML deserialization. Removed keys
+/// `controller.activation.sink` and runtime-sampler `enabled_for_armed_runs` are explicitly
+/// rejected. Loading also fails for I/O errors, invalid TOML, or a missing/empty standalone
+/// output. This type exposes resolved values only; private TOML decoder structs are not public
+/// configuration APIs.
+///
+/// Reload loading and validation complete before template replacement. Failed reloads leave the
+/// prior usable template installed; successful reloads affect only future generations and neither
+/// create a generation nor start a sampler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedControllerConfig {
     /// Optional service name override.

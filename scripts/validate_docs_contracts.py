@@ -188,15 +188,16 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
 
 
 def validate_controller_readme_toml() -> None:
-    """Parse controller README examples and compare enum values with Rust source."""
+    """Parse the standalone controller README example against the Rust contract."""
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
     snippets = extract_all_fenced_blocks(readme_text, fence="toml")
-    if len(snippets) < 2:
-        raise ValueError("controller README must include minimal and expanded TOML examples")
+    if not snippets:
+        raise ValueError("controller README must include a representative TOML example")
 
-    minimal, expanded = (tomllib.loads(snippet) for snippet in snippets[:2])
-    _validate_controller_toml_shape(parsed=minimal, example_name="minimal")
-    _validate_controller_toml_shape(parsed=expanded, example_name="expanded")
+    for index, snippet in enumerate(snippets, start=1):
+        _validate_controller_toml_shape(
+            parsed=tomllib.loads(snippet), example_name=f"example {index}"
+        )
 
 
 def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str) -> None:
