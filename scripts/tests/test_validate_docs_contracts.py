@@ -996,6 +996,24 @@ pub enum DiagnosisKind {
                 validate_docs_contracts.validate_published_crate_readmes_are_self_contained((readme,))
 
     # TT-TEST: M01 secondary
+    def test_published_readme_rejects_external_http_autolink(self) -> None:
+        for scheme in ('http', 'https'):
+            with self.subTest(scheme=scheme), tempfile.TemporaryDirectory() as tmp_dir:
+                readme = Path(tmp_dir) / 'README.md'
+                readme.write_text(f'See <{scheme}://example.com/guide>.\n', encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'no external documentation links'):
+                    validate_docs_contracts.validate_published_crate_readmes_are_self_contained(
+                        (readme,)
+                    )
+
+    # TT-TEST: M01 secondary
+    def test_published_readme_accepts_literal_http_url_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme = Path(tmp_dir) / 'README.md'
+            readme.write_text('Sample value: https://example.com/guide\n', encoding='utf-8')
+            validate_docs_contracts.validate_published_crate_readmes_are_self_contained((readme,))
+
+    # TT-TEST: M01 secondary
     def test_published_readme_accepts_anchor_and_package_local_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             package = Path(tmp_dir) / 'crate'

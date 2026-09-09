@@ -179,8 +179,11 @@ impl std::fmt::Debug for Tailtriage {
 ///
 /// For an admitted request, dropping an unfinished completion while capture is
 /// open records one `cancelled` request, including during panic unwinding.
-/// Explicit finish disarms Drop. A refused request has inert fields and records
-/// nothing. If finalization wins first, late finish and Drop are inert.
+/// Explicit finish disarms Drop. For a capacity-refused request, the returned
+/// handle and completion token are inert and record no request completion or
+/// request-scoped evidence, but the refusal updates truncation accounting. A
+/// start refused after finalization is inert without changing the finalized
+/// run; late finish and Drop are likewise inert after finalization wins.
 #[must_use = "request completion must be finished explicitly"]
 #[derive(Debug)]
 pub struct StartedRequest<'a> {

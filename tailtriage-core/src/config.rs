@@ -83,7 +83,11 @@ pub struct CaptureLimits {
     pub max_stages: usize,
     /// Maximum number of queue events retained in-memory for the run.
     pub max_queues: usize,
-    /// Maximum number of in-flight snapshots retained in-memory for the run.
+    /// Maximum live distinct-gauge cardinality and retained in-flight snapshots.
+    ///
+    /// While capture is open, tracking a new gauge requires a distinct-gauge
+    /// slot; an already tracked gauge needs no additional slot. Transition
+    /// snapshot retention is bounded separately by the same capacity.
     pub max_inflight_snapshots: usize,
     /// Maximum number of runtime snapshots retained in-memory for the run.
     pub max_runtime_snapshots: usize,

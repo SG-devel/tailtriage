@@ -77,6 +77,11 @@ def markdown_reference_destinations(markdown: str) -> set[str]:
     return {angle or bare for angle, bare in pattern.findall(markdown)}
 
 
+def markdown_http_autolinks(markdown: str) -> set[str]:
+    """Return HTTP(S) destinations from Markdown URL autolinks."""
+    return set(re.findall(r"<(https?://[^<>\s]+)>", markdown, flags=re.IGNORECASE))
+
+
 def resolve_local_markdown_destination(
     document: Path, destination: str, *, repo_root: Path = REPO_ROOT
 ) -> Path | None:
@@ -376,7 +381,11 @@ def validate_published_crate_readmes_are_self_contained(
             continue
         package_dir = path.parent.resolve()
         text = path.read_text(encoding="utf-8")
-        links = markdown_links(text) | markdown_reference_destinations(text)
+        links = (
+            markdown_links(text)
+            | markdown_reference_destinations(text)
+            | markdown_http_autolinks(text)
+        )
         for link in links:
             path_text = link.split("#", 1)[0]
             if not path_text:

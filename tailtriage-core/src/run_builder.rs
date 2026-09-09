@@ -390,8 +390,8 @@ impl RunBuilder {
     /// bounded first-N retention. At build time, canonical permissive
     /// cross-event normalization is applied: ambiguous duplicated requests and
     /// invalid/orphaned request-scoped children can be excluded, invalid
-    /// optional run-relative precision can be cleared, and invalid optional
-    /// worker count is cleared. Duration fields remain authoritative.
+    /// optional run-relative precision can be cleared, and duration fields
+    /// remain authoritative.
     /// Output-changing validation summaries are appended to
     /// [`RunMetadata::lifecycle_warnings`](crate::RunMetadata::lifecycle_warnings)
     /// without duplicating an existing identical warning.
