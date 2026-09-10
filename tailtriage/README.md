@@ -53,7 +53,7 @@ Replace the sleeps with a real queue wait and database call, downstream request,
 
 Within a Run, one completed logical request/work item needs one unique tailtriage `request_id`; queue and stage evidence must reuse it only for that request.
 
-The example does not start runtime sampling. The default `tokio` feature only exposes sampler APIs; sampling is optional and starts explicitly inside an active Tokio runtime.
+The example does not start runtime sampling. The default `tokio` feature makes the `tailtriage::tokio` sampler and Tokio helper APIs available; runtime sampling itself is optional and starts explicitly inside an active Tokio runtime.
 
 ## Analyze and act
 
