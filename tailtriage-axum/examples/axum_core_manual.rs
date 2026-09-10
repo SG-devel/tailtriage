@@ -89,14 +89,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tasks.push(tokio::spawn(async move { app.oneshot(request).await }));
     }
 
-    for task in tasks {
-        let status = task.await??.status();
-        if status != StatusCode::OK {
-            return Err(format!("request failed with status {status}").into());
+    let workload_result = async {
+        for task in tasks {
+            let status = task.await??.status();
+            if status != StatusCode::OK {
+                return Err(format!("request failed with status {status}").into());
+            }
         }
+        Ok::<_, Box<dyn std::error::Error>>(())
     }
+    .await;
 
     tailtriage.shutdown()?;
+    workload_result?;
 
     println!("Wrote {artifact_path}");
     println!("This example shows manual Axum + tailtriage-core wiring.");
