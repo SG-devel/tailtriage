@@ -1,480 +1,147 @@
 # User guide
 
-This guide teaches the default `tailtriage` workflow for end users.
+This guide completes the default native capture journey before introducing optional integrations. `tailtriage` produces evidence-ranked suspects and next checks; suspects are leads, not proof of root cause.
 
-For production rollout, capture mode choice, runtime-sampling decisions, artifact sizing, truncation/capture-limit behavior, and weak-signal troubleshooting, see [operations.md](operations.md).
+## 1) Install
 
-## 1) Default adoption path
-
-For most services, use:
-
-- `tailtriage` for capture instrumentation
-- `tailtriage-cli` for artifact analysis/report generation
-
-Install (default CLI path):
+Use the façade for capture and the CLI for saved-Run analysis. This guide's example names Tokio directly, so Tokio must also be a direct dependency:
 
 ```bash
 cargo add tailtriage
+cargo add tokio --features macros,rt,time
 cargo install tailtriage-cli
 ```
 
-For embedded/in-process Rust analysis and report generation, add `tailtriage-analyzer`:
+## 2) Instrument one meaningful request
 
-```bash
-cargo add tailtriage-analyzer
+Put queue instrumentation around a real wait before work starts and stage instrumentation around a database call, downstream request, or meaningful handler/service work.
+
+```rust,no_run
+use std::time::Duration;
+use tailtriage::Tailtriage;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let run = Tailtriage::builder("checkout-service")
+        .output("tailtriage-run.json")
+        .build()?;
+
+    let started = run.begin_request("/checkout");
+    let request = started.handle.clone();
+
+    request
+        .queue("checkout_worker")
+        .await_on(tokio::time::sleep(Duration::from_millis(6)))
+        .await;
+
+    let workload = request
+        .stage("inventory_lookup")
+        .await_on(async {
+            tokio::time::sleep(Duration::from_millis(8)).await;
+            Ok::<(), std::io::Error>(())
+        })
+        .await;
+
+    let workload = started.completion.finish_result(workload);
+    run.shutdown()?;
+    workload?;
+    Ok(())
+}
 ```
 
-Optional integrations:
+`started.handle` records evidence; `started.completion` owns completion. Finish exactly once after measured work. `shutdown()` finalizes and persists the capture but does not invent completion. Keep fallible work in a value until completion and shutdown have occurred, rather than using an early `?` that can skip either step. Do not finalize while spawned request tasks or owned completion tokens remain active.
+
+Within a Run, each completed logical request/work item needs one unique tailtriage `request_id`; its queue and stage evidence must reuse that ID only for the same logical request.
+
+## 3) Analyze the finalized Run
+
+Start with text output:
+
+```bash
+tailtriage analyze tailtriage-run.json
+```
+
+Saved-Run CLI analysis uses strict generic core validation: an error-level core finding blocks report generation, while warning-only precision limitations are accepted. `--allow-ambiguous-artifact` explicitly selects permissive canonical normalization and reports the original issues. Tracing import `--strict` separately controls tracing-source conversion. In-process analyzer APIs use permissive generic Run normalization by default.
+
+A small capture may legitimately yield `insufficient_evidence`. The workflow guarantees neither a particular suspect nor a root cause.
+
+## 4) Interpret evidence and limitations
+
+Read the result in this order:
+
+1. primary suspect—the strongest lead
+2. supporting evidence
+3. warnings and evidence-quality limitations
+4. one `next_check`
+
+Completed queue/stage distributions use completed observations. A partial helper observation is a lower bound from first poll until helper Drop; Drop does not prove the underlying operation completed, failed, was cancelled, or stopped. When selected evidence materially relies on a lower bound, confidence can be capped.
+
+For a practical walkthrough, use the [analyzer guide](analyzer-guide.md). Consult the [diagnostics reference](diagnostics.md) only for exact scoring, ordering, fields, and evidence-limit mechanics.
+
+## 5) Pick one next check and rerun
+
+Change or instrument one thing suggested by the strongest lead, then capture again under comparable conditions. If the report says `insufficient_evidence`, add one useful missing boundary: a suspected queue, a downstream stage, or explicit runtime sampling when runtime pressure is the open question. Compare evidence movement; do not treat it as formal causal proof.
+
+This completes the default journey: install, instrument, complete, shut down, analyze, interpret, choose one check, and rerun.
+
+## Optional paths
+
+### Controller for long-lived services
+
+Choose `tailtriage::controller::TailtriageController` for repeated bounded arm/disarm capture windows. `disable()` finalizes the current generation and is reversible; `shutdown()` is terminal. The [operations guide](operations.md) owns rollout and lifecycle choices, and the [`tailtriage-controller` README](../tailtriage-controller/README.md) owns configuration details.
+
+### Tokio runtime sampling
+
+Choose runtime sampling when request timing alone cannot distinguish executor or blocking-pool pressure. The default `tokio` feature makes `tailtriage::tokio` available, but sampling never starts automatically: `CaptureMode` and `Tailtriage::builder` do not start it. Start `RuntimeSampler` explicitly inside an active Tokio runtime. Exact cadence, retention, and startup contracts live in the [`tailtriage-tokio` README](../tailtriage-tokio/README.md) and Rustdoc.
+
+### Axum request boundaries
+
+Enable the façade's `axum` feature for middleware-owned request start/finish and request-handle extraction:
 
 ```bash
 cargo add tailtriage --features axum
+```
+
+The adapter does not infer inner waits; queue, stage, and in-flight instrumentation remains explicit. See the [`tailtriage-axum` README](../tailtriage-axum/README.md).
+
+### Existing Rust tracing instrumentation
+
+Choose tracing only when the application already has suitable Rust `tracing` instrumentation and correlation:
+
+```bash
 cargo add tailtriage --features tracing
 cargo add tailtriage --features tracing-live
 cargo add tailtriage --features tracing-tokio
 ```
 
-The `controller` and `tokio` namespaces are available with default features; `axum` and tracing intake remain opt-in.
+- `tracing` provides typed records and stable completed-span JSONL intake.
+- `tracing-live` includes `tracing` and adds live recorder/session APIs.
+- `tracing-tokio` includes `tokio` plus `tracing-live` and adds Tokio-coupled live session support.
 
-### Using existing tracing spans
-
-Use `tailtriage --features tracing-live` when you want the default crate façade (`tailtriage::tracing`) for live tracing intake, or use `tailtriage-tracing` directly when you want the narrow crate boundary. This path is for services that already use Rust `tracing` and already have stable per-work-item IDs that can be converted into unique tailtriage request IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
-
-This path converts tracing-shaped request, stage, and queue evidence into standard Run artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend. For one completed logical request/work item, every request, stage, and queue span must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`. The `tt.request_id` value must be unique among completed requests in one Run.
-
-Install the façade for typed records plus JSONL import APIs:
-
-```bash
-cargo add tailtriage --features tracing
-```
-
-Or install the focused crate directly:
-
-```bash
-cargo add tailtriage-tracing
-```
-
-A) Completed-span JSONL intake path:
+Offline import converts supported Tailtriage completed-span JSONL into the standard Run analyzed by the same CLI:
 
 ```bash
 tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
 tailtriage analyze tailtriage-run.json
 ```
 
-#### What this imports
+This is not arbitrary tracing-log ingestion. One completed logical work item needs one unique tailtriage request ID; retries, fanout branches, and batch items must not reuse an ambiguous ID. The [`tailtriage-tracing` README](../tailtriage-tracing/README.md) owns fields, wrappers, import policy, session lifecycle, and Tokio coupling.
 
-- Completed tailtriage tracing span JSONL.
-- The stable wrapper shape is `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
-- Ordinary `tracing_subscriber::fmt().json()` logs are unsupported and rejected.
+### Embedded analysis
 
-#### What this writes
-
-- `tailtriage import tracing-spans-jsonl` writes Run JSON, not Report JSON.
-- Analysis is a separate `tailtriage analyze tailtriage-run.json` step.
-
-#### Strict vs non-strict
-
-- `--strict` fails malformed or incomplete `tt.*` spans.
-- Non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages.
-
-#### Retention limits
-
-- Offline import exposes request/stage/queue retention options because those are the imported evidence types.
-- It does not expose runtime-snapshot or in-flight-snapshot limit flags.
-
-#### Runtime evidence
-
-- Offline import does not ingest runtime snapshots or in-flight snapshots.
-- Tracing-only runs do not fabricate runtime snapshots, so executor/blocking-pressure evidence can be weaker or absent.
-- Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
-
-#### Zero-request artifacts
-
-- Persisted CLI artifacts require at least one completed request.
-- In-process library snapshots may still be zero-request for inspection.
-
-#### Completed-span JSONL caveat
-
-- Completed-span JSONL output contains retained original tracing source records selected after parsing, retention limits, and core normalization.
-- Source identity and source fields represented by `SpanRecord` are preserved exactly.
-- For custom tracing-like sources, construct the public adapter/input `SpanRecord` values with `SpanRecord::new(...)` and `with_*` methods, then pass them to `run_from_span_records(...)`; Tailtriage produces `ImportedRun` and `ImportWarning` outputs for accessor-based inspection rather than direct caller construction.
-- Direct input order and JSONL input order are preserved through replay; live session output is section-grouped as request records, then stage records, then queue records.
-- Replay parity is limited to representable normalized request/stage/queue evidence.
-- Completed-span JSONL does not encode Run-only metadata, runtime snapshots, in-flight snapshots, lifecycle warnings, semantic/raw truncation counters, source-line context, omitted-source diagnostics, or output failures.
-- Run JSON remains the complete persisted artifact for analysis and operational handoff.
-
-B) Direct Run JSON path with async span instrumentation (`live` feature required):
-
-```bash
-cargo add tailtriage --features tracing-live
-cargo add tracing tracing-subscriber
-cargo add tokio --features macros,rt-multi-thread
-```
-
-Direct crate equivalent:
-
-```bash
-cargo add tailtriage-tracing --features live
-cargo add tracing tracing-subscriber
-cargo add tokio --features macros,rt-multi-thread
-```
-
-
-```rust,no_run
-use tailtriage::tracing::TracingSession;
-use tracing::Instrument as _;
-use tracing_subscriber::prelude::*;
-
-async fn work() {
-    // Your request work goes here.
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let session = TracingSession::builder("checkout-service")
-        .run_json_path("target/tailtriage-examples/checkout.run.json")
-        .build()?;
-    tracing_subscriber::registry()
-        .with(session.layer())
-        .init(); // startup-only: global subscriber installation for this process
-    {
-        let span = tracing::info_span!(
-            "request",
-            tt.kind = "request",
-            tt.request_id = "req-1",
-            tt.route = "/checkout",
-            tt.outcome = "ok",
-        );
-        work().instrument(span).await;
-    } // the request span is closed before shutdown
-    let imported = session.shutdown().await?;
-    let _ = imported;
-    Ok(())
-}
-```
-
-If using the focused crate directly, replace `tailtriage::tracing::TracingSession` with `tailtriage_tracing::TracingSession`.
-
-Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one completed logical request/work item must carry the same unique tailtriage `tt.request_id`; missing, inconsistent, or duplicated IDs cause child stage/queue evidence to be skipped, weakened, or reported as ambiguous.
-
-`tt.outcome` on request spans is optional: missing values default to `ok` with a warning; recommended common labels are `ok`, `error`, `timeout`, `cancelled`, and `rejected`; custom non-empty labels are preserved exactly.
-
-Live tracing intake only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare it with `tracing::field::Empty` and then call `span.record(...)`. Do not add brand-new `tt.*` fields later with `span.record(...)` and expect the span to be tracked.
-
-In service code, add `session.layer()` beside your existing tracing layers and install the resulting subscriber in the application's normal process-wide/global subscriber setup. `set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
-
-Then analyze directly:
-
-```bash
-tailtriage analyze target/tailtriage-examples/checkout.run.json
-```
-
-Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
-
-Tokio runtime sampler coupling via `TracingSession` requires `tracing-tokio` on the `tailtriage` façade or `tokio` on the focused `tailtriage-tracing` crate. Background sampling is explicit: configure `sampler_interval(...)` to start it, or call `manual_runtime_snapshots()` for deterministic demos/validation and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
-
-```bash
-cargo add tailtriage --features tracing-tokio
-cargo add tracing tracing-subscriber
-cargo add tokio --features macros,rt-multi-thread
-```
-
-Direct crate equivalent:
-
-```bash
-cargo add tailtriage-tracing --features tokio
-cargo add tracing tracing-subscriber
-cargo add tokio --features macros,rt-multi-thread
-```
-
-For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
-
-## 2) Core workflow: capture -> analyze -> next check -> re-run
-
-### Capture
-
-```rust,no_run
-use tailtriage::Tailtriage;
-
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
-let run = Tailtriage::builder("checkout-service")
-    .output("tailtriage-run.json")
-    .build()?;
-
-let started = run.begin_request("/checkout");
-started.completion.finish_ok();
-
-run.shutdown()?;
-# Ok(())
-# }
-```
-
-### Analyze
-
-```bash
-tailtriage analyze tailtriage-run.json --format json
-```
-
-Saved Run artifacts are strictly validated by default. Error-level core integrity findings stop report generation before stdout is written; warning-only findings remain accepted and visible through the Report contract. If an older or ambiguous artifact must be triaged, add `--allow-ambiguous-artifact`. That explicit path emits every original core issue to stderr and analyzes only evidence retained by canonical core permissive normalization.
-
-Saved Run analysis is strict by default. Use `--allow-ambiguous-artifact` to select permissive canonical core normalization. Tracing import `--strict` is separate and controls malformed or incomplete `tt.*` input during conversion, not saved Run validation. In-process analyzer APIs remain permissive by default; core callers can choose `inspect_run`, `validate_run_strict`, or `normalize_run_permissive` explicitly.
-
-### Decide next check
-
-Read output in this order:
-
-1. `primary_suspect.kind`
-2. `primary_suspect.evidence[]`
-3. `primary_suspect.next_checks[]`
-
-Then run one targeted check, change one thing, and re-run under comparable load.
-
-For services that already emit `tracing` spans, see “Using existing tracing spans” above for the JSONL import and live recorder paths.
-
-## 3) In-process analysis (embedded Rust)
-
-If you want analysis/report generation inside service code or tests, use `tailtriage-analyzer`:
-
-```rust
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
-use tailtriage_analyzer::render_json_pretty;
-
-# use tailtriage::Run;
-# fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
-let report = analyze_run(&run, AnalyzeOptions::default())?;
-let text = render_text(&report);
-let json = render_json_pretty(&report)?;
-# let _ = (text, json);
-# Ok(())
-# }
-```
-
-Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is the in-process analyzer result.
-
-## Request ID contract
-
-`request_id` is the per-run tailtriage identity of one completed logical request or work item. It must be unique among completed requests in one Run. Stage and queue events must reuse that ID only for the same logical request.
-
-External correlation or distributed trace IDs may repeat across retries, fanout branches, batch items, or attempts. When they can repeat, derive a unique tailtriage `request_id`, such as `trace_id:span_id`, `job_id:attempt`, or `batch_id:item_id`. CLI analysis fails on mechanical ambiguity by default; permissive analyzer library calls warn. Neither can infer whether your request boundary, retry model, fanout model, or propagation model is semantically correct. Suspects remain triage leads and next checks, not proof of root cause.
-
-Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
+Add `tailtriage-analyzer` when a consumer needs typed in-process `Report` values and renderers. Capture remains owned by the façade, while analysis remains a separate package step. Its [package README](../tailtriage-analyzer/README.md) and Rustdoc own the API.
 
 ### Analyzer tuning
 
-Start with defaults. When representative runs justify tuning, use the option paths and precedence documented in the [analyzer behavior reference](diagnostics.md); keep the same analyzer configuration across a controlled rerun. Rust users should prefer checked `analyze_run`, while CLI users can inspect supported paths with `tailtriage analyzer-options`.
+Start with defaults. Only after representative captures justify tuning, use `--analyzer-config`, `--analyzer-set`, and `tailtriage analyzer-options`. Keep options stable across a comparable rerun. Exact options remain in the [diagnostics reference](diagnostics.md) and analyzer package contract.
 
-## 4) Request lifecycle contract (required)
+### Focused package boundaries
 
-`begin_request(...)` / `begin_request_with(...)` returns `StartedRequest`:
+The façade is the default new-integration entry point. Choose `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, or `tailtriage-tracing` directly only when an intentionally narrower dependency/API boundary is useful. The [documentation index](README.md) maps their owners.
 
-- `started.handle` (`RequestHandle`) for instrumentation
-- `started.completion` (`RequestCompletion`) for explicit completion
+## Next destinations
 
-```rust,no_run
-use tailtriage::Tailtriage;
-
-# async fn demo(run: &Tailtriage) -> Result<(), Box<dyn std::error::Error>> {
-let started = run.begin_request("/checkout");
-let req = started.handle.clone();
-
-req.queue("checkout_queue").await_on(async {}).await;
-let _: Result<(), ()> = req.stage("downstream_call").await_on(async { Ok(()) }).await;
-
-started.completion.finish_ok();
-# Ok(())
-# }
-```
-
-Important semantics:
-
-- finish exactly once (`finish`, `finish_ok`, `finish_result`)
-- dropping an admitted unfinished completion token while capture is open records one `cancelled`
-  completion; explicit completion remains preferred when the outcome is known
-- `shutdown()` does not fabricate completion/outcome
-- `strict_lifecycle(true)` can fail shutdown when unfinished requests remain
-- direct shutdown distinguishes retryable `ShutdownError::UnfinishedRequests { count }` from sink persistence/serialization failure in `ShutdownError::Sink(...)`
-- successful direct shutdown records `RunEndReason::Shutdown` unless a more specific reason was already set
-
-## 5) Direct capture vs controller
-
-Use **direct capture** (`Tailtriage`) when you want a straightforward run lifecycle in app code.
-
-Use **controller** (`TailtriageController`) when your service is long-lived and you need repeated bounded windows over time:
-
-- enable capture window
-- collect
-- disable/finalize
-- re-enable later
-
-Controller `disable()` remains reversible. Controller `shutdown()` is terminal: status becomes
-`GenerationState::Shutdown`, new requests are inert, and `enable()` plus config/template reloads are
-rejected. Both operations use `GenerationFinalizationError` for generation finalization failures.
-
-Minimal controller window example:
-
-```rust,no_run
-use tailtriage::controller::TailtriageController;
-
-# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-let controller = TailtriageController::builder("checkout-service")
-    .initially_enabled(false)
-    .output("tailtriage-run.json")
-    .build()?;
-
-let _generation = controller.enable()?;
-let started = controller.begin_request("/checkout");
-{
-    let _guard = started.handle.inflight("requests");
-    started.handle.queue("db").await_on(async {}).await;
-    let _: Result<(), ()> = started
-        .handle
-        .stage("query")
-        .await_on(async { Ok(()) })
-        .await;
-}
-started.completion.finish_ok();
-let _ = controller.disable()?;
-// disable is reversible; shutdown is the separate terminal process-lifecycle step.
-controller.shutdown()?;
-# Ok(())
-# }
-```
-
-Ordinary queue, stage, and in-flight instrumentation does not need a capture-state branch.
-Disabled, closing, and shut-down admissions use inert wrappers that execute work transparently
-without recording, while already-captured wrappers stay bound to their original generation.
-When explicit inspection or core interoperability is necessary, use `handle.is_captured()` and
-`handle.captured_handle()`. Captured status records admission identity; it does not report current
-controller enablement.
-
-Controller details: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
-
-## 6) Controller TOML config and reload semantics
-
-Controller config is for repeatable operational settings across environments.
-
-Stay with builder defaults when you are exploring locally or need one straightforward capture setup. Move to TOML when you need consistent operational settings (service identity, output path, capture limits, sampler template) across environments without rebuilding.
-
-Minimal TOML shape:
-
-```toml
-[controller]
-service_name = "checkout-service"
-
-[controller.activation]
-output_path = "tailtriage-run.json"
-mode = "light"
-```
-
-At contract level:
-
-- set config file path with `config_path(...)`
-- supply output with builder `.output(...)` or flat `controller.activation.output_path`; no path is invented implicitly
-- call `reload_config()` to refresh the template from file
-- call the result-returning `reload_template(template)` for a direct replacement
-- reload applies to **future generations only**
-- active generation keeps an immutable activation-time config snapshot
-- reload creates no generation and starts no sampler; runtime sampler startup occurs on `enable()`
-- requests admitted before disarm remain bound to their original generation
-
-See crate README for the full TOML field reference and expanded starter example: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
-
-## 7) Runtime sampler: when and why
-
-Add runtime sampling when request timing alone does not clearly separate:
-
-- queueing saturation
-- executor pressure
-- blocking-pool pressure
-
-With default features, `tailtriage::tokio` is available out of the box. Start `RuntimeSampler` explicitly for each run when needed; `CaptureMode` does not auto-start sampling.
-
-Key constraints:
-
-- start inside an active Tokio runtime
-- one successful sampler start per run
-- runtime snapshot retention is bounded by core limits
-- Tokio tracing sessions use the same core `CaptureMode`/`CaptureLimits`/`CaptureLimitsOverride` model (no tracing-specific retention knob)
-- some runtime fields require `tokio_unstable`
-
-Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)
-
-## 8) Axum adapter: what it is and is not
-
-`tailtriage-axum` is a framework-boundary ergonomics layer:
-
-- middleware handles request start/finish at Axum boundary
-- extractor passes request handle into handlers
-
-It is not automatic diagnosis. Queue/stage/inflight instrumentation is still explicit in handler/helper code.
-
-Adapter details: [tailtriage-axum/README.md](../tailtriage-axum/README.md)
-
-## 9) What to do when result is `insufficient_evidence`
-
-When `primary_suspect.kind` is `insufficient_evidence`:
-
-1. add at least one queue wrapper around suspected waits
-2. add at least one stage wrapper around suspected downstream work
-3. optionally add runtime sampler if runtime pressure is unclear
-4. rerun with comparable load and compare evidence movement
-
-Use [diagnostics.md](diagnostics.md) for interpretation details.
-
-## 10) Tokio primitive helpers
-
-Import via default crate path:
-
-```rust
-use tailtriage::tokio::TokioRequestHandleExt;
-```
-
-These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...).await_on(...)`, and `inflight(...)` instrumentation; they do not finish requests. For a compact end-to-end helper example, see the Tokio helper example in [`tailtriage-tokio/README.md`](../tailtriage-tokio/README.md).
-
-| Use case | Helper | Records |
-|---|---|---|
-| DB pool / capacity wait | `semaphore(...).await` | queue |
-| owned permit wait | `owned_semaphore(...).await` | queue |
-| bounded channel backpressure | `mpsc_send(...)` | queue |
-| async mutex contention | `mutex_lock(...)` | queue |
-| async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
-| spawned task result | `join_task(...)` | stage |
-| timeout-wrapped work | `timeout_stage(...)` | stage |
-| blocking pool work | `blocking_stage(...)` | stage |
-| active bounded section | `inflight(...)` | in-flight |
-
-Semantics notes:
-
-- Queue/stage helper timing begins on first poll: dropping a never-polled helper records no event, while dropping a polled pending helper records one bounded partial event if capture remains open. Partial duration ends at observed helper Drop and does not prove the underlying operation stopped.
-- The helper API intentionally does not include a generic mpsc receive wait helper. Receiver-side recv wait cannot distinguish idle workers from queued work residence time. For worker intake, start request/work-item capture after receiving the item unless you have explicit enqueue timestamps.
-- `join_task(...)` records await time for the supplied `JoinHandle`, not necessarily the full task runtime.
-- `join_task(...)`, `timeout_stage(...)`, and `blocking_stage(...)` preserve nested `Result`s; recorded stage success/failure comes from the outer Tokio wrapper result, so `Ok(Err(_))` is preserved and records as successful.
-- `blocking_stage(...)` is lazy: it submits `spawn_blocking` only when awaited. Use `tokio::task::spawn_blocking` plus `join_task(...)` when you need eager overlap.
-- `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not when the helper is constructed.
-- If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument its `JoinHandle` with `join_task(...)`.
-
-## 11) Next docs
-
-- [Documentation index](README.md)
-- [Analyzer guide](analyzer-guide.md) for the shortest report-to-next-check path
-- [Diagnostics guide](diagnostics.md)
-- [Getting started demos](getting-started-demo.md)
-- [Architecture](architecture.md)
-
-## Live tracing session
-
-`TracingSession` is the live tracing entry point. A plain session captures request, stage, and queue evidence. Background runtime sampling is opt-in through `sampler_interval(...)`; compiling Tokio support does not automatically start it. Manual runtime collection is opt-in through `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)`, and manual recording without runtime collection returns a configuration error. Finish with async `shutdown().await?`.
-
-Run JSON is the complete persisted artifact. Completed-span JSONL contains retained original tracing source records but omits runtime snapshots and other Run-only state. Each output file is an independent transaction.
-
-### Request completion, cancellation, and shutdown lifecycle
-
-Explicit completion remains preferred whenever the application knows the request outcome. Dropping an admitted unfinished completion token while capture is still open records one completed request with outcome `cancelled`; Drop is non-panicking, including during panic unwinding. If shutdown wins before a held token finishes or drops, that request is recorded only as unfinished metadata and a late finish or Drop is inert. A finalized Run is immutable to late request admission, completion, stage, queue, in-flight, runtime-snapshot, sampler-metadata, and end-reason mutations.
-
-Strict lifecycle shutdown with pending requests returns a retryable lifecycle error, performs no sink attempt, leaves pending requests open, and does not add finalization timestamps, unfinished metadata, or lifecycle warnings. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Completion-token Drop records the cancelled request and does not itself fabricate child evidence. Independently, any queue or stage helper that was polled and then dropped while capture was open records one partial child event.
-
-
-### Partial queue and stage events
-
-Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
-
-Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
+- [Analyzer guide](analyzer-guide.md): turn one report into one next check.
+- [Production operations guide](operations.md): rollout, bounded captures, limits, truncation, and comparable reruns.
+- [Diagnostics reference](diagnostics.md): exact analyzer behavior.
+- [Documentation index](README.md): integrations, CLI artifacts, evidence, security, and all user-facing references.
