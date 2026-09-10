@@ -1,19 +1,11 @@
 # tailtriage-controller
 
-`tailtriage-controller` manages repeated, bounded capture windows for long-lived services.
+`tailtriage-controller` manages repeated, bounded tail-latency capture windows in long-lived Tokio
+services. Choose it when a process must enable capture, finalize one generation, and later enable a
+fresh generation without restarting. It produces evidence for triage; suspects are leads, not proof
+of root cause.
 
-Use it when you want to turn capture on, collect one generation, turn capture off, and later start a fresh generation without restarting the process.
-
-For in-process analysis/report generation, use `tailtriage-analyzer`.
-For command-line analysis of saved artifacts, use `tailtriage-cli`.
-
-## When to use this crate
-
-Use `tailtriage-controller` when you need repeated arm/disarm windows in one process.
-
-Use `tailtriage-core` for a single explicit `build -> capture -> shutdown` run.
-
-Use `tailtriage` when you want the default entry point with controller support enabled by default (or disabled via Cargo features).
+For one explicit `build -> capture -> shutdown` run, use `tailtriage-core` instead.
 
 ## Installation
 
@@ -21,106 +13,76 @@ Use `tailtriage` when you want the default entry point with controller support e
 cargo add tailtriage-controller
 ```
 
-## Quick start
+## Capture one generation
 
-`output("tailtriage-run.json")` configures the base artifact path template. It is required unless `controller.activation.output_path` is supplied by configured TOML. No output path is invented implicitly. Each activation writes a per-generation artifact with `-generation-N` in the file name (for example, generation 1 writes `tailtriage-run-generation-1.json`).
+Select an output explicitly. Each generation adds `-generation-N` before the extension, so the
+example writes `tailtriage-run-generation-1.json`.
+
+The example is an `async fn` intended to be called from your application's existing async runtime;
+the crate does not require you to adopt a particular executor setup.
 
 ```rust,no_run
 use tailtriage_controller::TailtriageController;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn capture_checkout() -> Result<(), Box<dyn std::error::Error>> {
     let controller = TailtriageController::builder("checkout-service")
-        .initially_enabled(false)
         .output("tailtriage-run.json")
         .build()?;
 
-    let _generation = controller.enable()?;
-
+    controller.enable()?;
     let started = controller.begin_request("/checkout");
-    started.completion.finish_ok();
+    let result = {
+        let _inflight = started.handle.inflight("requests");
+        started
+            .handle
+            .queue("db-pool")
+            .with_depth_at_start(3)
+            .await_on(async {})
+            .await;
+        let result: Result<(), &'static str> = started
+            .handle
+            .stage("inventory")
+            .await_on(async { Ok(()) })
+            .await
+            .map_err(|()| "inventory failed");
+        result
+    };
+    // The completion token, not a handle clone, owns request completion.
+    let result = started.completion.finish_result(result);
 
-    let _ = controller.disable()?;
+    // Reversible: closes admissions and finalizes now, or after admitted work drains.
+    controller.disable()?;
+    // A later controller.enable()? would start a fresh generation.
+
+    // Terminal process-lifecycle step: later enable/reload calls are rejected.
+    controller.shutdown()?;
+    result?;
     Ok(())
 }
 ```
 
-## Mental model
+Queue and stage wrappers still execute their futures when admission is inert. Such requests retain
+their metadata, record no evidence, and never join a later generation. `is_captured()` reports
+historical admission identity, not whether the original generation is still open. Keep the
+`ControllerStartedRequest` and its completion token through measured work, then finish explicitly.
 
-A controller owns a **template** plus at most one **active generation**.
+## Lifecycle mental model
 
-- `enable()` creates a fresh generation from the current template.
-- `disable()` stops new admissions for that generation.
-- If no captured requests are still in flight, the generation finalizes immediately.
-- Otherwise the generation enters **closing** and finalizes after its already-admitted captured requests drain.
-- The next `enable()` creates a new generation with a new artifact path.
-- `shutdown()` is terminal: it stops admissions, finalizes the current generation, and permanently rejects later `enable()` and reload operations.
-- `disable()` and `shutdown()` report active-generation failures through `GenerationFinalizationError`, whose source is the core `ShutdownError`.
-- After retryable unfinished-request shutdown, admitted work may finish and trigger automatic finalization; call `shutdown()` again to authoritatively replay the stored success or terminal failure without another sink write.
-- `status()` reports the simple `GenerationState::Shutdown` marker after shutdown; detailed persistence results remain in the returned `GenerationFinalizationError`.
+- `enable()` creates one bounded generation from the current template; only one may be active.
+- `disable()` reversibly stops admissions. Finalization is immediate only when admitted captured
+  requests have drained; otherwise the generation closes and the last completion triggers it.
+- Already-admitted wrappers stay bound to their original generation across closing and re-enable.
+- `shutdown()` is terminal and rejects future enable and reload operations.
+- Strict lifecycle can return a retryable unfinished-request finalization error before any sink
+  attempt. Complete/drop admitted work, then call a controller operation again for the authoritative
+  stored result. Persistence/serialization failures are terminal for that generation and replayed
+  without another sink write.
+- Capture limits can truncate evidence. Queue/stage cancellation may yield bounded lower-bound
+  observations; dropping an instrumentation future does not prove its external operation stopped.
 
-Requests started while the controller is disabled or closing are **inert**:
+## TOML configuration
 
-- they preserve request metadata
-- they record no capture events
-- they never join a later generation
-
-Each activation writes a per-generation artifact whose file name includes `-generation-N`.
-
-## Request wrappers
-
-Instrument through the controller request wrapper without branching on capture state:
-
-```rust,ignore
-let started = controller.begin_request("/checkout");
-
-started.handle.queue("db").await_on(async {
-    // work
-}).await;
-
-let _: Result<(), ()> = started
-    .handle
-    .stage("query")
-    .await_on(async { Ok(()) })
-    .await;
-
-let _guard = started.handle.inflight("requests");
-```
-
-No capture-state branch is needed for ordinary instrumentation. Admissions made while capture is
-disabled, closing, or shut down return inert wrappers that await work unchanged and record nothing.
-An already-captured wrapper remains tied to the generation that admitted it.
-
-Inspect admission identity only when needed:
-
-```rust,ignore
-if started.handle.is_captured() {
-    // This request was captured when it began.
-}
-
-if let Some(core_handle) = started.handle.captured_handle() {
-    // Explicit interoperability with the core OwnedRequestHandle.
-}
-```
-
-“Captured” is historical admission identity, not the controller's current enablement state.
-`captured_handle()` is the explicit core-interoperability escape hatch; normal instrumentation
-should continue through the controller wrapper.
-
-## Minimal TOML example
-
-Use TOML when you want repeatable operational settings, including mode selection.
-
-```toml
-[controller]
-service_name = "checkout-service"
-
-[controller.activation]
-mode = "light"
-
-output_path = "tailtriage-run.json"
-```
-
-## Expanded TOML example
+Use `config_path(...)` for repeatable operational settings:
 
 ```toml
 [controller]
@@ -129,151 +91,30 @@ initially_enabled = false
 
 [controller.activation]
 output_path = "tailtriage-run.json"
-mode = "investigation"
-strict_lifecycle = true
-run_end_policy = "auto_seal_on_limits_hit"
-
-[controller.activation.capture_limits_override]
-max_requests = 150000
-max_stages = 300000
-max_queues = 300000
-max_inflight_snapshots = 300000
-max_runtime_snapshots = 150000
+mode = "light"
+run_end_policy = "continue_after_limits_hit"
 
 [controller.activation.runtime_sampler]
-enabled = true
-mode_override = "investigation"
+enabled = false
 interval_ms = 250
-max_runtime_snapshots = 20000
 ```
 
-## Config precedence and reload rules
+An explicit TOML `controller.activation.output_path` overrides builder `.output(...)`; omission
+falls back to the original builder output. Resolution fails if neither supplies a non-empty path.
+TOML service name and mode similarly override their builder values when present. Standalone
+`load_config_from_path(...)` has no builder output fallback and therefore requires TOML output.
 
-When TOML is loaded with `config_path(...)`:
+Reload is transactional: invalid input leaves the prior usable template installed. Successful
+reload affects future generations only; it neither changes an active generation nor creates a
+generation or sampler.
 
-- `service_name` from TOML overrides the builder value when present.
-- builder `service_name` is a fallback only when TOML omits `service_name`.
-- `initially_enabled` falls back to the builder value when omitted.
-- TOML `output_path` and `mode` override builder values when present.
-- omitted TOML `output_path` falls back to the original builder output; if neither source supplies one, construction or reload fails.
-- omitted TOML `mode` falls back to the original builder mode, which defaults to `light`.
-- omitted optional activation subfields use TOML contract defaults.
+Rust sampler configuration uses `RuntimeSamplerTemplate` and `Option<Duration>`; TOML uses integer
+`interval_ms`. Merely choosing a capture mode, configuring, or reloading never starts sampling.
+When runtime sampling is enabled, sampler startup occurs during `enable()`, and that activation
+must run inside an active Tokio runtime and can return sampler-start validation errors. Runtime
+evidence remains bounded by capture limits.
 
-`reload_config()` and the result-returning `reload_template(template)` update the
-template for **future** generations only. Template validation and replacement do
-not create a capture generation or start a runtime sampler; sampler startup remains
-part of `enable()`.
+## Boundaries
 
-They do not mutate a generation that is already active. Each active generation
-keeps one immutable activation snapshot, and admitted requests remain bound to it
-until completion even across disarm and re-enable.
-
-`reload_template(template)` returns a `Result`; callers handle or propagate validation errors.
-Replacement is transactional, so an invalid template leaves the current template unchanged.
-
-## Run-end policies
-
-Supported policies:
-
-- `continue_after_limits_hit` _(default)_
-- `auto_seal_on_limits_hit`
-
-Behavior:
-
-- `continue_after_limits_hit`: generation stays active after the first truncation
-- `auto_seal_on_limits_hit`: on the first `limits_hit`, new admissions stop and the generation moves to closing; finalization happens immediately if no captured requests are still in flight, otherwise after they drain
-
-TOML contract:
-
-- `controller.activation.run_end_policy` is optional
-- when present, it is a string value
-
-## Runtime sampler template
-
-The controller can start a Tokio runtime sampler automatically for armed generations.
-
-Important constraints:
-
-- sampler startup still requires an active Tokio runtime
-- sampler settings are fixed at activation time
-- runtime snapshot retention is still bounded by the resolved core capture limits
-
-Programmatic Rust configuration uses `enabled` and a native `Option<Duration>` interval:
-
-```rust
-use std::time::Duration;
-use tailtriage_controller::{RuntimeSamplerTemplate, TailtriageController};
-
-let sampler = RuntimeSamplerTemplate {
-    enabled: true,
-    mode_override: None,
-    interval: Some(Duration::from_millis(250)),
-    max_runtime_snapshots: Some(20_000),
-};
-let controller = TailtriageController::builder("checkout-service")
-    .output("tailtriage-run.json")
-    .runtime_sampler(sampler)
-    .build()?;
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-The operator-facing TOML boundary keeps the `interval_ms` integer shown above; the public
-`RuntimeSamplerTemplate` itself is not a standalone serialization type.
-
-## TOML field reference
-
-### `[controller]`
-
-- `service_name` _(optional string)_: overrides the builder service name when present; must not be empty
-- `initially_enabled` _(optional bool)_: when `true`, `build()` starts generation `1`
-
-### `[controller.activation]`
-
-- `mode` _(optional string)_: `light` or `investigation`; falls back to builder mode and ultimately `light`
-- `output_path` _(required unless supplied with builder `.output(...)`)_: base path template for per-generation files
-- `strict_lifecycle` _(optional bool, default `false`)_
-
-### `[controller.activation.capture_limits_override]`
-
-All fields are optional:
-
-- `max_requests`
-- `max_stages`
-- `max_queues`
-- `max_inflight_snapshots`
-- `max_runtime_snapshots`
-
-### `[controller.activation.runtime_sampler]`
-
-Optional table. Default is disabled.
-
-- `enabled`
-- `mode_override`
-- `interval_ms`
-- `max_runtime_snapshots`
-
-### `controller.activation.run_end_policy`
-
-Optional string. The default is `continue_after_limits_hit`.
-
-- `run_end_policy = "continue_after_limits_hit"`
-- `run_end_policy = "auto_seal_on_limits_hit"`
-
-## Important constraints
-
-- at most one generation is active at a time
-- active generation settings do not change after activation
-- requests remain bound to the generation that admitted them
-- controller capture and analysis are separate
-- for in-process analysis/report generation, use `tailtriage-analyzer`
-- for command-line analysis of saved artifacts, use `tailtriage-cli`
-
-## Related crates
-
-- `tailtriage`: default entry point
-- `tailtriage-core`: direct instrumentation lifecycle
-- `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-axum`: Axum request-boundary integration
-- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values
-- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
-- `tailtriage-cli`: command-line analysis of saved run artifacts
+Controller artifacts contain bounded evidence for later diagnosis into evidence-ranked suspects
+and next checks. The controller is not an analyzer, observability backend, or causal-proof engine.
