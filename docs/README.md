@@ -10,7 +10,7 @@ This is the canonical map for the `tailtriage` documentation set. Choose the row
 | Production capture, rollout, retention, limits, and operations | [Production operations guide](operations.md) |
 | Turn one report into one next check | [Analyzer guide](analyzer-guide.md) |
 | Exact analyzer fields, mechanics, options, and limitations | [Analyzer behavior reference](diagnostics.md) |
-| Analyzer rationale, tradeoffs, proof ownership, and revision criteria | [Analyzer rationale](analyzer-rationale.md) |
+| Maintainer analyzer rationale, tradeoffs, proof ownership, and revision criteria | [Analyzer rationale](dev/analyzer-rationale.md) |
 | CLI package commands, artifact loading, and output | [`tailtriage-cli` README](../tailtriage-cli/README.md) |
 | Typed in-process analyzer API and rendering | [`tailtriage-analyzer` README](../tailtriage-analyzer/README.md) and its Rustdoc |
 | Normative product, data, and analyzer contracts | [SPEC.md](../SPEC.md) |

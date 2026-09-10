@@ -102,20 +102,22 @@ impl Confidence {
 
 /// Evidence-ranked suspect produced by heuristic analysis.
 ///
-/// Suspects are triage leads and should be validated with follow-up checks.
+/// Suspects are triage leads and should be validated with follow-up checks. Scores and
+/// confidence express ranking support from retained evidence, not likelihood or causal certainty.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Suspect {
-    /// Ranked suspect category.
+    /// Diagnosis family represented by this lead.
     pub kind: DiagnosisKind,
-    /// Relative ranking score in range `0..=100` (higher means stronger evidence).
+    /// Evidence-ranking score in `0..=100` within this report (higher means stronger evidence).
+    /// This is neither a probability nor a cross-run severity measure.
     pub score: u8,
-    /// Score-derived confidence bucket for triage prioritization.
+    /// Evidence/ranking-support bucket for triage prioritization, not causal certainty.
     pub confidence: Confidence,
     /// Supporting evidence strings used to justify this suspect ranking.
     pub evidence: Vec<String>,
-    /// Recommended next checks to validate or falsify this suspect.
+    /// Targeted follow-up checks; these do not prove that a mitigation will work.
     pub next_checks: Vec<String>,
-    /// Machine-readable notes explaining confidence caps due to evidence limitations.
+    /// Candidate-specific explanations of confidence limits.
     pub confidence_notes: Vec<String>,
 }
 
@@ -138,6 +140,9 @@ impl Suspect {
 }
 
 /// Summary of the selected gauge's latest retained in-flight activity episode.
+///
+/// Gauge and episode selection is bounded to retained snapshots; the trend does not prove that
+/// work accumulated outside those samples.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InflightTrend {
     /// Gauge name chosen as the dominant trend candidate.
@@ -155,10 +160,13 @@ pub struct InflightTrend {
     pub growth_per_sec_milli: Option<i64>,
 }
 
-/// Rule-based triage report for one completed [`Run`] snapshot.
+/// Typed analyzer output derived from one analyzed [`Run`].
 ///
-/// The report ranks evidence-backed suspects and suggests next checks.
-/// It does not prove root cause and should be used as triage guidance.
+/// The global [`Report::primary_suspect`] owns the overall full-run lead;
+/// [`Report::secondary_suspects`] are alternatives. Route and temporal projections provide
+/// supporting context and do not override that global lead. Warnings and evidence quality expose
+/// interpretation limits. This type is Report output, distinct from Run input or Run JSON.
+/// Suspects are evidence-ranked leads, not proof of root cause.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Report {
     /// Number of request events considered in analysis.
@@ -187,15 +195,16 @@ pub struct Report {
     pub route_breakdowns: Vec<RouteBreakdown>,
     /// Supporting early/late temporal triage summaries when within-run shifts add value.
     pub temporal_segments: Vec<TemporalSegment>,
-    /// Non-default analyzer configuration overrides used for this report, when present.
+    /// Non-default semantic analyzer options used for this report.
+    /// `None` is serialized as absence when canonical defaults were used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analyzer_config: Option<AnalyzerConfigSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-/// Summary of non-default analyzer options used during analysis.
+/// Summary of non-default semantic analyzer options used during analysis.
 pub struct AnalyzerConfigSummary {
-    /// Analyzer config summary schema version.
+    /// Analyzer-configuration summary schema version (currently `1`).
     pub schema_version: u32,
     /// Non-default semantic analyzer options rendered as stable path/value pairs.
     pub non_default_options: Vec<AnalyzeConfigOverrideSummary>,
@@ -211,7 +220,7 @@ pub struct AnalyzeConfigOverrideSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-/// Supporting early/late temporal triage summary for one run.
+/// Supporting early/late temporal projection for one run; it does not override the global lead.
 pub struct TemporalSegment {
     /// Segment label, currently `early` or `late`.
     pub name: String,
@@ -242,7 +251,8 @@ pub struct TemporalSegment {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-/// Supporting per-route triage summary derived from captured request route labels.
+/// Supporting per-route projection derived from request route labels; it does not override the
+/// global lead.
 pub struct RouteBreakdown {
     /// Route or operation label from request capture.
     pub route: String,
@@ -268,10 +278,21 @@ pub struct RouteBreakdown {
     pub warnings: Vec<String>,
 }
 
-/// Analyzes one completed [`Run`] with rule-based heuristics and returns a triage report.
+/// Analyzes one typed [`Run`] snapshot with checked options and returns a [`Report`].
 ///
-/// The analysis ranks evidence-backed suspects and next checks; it does not
-/// claim causal certainty or proven root cause.
+/// This is the single checked analyzer operation. It takes [`AnalyzeOptions`] by value and calls
+/// [`AnalyzeOptions::validate`] before analysis; invalid options return [`AnalyzeConfigError`].
+/// It then uses core permissive normalization. Normalization may exclude invalid generic evidence
+/// or canonicalize values and surfaces stable validation warnings and limitations in the report;
+/// it is not a claim that arbitrary input has been repaired into strict validity. Missing optional
+/// precision is not itself an error-level strict failure.
+///
+/// Callers that require strict generic Run acceptance compose
+/// `tailtriage_core::validate_run_strict` before this function. Strict-by-default saved-artifact
+/// loading is owned by the CLI and is not part of this API. The returned Report is analyzer output,
+/// not a modified Run. Analysis is batch/snapshot, not streaming, and rendering remains separate
+/// through [`render_text`], [`render_json`], or [`render_json_pretty`]. Evidence-ranked suspects
+/// are investigation leads, not causal findings.
 ///
 /// `request_id` is the per-run identity of one completed logical request/work item.
 /// It must be unique among completed requests in a `Run`, and stage/queue events
@@ -336,7 +357,7 @@ pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, Analyze
     Ok(analyze_run_with_options(run, &options))
 }
 
-/// Renders analyzer [`Report`] JSON in compact form.
+/// Serializes a [`Report`] to compact canonical Report JSON.
 ///
 /// This renders analyzer report JSON (the diagnosis output), not raw run artifact JSON.
 ///
@@ -348,7 +369,7 @@ pub fn render_json(report: &Report) -> Result<String, serde_json::Error> {
     serde_json::to_string(report)
 }
 
-/// Renders analyzer [`Report`] JSON in canonical pretty form.
+/// Serializes a [`Report`] to pretty canonical Report JSON.
 ///
 /// This renders analyzer report JSON (the diagnosis output), not raw run artifact JSON.
 /// The pretty output is intended as the canonical renderer for CLI JSON output.

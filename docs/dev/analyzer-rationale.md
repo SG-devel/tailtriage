@@ -3,7 +3,7 @@
 This is the repository-owned rationale catalog for the analyzer's major
 defaults, policies, compatibility rules, and interpretation boundaries. It is
 for maintainers deciding whether a behavior should change. The
-[behavior reference](diagnostics.md) remains authoritative for current
+[behavior reference](../diagnostics.md) remains authoritative for current
 mechanics, formulas, threshold tables, and fallback matrices; code and focused
 tests remain authoritative when prose and implementation disagree.
 
@@ -32,8 +32,8 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Reports contain deterministic evidence-ranked suspects
   and next checks, not probabilities or causal findings; see
-  [scope and sources of truth](diagnostics.md#scope-inputs-and-sources-of-truth)
-  and [non-claims](diagnostics.md#non-claims-and-known-limitations).
+  [scope and sources of truth](../diagnostics.md#scope-inputs-and-sources-of-truth)
+  and [non-claims](../diagnostics.md#non-claims-and-known-limitations).
 - **Classification:** Hard contract.
 - **Problem addressed:** A numerical rank can otherwise be mistaken for proof,
   predicted likelihood, or a complete diagnosis of the service.
@@ -55,7 +55,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Raw scores rank candidates inside the current report and
   are not cross-run severity; see
-  [candidate scoring](diagnostics.md#candidate-eligibility-and-scoring).
+  [candidate scoring](../diagnostics.md#candidate-eligibility-and-scoring).
 - **Classification:** Hard contract.
 - **Problem addressed:** Comparing heuristic points across different workloads,
   captures, or option sets can imply improvement or regression that the inputs
@@ -76,7 +76,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Eligible candidates sort by final confidence, then raw
   score, then stable kind order; `insufficient_evidence` remains after eligible
   diagnoses. Raw-score ambiguity is computed before evidence caps; see
-  [confidence, ambiguity, and final ordering](diagnostics.md#confidence-ambiguity-and-final-ordering).
+  [confidence, ambiguity, and final ordering](../diagnostics.md#confidence-ambiguity-and-final-ordering).
 - **Classification:** Hard contract.
 - **Problem addressed:** Weakly supported high scores must not outrank better
   supported leads, while evidence caps must not erase close-score alternatives;
@@ -101,7 +101,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Percentiles select the documented ceiling index without
   interpolation; see
-  [percentiles and units](diagnostics.md#percentiles-and-units).
+  [percentiles and units](../diagnostics.md#percentiles-and-units).
 - **Classification:** Hard contract.
 - **Problem addressed:** Integer samples need one reproducible arithmetic rule;
   interpolation would invent values not present in a capture.
@@ -119,7 +119,7 @@ numeric calibration remains unknown.
 ### AN-PCTL-002 — p95 tail-signal selection
 
 - **Rule or default:** Tail-oriented analyzer signals use p95; mechanics remain
-  owned by [percentiles and units](diagnostics.md#percentiles-and-units).
+  owned by [percentiles and units](../diagnostics.md#percentiles-and-units).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Median-only analysis can hide tail pressure, while a
   more extreme percentile can be unstable in bounded captures.
@@ -138,7 +138,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Complete request-relative intervals are unioned; if any
   interval is incomplete, authoritative durations are saturating-summed and
   capped by parent request latency; see
-  [percentiles and units](diagnostics.md#percentiles-and-units).
+  [percentiles and units](../diagnostics.md#percentiles-and-units).
 - **Classification:** Conservative policy.
 - **Problem addressed:** Retries, nesting, duplicates, and overlapping helpers
   can double-count time, while older duration-only evidence cannot be precisely
@@ -163,8 +163,8 @@ numeric calibration remains unknown.
 - **Rule or default:** Public queue/service distributions remain completed-only;
   completed plus partial observations may form explicitly labeled queue or
   stage lower-bound candidates, capped at Medium when selected; see
-  [percentiles and units](diagnostics.md#percentiles-and-units) and
-  [confidence](diagnostics.md#confidence-ambiguity-and-final-ordering).
+  [percentiles and units](../diagnostics.md#percentiles-and-units) and
+  [confidence](../diagnostics.md#confidence-ambiguity-and-final-ordering).
 - **Classification:** Conservative policy.
 - **Problem addressed:** Mixing abandoned observations into ordinary duration
   distributions misstates completion latency, but discarding them can hide the
@@ -187,7 +187,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Stage attribution groups by `(stage name, request_id)`;
   one attributed duration per distinct completed request owns sample coverage;
-  see [percentiles and units](diagnostics.md#percentiles-and-units).
+  see [percentiles and units](../diagnostics.md#percentiles-and-units).
 - **Classification:** Hard contract.
 - **Problem addressed:** Retries or repeated spans in one request could inflate
   sample count and make a single request satisfy downstream eligibility.
@@ -211,7 +211,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Queue p95 share controls eligibility; queue share,
   retained start depth, positive in-flight growth, and sample quality contribute
   to score; see
-  [application queue saturation](diagnostics.md#application-queue-saturation).
+  [application queue pressure](../diagnostics.md#application-queue-pressure).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Queue presence alone is common and is not saturation;
   the candidate should require material request impact and rank corroborating
@@ -235,7 +235,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Queue, blocking, legacy executor, and downstream scores
   are soft-capped unless family-specific extreme evidence is clean; see
-  [candidate eligibility and scoring](diagnostics.md#candidate-eligibility-and-scoring).
+  [candidate eligibility and scoring](../diagnostics.md#candidate-eligibility-and-scoring).
 - **Classification:** Conservative policy.
 - **Problem addressed:** Additive weak signals could otherwise reach the same
   ceiling as broad, extreme, well-sampled evidence.
@@ -256,7 +256,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Blocking is eligible when p95 is nonzero or enough
   retained samples are nonzero; p95, peak, nonzero share, and sample quality
   drive score; see
-  [blocking-pool pressure](diagnostics.md#blocking-pool-pressure).
+  [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** A sparse percentile can be zero even when blocking
   pressure recurs, while a single nonzero sample should not automatically
@@ -281,8 +281,8 @@ numeric calibration remains unknown.
 - **Rule or default:** Configured thresholds define when blocking-pool evidence
   is independently strong for downstream correlation; they do not change the
   blocking score;
-  see [blocking-pool pressure](diagnostics.md#blocking-pool-pressure) and
-  [downstream dominance](diagnostics.md#downstream-stage-dominance).
+  see [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure) and
+  [downstream dominance](../diagnostics.md#downstream-stage-dominance).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Ordinary blocking eligibility is too weak to justify
   constraining a separately observed stage.
@@ -303,7 +303,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Global plus local runnable depth is combined for each
   snapshot before percentile selection, then expressed in milli-tasks per
   worker using widened, clamped arithmetic; see
-  [worker-normalized mode](diagnostics.md#worker-normalized-mode).
+  [worker-normalized mode](../diagnostics.md#worker-normalized-mode).
 - **Classification:** Hard contract.
 - **Problem addressed:** Adding independently selected percentiles invents a
   state that may never have occurred; absolute depth is not comparable across
@@ -327,7 +327,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Normalized p95 owns runnable-pressure evidence.
   `alive_tasks` and separate global/local p95 values are
   descriptive, not independent normalized score terms; see
-  [worker-normalized mode](diagnostics.md#worker-normalized-mode).
+  [worker-normalized mode](../diagnostics.md#worker-normalized-mode).
 - **Classification:** Hard contract.
 - **Problem addressed:** Task population and queue redistribution can correlate
   with workload size without proving runnable pressure, and counting component
@@ -349,7 +349,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Configured normalized-p95 boundaries control eligibility
   and banded score contribution; see
   [AN-EXEC-002](#an-exec-002--normalized-executor-evidence-model) and
-  [worker-normalized mode](diagnostics.md#worker-normalized-mode).
+  [worker-normalized mode](../diagnostics.md#worker-normalized-mode).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Material runnable pressure must be separated from
   ordinary scheduler activity without overreacting to tiny numeric changes.
@@ -369,7 +369,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Artifacts where every relevant snapshot lacks
   `worker_count` retain exact legacy absolute-depth scoring and receive no
   worker-related confidence cap; see
-  [legacy compatibility mode](diagnostics.md#legacy-compatibility-mode).
+  [absolute-depth fallback](../diagnostics.md#absolute-depth-fallback).
 - **Classification:** Compatibility obligation.
 - **Problem addressed:** Adding a field in newer capture versions must not
   silently downgrade or rerank historical artifacts that never could provide
@@ -391,7 +391,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Partial, inconsistent, or zero worker evidence uses
   legacy scoring without inventing a worker count and caps confidence at
   Medium; see
-  [executor pressure](diagnostics.md#executor-pressure).
+  [executor pressure](../diagnostics.md#executor-pressure).
 - **Classification:** Conservative policy.
 - **Problem addressed:** Normalization with an assumed, changing, or invalid
   denominator creates false precision, but discarding all runnable evidence
@@ -414,7 +414,7 @@ numeric calibration remains unknown.
 - **Rule or default:** With complete worker counts, missing local depth
   contributes zero only in affected snapshots, labels normalized pressure a
   lower bound, and caps confidence at Medium; see
-  [worker-normalized mode](diagnostics.md#worker-normalized-mode).
+  [worker-normalized mode](../diagnostics.md#worker-normalized-mode).
 - **Classification:** Conservative policy.
 - **Problem addressed:** Treating an unavailable queue as observed zero
   overstates measurement completeness; abandoning normalization wastes known
@@ -437,7 +437,7 @@ numeric calibration remains unknown.
 - **Rule or default:** A stage needs a minimum number of distinct requests;
   tail and cumulative request-latency shares plus coverage drive score, while
   stage p95 is supporting evidence; see
-  [downstream-stage dominance](diagnostics.md#downstream-stage-dominance).
+  [downstream-stage dominance](../diagnostics.md#downstream-stage-dominance).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** One slow request or many retries within one request can
   make a stage look dominant, and a high standalone stage p95 need not explain
@@ -461,7 +461,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Stage candidates tie-break by score, tail share,
   cumulative share, completed over lower-bound evidence, then name; see
-  [downstream-stage dominance](diagnostics.md#downstream-stage-dominance).
+  [downstream-stage dominance](../diagnostics.md#downstream-stage-dominance).
 - **Classification:** Hard contract.
 - **Problem addressed:** Iteration order must not select a stage, and partial
   evidence should not win an otherwise exact tie.
@@ -480,7 +480,7 @@ numeric calibration remains unknown.
 - **Rule or default:** A stage matching configured blocking patterns stays below
   independently strong blocking-pool evidence by the configured score margin;
   see [AN-BLOCK-002](#an-block-002--strong-blocking-calibration) and
-  [downstream-stage dominance](diagnostics.md#downstream-stage-dominance).
+  [downstream-stage dominance](../diagnostics.md#downstream-stage-dominance).
 - **Classification:** Conservative policy.
 - **Problem addressed:** A wrapper-like stage should not outrank strong runtime
   evidence that it mirrors.
@@ -501,8 +501,8 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Raw score maps to Low/Medium/High at the configured
   default boundaries before caps; see
-  [confidence, ambiguity, and final ordering](diagnostics.md#confidence-ambiguity-and-final-ordering)
-  and [option inventory](diagnostics.md#analyzer-tuning-and-configuration-transparency).
+  [confidence, ambiguity, and final ordering](../diagnostics.md#confidence-ambiguity-and-final-ordering)
+  and [option inventory](../diagnostics.md#analyzer-tuning-and-configuration-transparency).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Reports need a coarse, readable support level without
   presenting heuristic score points as probability.
@@ -523,8 +523,8 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Completed-request counts below the configured threshold
   reduce evidence quality and candidate confidence; see
-  [confidence](diagnostics.md#confidence-ambiguity-and-final-ordering) and
-  [evidence quality](diagnostics.md#warnings-confidence-notes-and-evidence-quality).
+  [confidence](../diagnostics.md#confidence-ambiguity-and-final-ordering) and
+  [evidence quality](../diagnostics.md#warnings-confidence-notes-and-evidence-quality).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Sparse evidence can produce extreme percentiles that
   appear better supported than they are.
@@ -543,7 +543,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** All applicable confidence caps compose by selecting the
   lowest confidence; see
-  [confidence](diagnostics.md#confidence-ambiguity-and-final-ordering).
+  [confidence](../diagnostics.md#confidence-ambiguity-and-final-ordering).
 - **Classification:** Conservative policy.
 - **Problem addressed:** A later or less severe limitation must never undo a
   stronger evidence downgrade.
@@ -562,7 +562,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Missing, sparse, partial, and truncated evidence affect
   only relevant candidate families where possible, while report-level quality
   summarizes the retained capture; see
-  [warnings, confidence notes, and evidence quality](diagnostics.md#warnings-confidence-notes-and-evidence-quality).
+  [warnings, confidence notes, and evidence quality](../diagnostics.md#warnings-confidence-notes-and-evidence-quality).
 - **Classification:** Conservative policy.
 - **Problem addressed:** A global downgrade for every absent optional signal
   would hide strong queue/stage evidence, while ignoring family-specific drops
@@ -584,7 +584,7 @@ numeric calibration remains unknown.
 - **Rule or default:** `confidence_notes` explain one candidate's cap;
   `warnings` carry additive interpretation cautions; `evidence_quality` owns
   structured coverage, counts, drops, quality, and limitations; see
-  [warnings, confidence notes, and evidence quality](diagnostics.md#warnings-confidence-notes-and-evidence-quality).
+  [warnings, confidence notes, and evidence quality](../diagnostics.md#warnings-confidence-notes-and-evidence-quality).
 - **Classification:** Hard contract.
 - **Problem addressed:** Conflating scopes makes machine consumers parse prose,
   repeats every capture limitation on every suspect, or hides why a particular
@@ -607,7 +607,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Route analysis needs at least two eligible routes and
   includes only request-attributed request, queue, and stage evidence; global
   runtime and in-flight evidence are excluded; see
-  [route breakdowns](diagnostics.md#route-breakdowns).
+  [route breakdowns](../diagnostics.md#route-breakdowns).
 - **Classification:** Conservative policy.
 - **Problem addressed:** A single route has no comparative context, and global
   executor/in-flight samples cannot be assigned to a route without inventing
@@ -628,7 +628,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Breakdowns emit only for configured suspect or material
   p95 divergence and stop at the configured limit;
-  see [route breakdowns](diagnostics.md#route-breakdowns).
+  see [route breakdowns](../diagnostics.md#route-breakdowns).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Always emitting every route creates noisy, potentially
   huge reports and encourages interpretation of sampling variation.
@@ -647,7 +647,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Emitted route breakdowns use the documented stable
   ordering before the configured output limit is applied; see
-  [route breakdowns](diagnostics.md#route-breakdowns).
+  [route breakdowns](../diagnostics.md#route-breakdowns).
 - **Classification:** Hard contract.
 - **Problem addressed:** Map or collection order must not change report content,
   especially which routes survive a bound.
@@ -666,7 +666,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Temporal analysis requires configured minimum total and
   per-half completed counts and emits only on configured suspect, p95, or share
   movement; see
-  [temporal segments](diagnostics.md#temporal-segments).
+  [temporal segments](../diagnostics.md#temporal-segments).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Tiny phases and ordinary sample variation can produce
   dramatic-looking changes; unconstrained segmentation invites post-hoc
@@ -686,7 +686,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Requests use the documented deterministic ordering and
   balanced early/late split; see
-  [temporal segments](diagnostics.md#temporal-segments).
+  [temporal segments](../diagnostics.md#temporal-segments).
 - **Classification:** Hard contract.
 - **Problem addressed:** Input collection order must not change segment
   membership, and the same request must not drift between reruns.
@@ -707,7 +707,7 @@ numeric calibration remains unknown.
   original Run, prefers run-relative time, falls back to Unix time, warns on
   overlap, and by default suppresses unsupported runtime-kind shifts when
   filtered evidence is sparse; see
-  [temporal segments](diagnostics.md#temporal-segments).
+  [temporal segments](../diagnostics.md#temporal-segments).
 - **Classification:** Conservative policy.
 - **Problem addressed:** Canonical request filtering must not fabricate snapshot
   membership; wall-clock fallback and concurrent windows are approximate; a
@@ -730,7 +730,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Route and temporal results are supporting context and
   never replace the global `primary_suspect`; see
-  [global, route, and temporal analysis](diagnostics.md#global-route-and-temporal-analysis).
+  [global, route, and temporal analysis](../diagnostics.md#global-route-and-temporal-analysis).
 - **Classification:** Hard contract.
 - **Problem addressed:** Multiple scoped primaries would create competing
   report entry points and overstate attribution from smaller slices.
@@ -752,7 +752,7 @@ numeric calibration remains unknown.
 - **Rule or default:** Rust builders, TOML groups, CLI overrides, descriptors,
   help, valid paths, defaults, and non-default summaries share semantic option
   groups and one registry; see
-  [analyzer tuning](diagnostics.md#analyzer-tuning-and-configuration-transparency).
+  [analyzer tuning](../diagnostics.md#analyzer-tuning-and-configuration-transparency).
 - **Classification:** Hard contract.
 - **Problem addressed:** Duplicated option inventories drift in paths, types,
   defaults, validation, or help and create entry-point-specific tuning behavior.
@@ -771,7 +771,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Default reports omit `analyzer_config`; non-default
   overrides are included; see
-  [analyzer tuning](diagnostics.md#analyzer-tuning-and-configuration-transparency).
+  [analyzer tuning](../diagnostics.md#analyzer-tuning-and-configuration-transparency).
 - **Classification:** Compatibility obligation.
 - **Problem addressed:** Adding configuration transparency must not churn the
   established default JSON shape, while tuned reports must disclose why their
@@ -791,7 +791,7 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Reported non-default analyzer overrides use stable
   deterministic ordering; see
-  [analyzer tuning](diagnostics.md#analyzer-tuning-and-configuration-transparency).
+  [analyzer tuning](../diagnostics.md#analyzer-tuning-and-configuration-transparency).
 - **Classification:** Hard contract.
 - **Problem addressed:** Registry or map iteration must not churn otherwise
   identical report output.
@@ -805,24 +805,25 @@ numeric calibration remains unknown.
   JSON output/compatibility analysis.
 - **Provenance:** Recorded intent in exact rendering tests.
 
-### AN-API-001 — Checked and panicking entry points validate identically
+### AN-API-001 — One checked analyzer operation validates options
 
-- **Rule or default:** Free and reusable analyzer entry points share semantic
-  option validation; panicking forms panic on invalid options and checked forms
-  return `AnalyzeConfigError`; see
-  [scope and sources of truth](diagnostics.md#scope-inputs-and-sources-of-truth).
+- **Rule or default:** `analyze_run(&Run, AnalyzeOptions)` is the public checked
+  analyzer operation. `AnalyzeOptions::validate()` owns semantic validation,
+  invalid options return `AnalyzeConfigError`, and renderers remain separate
+  from analysis; see
+  [scope and sources of truth](../diagnostics.md#scope-inputs-and-sources-of-truth).
 - **Classification:** Hard contract.
-- **Problem addressed:** Reusing `Analyzer` or choosing convenience functions
-  must not admit an invalid configuration that another equivalent entry point
-  rejects.
-- **Why this shape:** Recorded intent: one checked implementation owns validity;
-  panic versus `Result` is caller ergonomics, not a policy difference.
-- **Tradeoff:** Convenience APIs can panic on programmer-supplied invalid
-  options; checked users carry explicit error handling.
-- **Proof owner:** Entry-point parity and invalid-option tests in
+- **Problem addressed:** Analysis must not proceed with an invalid semantic
+  configuration, and rendering failures must remain distinct from analysis.
+- **Why this shape:** Recorded intent: one checked operation gives callers one
+  explicit validation and error-handling contract.
+- **Tradeoff:** Callers compose analysis with their chosen renderer instead of
+  using a combined convenience entry point.
+- **Proof owner:** Invalid-option and rendering-composition tests in
   `tailtriage-analyzer/src/tests.rs` and public API contract tests.
-- **Revision criteria:** Any API evolution must keep a shared validation path and
-  parity tests; changing panic behavior requires public API compatibility review.
+- **Revision criteria:** Any API evolution requires a demonstrated adoption need,
+  one coherent validation path, and public API compatibility review without
+  reintroducing competing analyzer entry models.
 - **Provenance:** Recorded intent in implementation and focused tests.
 
 ### AN-API-002 — Permissive library normalization, strict saved artifacts
@@ -830,7 +831,7 @@ numeric calibration remains unknown.
 - **Rule or default:** In-process analysis canonically normalizes request-scoped
   evidence and warns; default CLI saved-artifact analysis strictly rejects
   invalid relationships; see
-  [scope and sources of truth](diagnostics.md#scope-inputs-and-sources-of-truth).
+  [scope and sources of truth](../diagnostics.md#scope-inputs-and-sources-of-truth).
 - **Classification:** Compatibility obligation.
 - **Problem addressed:** Typed in-process callers need useful partial analysis
   of snapshots and legacy/ambiguous inputs, while persisted artifacts are a
@@ -854,8 +855,8 @@ numeric calibration remains unknown.
 - **Rule or default:** Analyzer options tune interpretation of already captured
   evidence; they cannot restore missing fields, partial completions, truncation,
   or dropped events; see
-  [analyzer tuning](diagnostics.md#analyzer-tuning-and-configuration-transparency)
-  and [known limitations](diagnostics.md#non-claims-and-known-limitations).
+  [analyzer tuning](../diagnostics.md#analyzer-tuning-and-configuration-transparency)
+  and [known limitations](../diagnostics.md#non-claims-and-known-limitations).
 - **Classification:** Hard contract.
 - **Problem addressed:** Lowering thresholds can be mistaken for repairing a
   weak capture and can produce a more confident-looking but no better-supported

@@ -5,7 +5,10 @@ use super::{partial_evidence::PartialEvidenceProfile, AnalyzeOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-/// Overall evidence-quality level for this capture.
+/// Overall retained-evidence coverage and interpretability level for one report.
+///
+/// `strong`, `partial`, and `weak` do not certify capture or instrumentation correctness, root
+/// cause, or causal certainty.
 pub enum EvidenceQualityLevel {
     /// Evidence coverage is sufficient for a strong triage interpretation.
     Strong,
@@ -17,7 +20,7 @@ pub enum EvidenceQualityLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-/// Coverage status for one signal family.
+/// Retained coverage status for one signal family.
 pub enum SignalCoverageStatus {
     /// Signal family has usable data.
     Present,
@@ -30,7 +33,11 @@ pub enum SignalCoverageStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-/// Structured capture-coverage and interpretation-quality summary.
+/// Structured retained-evidence coverage and interpretation-quality summary.
+///
+/// Counts, per-family `present`/`missing`/`partial`/`truncated` statuses, drop counters, and
+/// limitations explain how much of the retained Run can support interpretation. They do not
+/// certify capture correctness, instrumentation correctness, root cause, or causal certainty.
 pub struct EvidenceQuality {
     /// Number of completed request events captured.
     pub request_count: usize,

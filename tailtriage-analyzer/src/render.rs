@@ -34,9 +34,10 @@ fn fmt_confidence(confidence: Confidence) -> &'static str {
     }
 }
 
-/// Renders a compact text triage summary from a [`Report`].
+/// Renders a [`Report`] as an infallible, compact human-readable triage view.
 ///
-/// The rendered output is guidance for follow-up checks, not proof of root cause.
+/// Rendering does not perform analysis and does not produce Run JSON. The rendered output is
+/// guidance for follow-up checks, not proof of root cause.
 #[must_use]
 pub fn render_text(report: &Report) -> String {
     let mut lines = vec![

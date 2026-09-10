@@ -124,7 +124,7 @@ def validate_analyzer_ownership_navigation(
             "operations.md",
             "analyzer-guide.md",
             "diagnostics.md",
-            "analyzer-rationale.md",
+            "dev/analyzer-rationale.md",
             "../tailtriage-cli/README.md",
             "../tailtriage-analyzer/README.md",
             "../SPEC.md",
@@ -138,11 +138,13 @@ def validate_analyzer_ownership_navigation(
         ),
         REPO_ROOT / "docs" / "analyzer-guide.md": (
             "diagnostics.md",
-            "analyzer-rationale.md",
+            "dev/analyzer-rationale.md",
             "operations.md",
             "../tailtriage-cli/README.md",
             "../tailtriage-analyzer/README.md",
         ),
+        DIAGNOSTICS_PATH: ("dev/analyzer-rationale.md",),
+        DEV_DOCS_DIR / "README.md": ("analyzer-rationale.md",),
         OPERATIONS_PATH: ("analyzer-guide.md", "diagnostics.md"),
         USER_GUIDE_PATH: ("analyzer-guide.md", "diagnostics.md"),
     }
