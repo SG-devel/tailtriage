@@ -7,7 +7,7 @@ the contracts needed to review scoring and interpretation changes. It records
 behavior, not the rationale for the numeric defaults.
 
 For why major policies exist, their tradeoffs and proof owners, and the evidence
-required to revise them, see the [analyzer rationale catalog](analyzer-rationale.md).
+required to revise them, see the [maintainer analyzer rationale catalog](dev/analyzer-rationale.md).
 
 Suspects are deterministic, evidence-ranked triage leads. Scores are not
 probabilities, and suspects are **not proof** of root cause.
@@ -96,7 +96,7 @@ sample contribution is:
 Every formula is finally clamped to `0..=100`. A “soft cap” is applied before
 that clamp unless the stated clean-extreme condition holds.
 
-### Application queue saturation
+### Application queue pressure
 
 The analyzer builds completed-only and observed-lower-bound p95 queue-share
 candidates. A candidate is eligible when its p95 share is at least

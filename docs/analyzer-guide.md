@@ -66,7 +66,7 @@ A useful movement after a controlled change strengthens or weakens a lead; it st
 ## Go deeper
 
 - For complete report behavior and field interpretation, see the [detailed diagnostics guide](diagnostics.md).
-- For the design reasons, tradeoffs, proof owners, and revision criteria behind major analyzer policies, see the [analyzer rationale catalog](analyzer-rationale.md).
+- Maintainers reviewing a policy change can use the [analyzer rationale catalog](dev/analyzer-rationale.md) for design tradeoffs, proof owners, and revision criteria; it is not required for reading a report.
 - For capture choice, truncation, limits, and weak-signal troubleshooting, see the [operations guide](operations.md).
 - For analyzer options, run `tailtriage analyzer-options` and see [`examples/analyzer-config.toml`](../examples/analyzer-config.toml).
 - For saved-artifact loading and output behavior, see the [`tailtriage-cli` README](../tailtriage-cli/README.md).

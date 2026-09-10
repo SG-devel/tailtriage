@@ -60,7 +60,7 @@ types, parsing, overrides, and validation where applicable.
 | Controller configuration | `tailtriage-controller` owns builder/TOML defaults, configuration types, parsing, reload validation, generation path derivation, and future-generation semantics. See its [configuration contract](../../tailtriage-controller/README.md). |
 | Runtime sampling configuration | `tailtriage-tokio` owns sampler defaults, builder/config types, startup validation, cadence, and runtime snapshot behavior; controller config owns whether and how a sampler starts for an armed generation. See [Tokio sampling](../../tailtriage-tokio/README.md) and [controller configuration](../../tailtriage-controller/README.md). |
 | Tracing configuration | `tailtriage-tracing` owns import/session/recorder defaults, builders, limits, output validation, and optional Tokio coupling; façade features only expose that crate. See its [package contract](../../tailtriage-tracing/README.md). |
-| Analyzer options and interpretation | `tailtriage-analyzer` owns `AnalyzeOptions`, defaults, TOML schema/parsing, validation, diagnosis, typed `Report`, and renderers. The CLI layers config-file and `--analyzer-set` overrides over those options. See [analyzer configuration](../../tailtriage-analyzer/README.md), [behavior](../diagnostics.md), and [rationale](../analyzer-rationale.md). |
+| Analyzer options and interpretation | `tailtriage-analyzer` owns `AnalyzeOptions`, defaults, TOML schema/parsing, validation, diagnosis, typed `Report`, and renderers. The CLI layers config-file and `--analyzer-set` overrides over those options. See [analyzer configuration](../../tailtriage-analyzer/README.md), [behavior](../diagnostics.md), and [maintainer rationale](analyzer-rationale.md). |
 | CLI arguments, files, and output selection | `tailtriage-cli` owns command parsing, saved-file loading, CLI-only acceptance rules, analyzer overrides, and text/JSON selection; analyzer rendering remains delegated to `tailtriage-analyzer`. See the [CLI README](../../tailtriage-cli/README.md). |
 
 ## Documentation ownership
@@ -73,7 +73,7 @@ types, parsing, overrides, and validation where applicable.
 | Production operation and rollout | [Production operations guide](../operations.md) |
 | Reading a report and choosing a next check | [Analyzer guide](../analyzer-guide.md) |
 | Exact analyzer behavior | [Analyzer behavior reference](../diagnostics.md) |
-| Analyzer rationale and proof ownership | [Analyzer rationale](../analyzer-rationale.md) |
+| Analyzer rationale and proof ownership | [Analyzer rationale](analyzer-rationale.md) |
 | Normative product and data contracts | [SPEC.md](../../SPEC.md) |
 | Validation evidence and non-claims | [VALIDATION.md](VALIDATION.md) and [diagnostic validation](../diagnostic-validation.md) |
 | Tailtriage 0.4 invariant and test-proof ownership | [Invariant proof matrix](INVARIANT_PROOF_MATRIX.md) |

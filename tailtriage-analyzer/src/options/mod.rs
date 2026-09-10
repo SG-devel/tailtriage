@@ -9,7 +9,19 @@ mod registry;
 mod toml;
 pub use descriptors::analyze_option_descriptors;
 
-/// Semantic analyzer options grouped by triage domain.
+/// Semantic configuration used by [`crate::analyze_run`], grouped by triage domain.
+///
+/// [`AnalyzeOptions::default`] is the canonical configuration. Direct mutation of the
+/// public nested fields is supported, but assignment does not validate the resulting
+/// configuration. Call [`AnalyzeOptions::validate`] explicitly when needed;
+/// [`crate::analyze_run`] always calls it before analysis. Invalid semantic values return
+/// [`AnalyzeConfigError::InvalidConfigValue`].
+///
+/// TOML and checked `path=value` overrides ultimately update this same semantic structure
+/// through the shared option registry. [`analyze_option_descriptors`] exposes that registry's
+/// stable paths, displayed defaults, Rust value types, affected behavior, descriptions, and
+/// directional effects. [`AnalyzeOptions::non_default_overrides`] returns the non-default
+/// semantic values that analysis records in [`crate::Report::analyzer_config`].
 ///
 /// # Examples
 ///
@@ -26,7 +38,7 @@ pub use descriptors::analyze_option_descriptors;
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct AnalyzeOptions {
-    /// Queue-pressure thresholds used to rank queue-saturation suspects during triage.
+    /// Application-queue-pressure thresholds. See [`QueueingOptions`].
     pub queueing: QueueingOptions,
     /// Blocking-pool heuristics used to rank blocking-pressure suspects during triage.
     pub blocking: BlockingOptions,
@@ -44,11 +56,15 @@ pub struct AnalyzeOptions {
     pub temporal: TemporalOptions,
 }
 
-/// Queue-saturation suspect thresholds.
+/// Application-queue-pressure suspect thresholds.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QueueingOptions {
-    /// Minimum p95 queue-share permille needed before queue-saturation suspect ranking can trigger.
+    /// Minimum p95 queue-time share needed for application queue pressure to be eligible.
+    ///
+    /// Unit: permille (`1000` is the whole request latency). Default: `300`. Valid range:
+    /// `0..=1000`; larger values produce [`AnalyzeConfigError::InvalidConfigValue`] from
+    /// [`AnalyzeOptions::validate`].
     pub trigger_permille: u64,
 }
 
@@ -64,15 +80,22 @@ impl Default for QueueingOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlockingOptions {
-    /// Minimum number of non-zero blocking queue samples needed before blocking signal can trigger.
+    /// Minimum count of non-zero blocking-queue samples needed for a blocking signal.
+    /// Default: `2`. The semantic validator permits zero.
     pub min_nonzero_samples_for_signal: usize,
-    /// Blocking queue-depth p95 threshold used for stronger blocking-pressure suspect evidence.
+    /// Blocking queue-depth p95 count used for stronger blocking-pressure evidence.
+    /// Default: `12`. The semantic validator permits zero.
     pub strong_p95_threshold: u64,
-    /// Blocking queue-depth peak threshold used for stronger blocking-pressure suspect evidence.
+    /// Blocking queue-depth peak count used for stronger blocking-pressure evidence.
+    /// Default: `20`. The semantic validator permits zero.
     pub strong_peak_threshold: u64,
-    /// Minimum non-zero blocking sample share (permille) for stronger blocking-pressure suspect evidence.
+    /// Minimum share of non-zero blocking samples for stronger blocking-pressure evidence.
+    ///
+    /// Unit: permille. Default: `700`. Valid range: `0..=1000`; larger values fail
+    /// [`AnalyzeOptions::validate`] with [`AnalyzeConfigError::InvalidConfigValue`].
     pub strong_nonzero_share_permille: u64,
-    /// Minimum blocking sample count before strong blocking heuristics can trigger.
+    /// Minimum blocking-sample count before strong blocking heuristics can trigger.
+    /// Default: `30`. The semantic validator permits zero.
     pub strong_min_samples: usize,
 }
 
@@ -92,9 +115,13 @@ impl Default for BlockingOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExecutorOptions {
-    /// Minimum runtime global-queue p95 needed before executor-pressure suspect ranking can trigger.
+    /// Minimum runtime global-queue p95 depth count needed for executor-pressure eligibility.
+    /// Default: `1`. The semantic validator permits zero.
     pub min_global_queue_p95_for_signal: u64,
-    /// Minimum p95 runnable-queue depth per worker, in milli-tasks, for normalized evidence.
+    /// Minimum normalized p95 runnable-queue depth per worker for executor pressure.
+    ///
+    /// Unit: milli-tasks per worker (`1000` means one runnable task per worker). Default:
+    /// `500`. The semantic validator permits zero.
     pub min_runnable_queue_per_worker_p95_milli_for_signal: u64,
 }
 
@@ -111,11 +138,19 @@ impl Default for ExecutorOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DownstreamOptions {
-    /// Minimum distinct completed-request count with retained evidence for a stage before downstream-stage suspect ranking can trigger.
+    /// Minimum distinct completed-request count with retained stage evidence for eligibility.
+    /// Default: `3`. The semantic validator permits zero.
     pub min_stage_samples: usize,
-    /// Stage-name substrings used to detect downstream evidence that may correlate with blocking work.
+    /// Stage-name substrings used to detect evidence that may correlate with blocking work.
+    ///
+    /// Default: `"spawn_blocking"`, `"blocking_path"`, and `"blocking"`. The list must be
+    /// non-empty and every entry must be non-empty after trimming; otherwise validation returns
+    /// [`AnalyzeConfigError::InvalidConfigValue`].
     pub blocking_correlated_stage_patterns: Vec<String>,
-    /// Minimum score margin required before favoring downstream-stage suspects over blocking-correlated interpretations.
+    /// Score-point margin required before favoring downstream over a blocking-correlated reading.
+    ///
+    /// Default: `2`. Valid range: `0..=100`; this is an analyzer score margin, not a
+    /// probability or percentage. Larger values fail [`AnalyzeOptions::validate`].
     pub blocking_correlation_score_margin: u8,
 }
 
@@ -137,13 +172,17 @@ impl Default for DownstreamOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConfidenceOptions {
-    /// Minimum suspect score treated as medium confidence.
+    /// Minimum analyzer score points classified as medium confidence. Default: `65`.
+    /// Must be no greater than [`Self::high_score_threshold`].
     pub medium_score_threshold: u8,
-    /// Minimum suspect score treated as high confidence.
+    /// Minimum analyzer score points classified as high confidence. Default: `85`.
+    /// Valid range: `0..=100`; it must also be at least [`Self::medium_score_threshold`].
     pub high_score_threshold: u8,
-    /// Minimum top-suspect score before ambiguity heuristics may emit a warning.
+    /// Minimum top-suspect analyzer score points before ambiguity can be reported.
+    /// Default: `60`. Valid range: `0..=100`.
     pub ambiguity_min_score: u8,
-    /// Maximum score gap considered a near-tie for ambiguity warning heuristics.
+    /// Maximum analyzer score-point gap treated as an ambiguous near-tie.
+    /// Default: `4`. Valid range: `0..=100`.
     pub ambiguity_score_gap: u8,
 }
 
@@ -162,7 +201,8 @@ impl Default for ConfidenceOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EvidenceOptions {
-    /// Completed-request threshold below which low-sample evidence warnings apply.
+    /// Completed-request count below which low-sample warnings and weak quality apply.
+    /// Default: `20`. The semantic validator permits zero.
     pub low_completed_request_threshold: usize,
 }
 
@@ -178,19 +218,25 @@ impl Default for EvidenceOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RouteOptions {
-    /// Minimum per-route completed requests required for route breakdown inclusion.
+    /// Minimum completed-request count required for route breakdown inclusion.
+    /// Default: `3`. The semantic validator permits zero.
     pub min_request_count: usize,
-    /// Maximum number of route breakdown entries emitted in one report.
+    /// Maximum count of route breakdown entries emitted in one report. Default: `10`.
+    /// Must be greater than zero.
     pub breakdown_limit: usize,
-    /// Whether to emit a warning when route-level primary suspects diverge from each other.
+    /// Whether divergent route-level primary suspects emit a warning. Default: `true`.
     pub emit_on_divergent_suspects: bool,
-    /// Numerator for slowest-to-fastest route p95 ratio heuristic threshold.
+    /// Numerator of the dimensionless slowest-to-fastest p95 threshold ratio. Default: `3`.
+    /// Must be greater than zero and at least the paired denominator.
     pub slowest_to_fastest_p95_ratio_numerator: u64,
-    /// Denominator for slowest-to-fastest route p95 ratio heuristic threshold.
+    /// Denominator of the dimensionless slowest-to-fastest p95 threshold ratio. Default: `2`.
+    /// Must be greater than zero; the paired numerator must be at least this value.
     pub slowest_to_fastest_p95_ratio_denominator: u64,
-    /// Numerator for slowest-route to global p95 ratio heuristic threshold.
+    /// Numerator of the dimensionless slowest-route-to-global p95 threshold ratio. Default: `5`.
+    /// Must be greater than zero and at least the paired denominator.
     pub slowest_to_global_p95_ratio_numerator: u64,
-    /// Denominator for slowest-route to global p95 ratio heuristic threshold.
+    /// Denominator of the dimensionless slowest-route-to-global p95 threshold ratio. Default: `4`.
+    /// Must be greater than zero; the paired numerator must be at least this value.
     pub slowest_to_global_p95_ratio_denominator: u64,
 }
 
@@ -212,19 +258,29 @@ impl Default for RouteOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TemporalOptions {
-    /// Minimum completed requests required before temporal segmentation heuristics run.
+    /// Minimum completed-request count before temporal segmentation runs. Default: `20`.
+    /// There is no independent positivity check on this field, but a valid configuration requires
+    /// twice [`Self::min_segment_request_count`] (using saturating multiplication) to be no greater
+    /// than this value. Because the segment minimum must be greater than zero, zero cannot form a
+    /// valid configuration.
     pub min_request_count: usize,
-    /// Minimum completed requests required in each temporal segment for suspect comparison.
+    /// Minimum completed-request count in each temporal segment. Default: `8`.
+    /// Must be greater than zero, and twice this value must be no greater than
+    /// [`Self::min_request_count`].
     pub min_segment_request_count: usize,
-    /// Minimum queue/service-share movement (permille) required to flag temporal suspect shift evidence.
+    /// Minimum queue/service-share movement required to flag temporal shift evidence.
+    /// Unit: permille. Default: `200`. Valid range: `0..=1000`.
     pub share_shift_permille: u64,
-    /// Numerator for temporal p95 ratio movement heuristic threshold.
+    /// Numerator of the dimensionless temporal p95 movement threshold ratio. Default: `3`.
+    /// Must be greater than zero and at least the paired denominator.
     pub p95_shift_ratio_numerator: u64,
-    /// Denominator for temporal p95 ratio movement heuristic threshold.
+    /// Denominator of the dimensionless temporal p95 movement threshold ratio. Default: `2`.
+    /// Must be greater than zero; the paired numerator must be at least this value.
     pub p95_shift_ratio_denominator: u64,
-    /// Whether to emit temporal suspect-shift warnings when movement heuristics trigger.
+    /// Whether detected temporal suspect shifts emit warnings. Default: `true`.
     pub emit_on_suspect_shift: bool,
-    /// Whether to suppress runtime-sparse suspect-shift warnings when supporting movement evidence is absent.
+    /// Whether runtime-sparse shift warnings without supporting movement are suppressed.
+    /// Default: `true`.
     pub suppress_runtime_sparse_suspect_shift_without_supporting_movement: bool,
 }
 
@@ -244,6 +300,9 @@ impl Default for TemporalOptions {
 
 impl AnalyzeOptions {
     /// Returns sorted non-default semantic option overrides as stable path/value summaries.
+    ///
+    /// These are the values placed in [`crate::Report::analyzer_config`] by analysis. An empty
+    /// result means the options equal [`AnalyzeOptions::default`].
     #[must_use]
     pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {
         registry::non_default_overrides(self)
@@ -365,7 +424,13 @@ impl AnalyzeOptions {
     }
 }
 
-/// Validation and configuration errors for analyzer options and checked triage APIs.
+/// Errors from semantic analyzer validation and the checked configuration input paths.
+///
+/// Direct field mutation is checked by [`AnalyzeOptions::validate`] or [`crate::analyze_run`]
+/// and can directly produce only [`Self::InvalidConfigValue`]. Checked `path=value` overrides
+/// can additionally fail syntax, path lookup, or type parsing before semantic validation. TOML
+/// input can additionally fail table, schema-version, parsing, or decoding checks before the
+/// same semantic validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnalyzeConfigError {
     /// Invalid override assignment syntax.
@@ -448,7 +513,11 @@ impl Display for AnalyzeConfigError {
 impl Error for AnalyzeConfigError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-/// Human-readable metadata for one semantic analyzer option path.
+/// Machine- and human-readable registry metadata for one supported semantic option path.
+///
+/// A descriptor provides a stable path, displayed default, Rust value type, affected behavior,
+/// description, and optional directional effects. It does not carry valid ranges; use
+/// [`AnalyzeOptions::validate`] for semantic validation.
 pub struct AnalyzeOptionDescriptor {
     /// Stable analyzer option path name.
     path: &'static str,
@@ -493,7 +562,7 @@ impl AnalyzeOptionDescriptor {
     pub const fn path(&self) -> &'static str {
         self.path
     }
-    /// Returns the serialized default value.
+    /// Returns the stable display form of the default value.
     #[must_use]
     pub const fn default_value(&self) -> &'static str {
         self.default_value
