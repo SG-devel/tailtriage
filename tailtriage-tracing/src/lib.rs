@@ -102,7 +102,10 @@ fn push_import_warning(warnings: &mut Vec<ImportWarning>, warning: ImportWarning
     }
 }
 
-/// Ensures a run is suitable for persisted Run JSON artifacts intended for CLI analysis.
+/// Checks only that a run contains at least one completed request event.
+///
+/// This is the tracing persisted-output nonempty-request check, not complete
+/// Run validity, schema validation, CLI compatibility, or artifact correctness.
 ///
 /// # Errors
 ///
@@ -142,17 +145,40 @@ pub(crate) fn persistable_zero_request_guidance() -> String {
     "tracing import produced zero request events; persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields (started_at_unix_ms/finished_at_unix_ms).".to_owned()
 }
 
-/// Converts in-memory tracing span records into a `tailtriage_core::Run`.
+/// Converts completed typed [`SpanRecord`] values into a `tailtriage_core::Run`.
 ///
-/// Spans without any `tt.*` fields are ignored silently. Spans with `tt.*`
-/// fields but missing `tt.kind` are treated as malformed tailtriage input.
-/// In non-strict mode, malformed `tt.*` spans are skipped and surfaced as
-/// warnings. In strict mode, the first malformed `tt.*` span returns an
-/// [`ImportError`].
+/// Spans without `tt.*` fields are ignored. A candidate requires string
+/// `tt.kind` plus the semantic fields documented on [`SpanRecord`]. Request,
+/// stage, and queue records belonging together correlate through the same
+/// `tt.request_id`; source span IDs do not provide that correlation. Input order
+/// is preserved within retained semantic sections.
+///
+/// Explicit [`SpanRecord::duration_us`] wins. Otherwise duration comes from
+/// complete run-relative offsets when both exist and finish is not before start;
+/// otherwise it is the saturating Unix-ms delta multiplied by 1,000. This
+/// derivation is separate from core precision validation: complete valid
+/// run-relative microsecond intervals enable duration/containment checks, while
+/// coarse wall-clock anchors do not replace missing precision intervals.
+///
+/// [`ImportOptions::resolved_capture_limits`] bounds semantic request/stage/queue
+/// retention. Tracing intake owns semantic extraction and source warnings. Core
+/// then owns generic Run validation and normalization, including duplicate,
+/// parent, timing, and containment policy. Strict mode fails tracing violations
+/// and error-level core findings. Permissive mode warns/skips source-invalid
+/// evidence where implemented, then may exclude generic invalid evidence or
+/// clear invalid optional offsets while retaining authoritative durations.
+///
+/// The result is an [`ImportedRun`], whose run and non-fatal warnings are
+/// available through accessors.
+///
 /// # Errors
 ///
+/// Returns [`ImportError::EmptyServiceName`] when the configured service name
+/// is empty or contains only whitespace.
+///
 /// Returns [`ImportError::StrictViolation`] when `options.strict(true)` is set
-/// and a tailtriage-tagged span is malformed or incomplete.
+/// and tracing-source evidence is invalid or incomplete, or when core reports
+/// an error-level validation finding for the converted run.
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn run_from_span_records<I>(
     spans: I,

@@ -31,6 +31,8 @@ pub(crate) struct LiveRecorder {
 }
 /// High-level tracing intake bridge for completed `tt.*` spans.
 ///
+/// **Requires the `live` feature.**
+///
 /// A session attaches to an existing `tracing_subscriber` registry via [`Self::layer`],
 /// captures completed `tt.*` spans, and converts them into standard `tailtriage_core::Run`
 /// artifacts through [`Self::snapshot_run`] or [`Self::shutdown`].
@@ -55,7 +57,7 @@ pub struct TracingSession {
     #[cfg(feature = "tokio")]
     sampler: Option<RuntimeSampler>,
 }
-/// Builder for [`TracingSession`].
+/// Builder for [`TracingSession`]. **Requires the `live` feature.**
 #[derive(Debug, Clone)]
 pub struct TracingSessionBuilder {
     recorder_builder: LiveRecorderBuilder,
@@ -75,16 +77,29 @@ pub(crate) struct LiveRecorderBuilder {
 }
 
 /// `tracing_subscriber` layer that feeds completed spans into a [`TracingSession`].
+/// **Requires the `live` feature.** Candidate status is fixed at span creation;
+/// later values must have been declared then. Records complete on close/drop.
 #[derive(Debug, Clone)]
 pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
     limits: RecorderLimits,
 }
-/// Default maximum number of concurrently tracked open candidate spans.
+/// Default maximum number of concurrently tracked open candidate spans (8,192).
+/// **Requires the `live` feature.**
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
-/// Default maximum number of closed raw completed candidate spans retained before conversion.
+/// Default maximum number of closed raw completed candidate spans retained before conversion
+/// (65,536). **Requires the `live` feature.**
 pub const DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS: usize = 65_536;
-/// Configurable in-memory limits for live tracing recorder retention.
+/// Configurable raw in-memory limits for live tracing recorder retention.
+///
+/// **Requires the `live` feature.** These limits precede and are independent
+/// from semantic [`CaptureLimits`]. At either `>= limit` boundary, zero retains
+/// nothing at that raw stage; zero never means unlimited. In permissive
+/// conversion, recorder pressure is surfaced through warnings and
+/// truncation/limits-hit evidence. Strict live conversion instead rejects
+/// recorder loss or incomplete-candidate conditions as strict violations where
+/// implemented. Closed-candidate pressure preferentially keeps request roots
+/// where possible, so child stage/queue evidence can be dropped or evicted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RecorderLimits {
@@ -300,6 +315,12 @@ fn finalize_live_imported_run_at(imported: ImportedRun, finalized_at_unix_ms: u6
 impl TracingSession {
     /// Creates a tracing intake session builder with required service metadata.
     ///
+    /// **Requires the `live` feature.** The service name must be nonblank. Build
+    /// the session, compose its layer into a subscriber, close candidate spans,
+    /// and explicitly shut down the session. Plain `live` capture does not
+    /// enable Tokio runtime snapshots; that coupling requires `tokio` and
+    /// explicit configuration.
+    ///
     /// Service startup should install `session.layer()` in the process-wide subscriber setup; use scoped defaults only for local/test-style usage.
     ///
     /// ```no_run
@@ -342,15 +363,22 @@ impl TracingSession {
             manual_runtime_snapshots: false,
         }
     }
-    /// Returns a `tracing_subscriber` layer for this intake session.
+    /// Returns a cloneable `tracing_subscriber` layer for this intake session.
     ///
-    /// Add this layer beside your existing subscriber layers; this does not replace
-    /// your tracing pipeline.
+    /// **Requires the `live` feature.** Add it beside existing layers; it captures
+    /// candidates but does not replace the tracing pipeline. The session retains
+    /// the state ownership needed by snapshots and shutdown.
     #[must_use]
     pub fn layer(&self) -> TailtriageLayer {
         self.recorder.layer()
     }
-    /// Returns a non-consuming imported snapshot of completed spans.
+    /// Returns a non-consuming imported snapshot of spans closed so far.
+    ///
+    /// **Requires the `live` feature.** Open candidates are not fabricated as
+    /// completed evidence; warnings can report open or dropped evidence. This
+    /// call does not finalize configured files. With `tokio` runtime collection
+    /// configured, the collector's current snapshot is merged; its independent
+    /// run-relative offsets are cleared during merge.
     ///
     /// # Errors
     ///
@@ -369,7 +397,11 @@ impl TracingSession {
         }
         Ok(imported)
     }
-    /// Records one Tokio runtime snapshot directly into the session when runtime collection is enabled.
+    /// Records one supplied Tokio runtime snapshot into the enabled collector.
+    ///
+    /// **Requires the `tokio` feature.** Runtime collection must have been enabled
+    /// by manual snapshots and/or sampler configuration. This stores only metrics
+    /// present in the supplied snapshot; it fabricates none.
     ///
     /// # Errors
     ///
@@ -387,7 +419,14 @@ impl TracingSession {
         runtime_collector.record_runtime_snapshot(snapshot);
         Ok(())
     }
-    /// Finalizes intake and optionally writes configured output artifacts.
+    /// Consumes the session, finalizes intake, and writes configured outputs.
+    ///
+    /// **Requires the `live` feature.** Shutdown first awaits an existing
+    /// background runtime sampler, then snapshots completed intake, merges runtime
+    /// state, and finalizes the result. It does not close caller-owned spans, so
+    /// close them first. Persisted output requires at least one retained completed
+    /// request. Completed-span JSONL is written before Run JSON, and the resulting
+    /// [`ImportedRun`] is returned.
     ///
     /// Each configured file (`completed_span_jsonl_path` and `run_json_path`) is written
     /// independently through its own temp/rename path. When both are configured, shutdown
@@ -668,13 +707,17 @@ impl TracingSessionBuilder {
         self.recorder_builder = self.recorder_builder.mode(mode);
         self
     }
-    /// Sets base capture limits used for live completed-evidence retention.
+    /// Sets complete semantic capture limits for live completed evidence.
+    ///
+    /// This value wins over [`Self::capture_limits_override`] regardless of
+    /// setter order. It is independent from raw [`RecorderLimits`].
     #[must_use]
     pub fn capture_limits(mut self, capture_limits: CaptureLimits) -> Self {
         self.recorder_builder = self.recorder_builder.capture_limits(capture_limits);
         self
     }
-    /// Sets capture-limit overrides applied on top of the selected capture mode.
+    /// Sets partial semantic limits applied to mode defaults only when no full
+    /// [`Self::capture_limits`] value is configured.
     #[must_use]
     pub fn capture_limits_override(mut self, override_limits: CaptureLimitsOverride) -> Self {
         self.recorder_builder = self
@@ -694,13 +737,13 @@ impl TracingSessionBuilder {
         self.recorder_builder = self.recorder_builder.run_id(run_id);
         self
     }
-    /// Sets live recorder memory limits.
+    /// Sets raw live-recorder memory limits, independently of semantic limits.
     #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.recorder_builder = self.recorder_builder.limits(limits);
         self
     }
-    /// Sets maximum concurrently tracked open candidate spans.
+    /// Sets the raw open-candidate cap; zero retains no open candidates.
     #[must_use]
     pub fn max_open_spans(mut self, v: usize) -> Self {
         self.recorder_builder = self.recorder_builder.max_open_spans(v);
@@ -708,7 +751,7 @@ impl TracingSessionBuilder {
     }
     /// Sets maximum retained closed raw completed candidate spans before semantic conversion.
     ///
-    /// This is a live recorder memory cap. Request/stage/queue semantic retention remains
+    /// This is a live recorder memory cap; zero retains no closed candidates. Request/stage/queue semantic retention remains
     /// controlled by [`CaptureMode`], [`CaptureLimits`], and [`CaptureLimitsOverride`].
     #[must_use]
     pub fn max_completed_candidate_spans(mut self, v: usize) -> Self {
@@ -725,6 +768,16 @@ impl TracingSessionBuilder {
     /// Excluded, semantically dropped, and raw-unavailable records are absent.
     /// Completed-span JSONL does not encode Run-only metadata, runtime snapshots,
     /// lifecycle warnings, drop counters, or omitted-source diagnostics.
+    ///
+    /// Importing these records under equivalent applicable conversion options can
+    /// reproduce the normalized completed request, stage, and queue evidence
+    /// representable by the retained [`SpanRecord`] sources. This is not complete
+    /// [`tailtriage_core::Run`] equality or byte-for-byte replay. The guarantee
+    /// excludes generated and lifecycle metadata, runtime and in-flight snapshots,
+    /// Tokio sampler metadata, raw-recorder diagnostics and drop history, complete
+    /// lifecycle and truncation state, source file/line import context, output
+    /// failures, and evidence dropped before export. The file is therefore not a
+    /// complete trace archive and makes no universal diagnostic-equivalence claim.
     ///
     /// When both output paths are configured, this file is finalized independently and may
     /// exist even if the later run-json write fails.
@@ -765,7 +818,12 @@ impl TracingSessionBuilder {
         })
     }
 
-    /// Enables background Tokio runtime sampling at the given interval.
+    /// Enables background Tokio runtime sampling at the given [`Duration`].
+    ///
+    /// **Requires the `tokio` feature.** This is not enabled by plain `live`.
+    /// Zero is rejected during build. Starting the inherited runtime sampler
+    /// requires an active Tokio runtime. Runtime retention uses resolved semantic
+    /// core capture limits.
     #[cfg(feature = "tokio")]
     #[must_use]
     pub fn sampler_interval(mut self, interval: Duration) -> Self {
@@ -773,7 +831,12 @@ impl TracingSessionBuilder {
         self
     }
 
-    /// Enables manual Tokio runtime snapshot collection without starting the background sampler.
+    /// Enables manual Tokio runtime snapshot storage without automatic sampling.
+    ///
+    /// **Requires the `tokio` feature.** It permits
+    /// [`TracingSession::record_runtime_snapshot`] and may coexist with background
+    /// sampling. Enabling storage alone does not sample Tokio or require sampler
+    /// startup.
     #[cfg(feature = "tokio")]
     #[must_use]
     pub fn manual_runtime_snapshots(mut self) -> Self {
