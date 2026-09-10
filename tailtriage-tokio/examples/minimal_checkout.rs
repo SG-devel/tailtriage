@@ -28,26 +28,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await_on(tokio::time::sleep(Duration::from_millis(6)))
         .await;
 
-    request
-        .stage("inventory_lookup")
-        .await_on(async {
-            tokio::time::sleep(Duration::from_millis(8)).await;
-            Ok::<(), &'static str>(())
-        })
-        .await?;
+    let result = async {
+        request
+            .stage("inventory_lookup")
+            .await_on(async {
+                tokio::time::sleep(Duration::from_millis(8)).await;
+                Ok::<(), &'static str>(())
+            })
+            .await?;
 
-    request
-        .stage("payment_gateway")
-        .await_on(async {
-            tokio::time::sleep(Duration::from_millis(12)).await;
-            Ok::<(), &'static str>(())
-        })
-        .await?;
-
-    started.completion.finish_ok();
+        request
+            .stage("payment_gateway")
+            .await_on(async {
+                tokio::time::sleep(Duration::from_millis(12)).await;
+                Ok::<(), &'static str>(())
+            })
+            .await
+    }
+    .await;
+    let result = started.completion.finish_result(result);
 
     sampler.shutdown().await;
     tailtriage.shutdown()?;
+    result?;
     println!("Wrote {artifact_path}");
     println!("Next step:");
     println!("  cargo run -p tailtriage-cli -- analyze {artifact_path} --format json");
