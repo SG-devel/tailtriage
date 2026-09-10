@@ -89,16 +89,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tasks.push(tokio::spawn(async move { app.oneshot(request).await }));
     }
 
-    let workload_result = async {
-        for task in tasks {
+    let mut workload_result = Ok::<_, Box<dyn std::error::Error>>(());
+    for task in tasks {
+        let task_result = async {
             let status = task.await??.status();
             if status != StatusCode::OK {
                 return Err(format!("request failed with status {status}").into());
             }
+            Ok::<_, Box<dyn std::error::Error>>(())
         }
-        Ok::<_, Box<dyn std::error::Error>>(())
+        .await;
+
+        if workload_result.is_ok() {
+            if let Err(error) = task_result {
+                workload_result = Err(error);
+            }
+        }
     }
-    .await;
 
     tailtriage.shutdown()?;
     workload_result?;
