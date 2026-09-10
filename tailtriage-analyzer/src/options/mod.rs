@@ -259,7 +259,10 @@ impl Default for RouteOptions {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TemporalOptions {
     /// Minimum completed-request count before temporal segmentation runs. Default: `20`.
-    /// The semantic validator permits zero, subject to the segment-count relationship below.
+    /// There is no independent positivity check on this field, but a valid configuration requires
+    /// twice [`Self::min_segment_request_count`] (using saturating multiplication) to be no greater
+    /// than this value. Because the segment minimum must be greater than zero, zero cannot form a
+    /// valid configuration.
     pub min_request_count: usize,
     /// Minimum completed-request count in each temporal segment. Default: `8`.
     /// Must be greater than zero, and twice this value must be no greater than

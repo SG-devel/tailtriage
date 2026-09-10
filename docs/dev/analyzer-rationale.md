@@ -749,9 +749,9 @@ numeric calibration remains unknown.
 
 ### AN-CONFIG-001 — Semantic groups and one option registry
 
-- **Rule or default:** Rust builders, TOML groups, CLI overrides, descriptors,
-  help, valid paths, defaults, and non-default summaries share semantic option
-  groups and one registry; see
+- **Rule or default:** Direct Rust `AnalyzeOptions` configuration, TOML groups,
+  checked CLI/string overrides, descriptors/help, valid paths, defaults, and
+  non-default summaries share the same semantic option groups and registry; see
   [analyzer tuning](../diagnostics.md#analyzer-tuning-and-configuration-transparency).
 - **Classification:** Hard contract.
 - **Problem addressed:** Duplicated option inventories drift in paths, types,
