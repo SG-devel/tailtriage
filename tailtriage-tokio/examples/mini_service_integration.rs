@@ -101,12 +101,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // from core and uses Tokio-side Investigation defaults.
     let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage)).start()?;
 
-    for request in requests {
-        handle_checkout(Arc::clone(&tailtriage), request).await?;
+    let workload_result = async {
+        for request in requests {
+            handle_checkout(Arc::clone(&tailtriage), request).await?;
+        }
+        Ok::<(), &'static str>(())
     }
+    .await;
 
     sampler.shutdown().await;
     tailtriage.shutdown()?;
+    workload_result?;
 
     println!("Wrote {output_path}");
     println!("This example demonstrates a small integration flow across helper layers.");

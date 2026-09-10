@@ -26,15 +26,54 @@ mod sealed {
     impl Sealed for tailtriage_core::OwnedRequestHandle {}
 }
 
-/// Extension helpers that map common Tokio primitives to tailtriage queue/stage/in-flight signals.
+/// Extension helpers that map common Tokio primitive boundaries to queue or stage evidence.
+///
+/// This sealed trait is implemented for both [`tailtriage_core::RequestHandle`] and
+/// [`tailtriage_core::OwnedRequestHandle`]. Helpers preserve Tokio's native output, error, guard,
+/// and permit types; they do not own request completion, which remains the separate core
+/// completion token's responsibility.
+///
+/// All measurement is lazy. Constructing a helper does not start timing; the underlying core
+/// queue or stage timer starts on first poll. Dropping a never-polled future records no event.
+/// Dropping a future after a pending poll may record one bounded, lower-bound partial observation
+/// if capture is still open. Recording after capture closure or finalization is inert. The partial
+/// duration ends when the measuring future is observed being dropped; it does not prove that an
+/// external operation represented by that future stopped.
+///
+/// The core handle's `inflight(...)` method is complementary core instrumentation, not a method
+/// supplied by this trait.
 pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Records a queue event while waiting to acquire a semaphore permit.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())`.
     ///
-    /// Records only acquisition wait time, not the protected work after the permit is acquired.
-    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
-    /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
+    /// It borrows `semaphore` and returns Tokio's borrowed
+    /// [`tokio::sync::SemaphorePermit`] or native [`tokio::sync::AcquireError`]. It measures only
+    /// acquisition wait, not protected work; retain the permit for as long as capacity is in use.
+    ///
+    /// ```
+    /// # use tailtriage_core::{MemorySink, Tailtriage};
+    /// # use tailtriage_tokio::TokioRequestHandleExt;
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let run = Tailtriage::builder("svc").sink(MemorySink::new()).build()?;
+    /// # let started = run.begin_request("work");
+    /// let capacity = tokio::sync::Semaphore::new(1);
+    /// let permit_result = started.handle.semaphore("capacity", &capacity).await;
+    /// let workload_result = match permit_result {
+    ///     Ok(permit) => {
+    ///         // Protected work occurs while the borrowed permit is alive; it is not queue timing.
+    ///         tokio::task::yield_now().await;
+    ///         drop(permit);
+    ///         Ok(())
+    ///     }
+    ///     Err(error) => Err(error),
+    /// };
+    /// # let workload_result = started.completion.finish_result(workload_result);
+    /// # run.shutdown()?;
+    /// # workload_result?;
+    /// # Ok(())
+    /// # }
+    /// ```
     fn semaphore<'req, 'sem>(
         &'req self,
         queue: impl Into<String>,
@@ -46,9 +85,37 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())`.
     ///
-    /// Records only acquisition wait time, not work after permit acquisition.
-    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
-    /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
+    /// It takes an [`Arc`] and returns Tokio's [`tokio::sync::OwnedSemaphorePermit`] or native
+    /// [`tokio::sync::AcquireError`]. It measures acquisition only; keep the owned permit alive
+    /// around the work whose capacity it protects.
+    ///
+    /// ```
+    /// # use std::sync::Arc;
+    /// # use tailtriage_core::{MemorySink, Tailtriage};
+    /// # use tailtriage_tokio::TokioRequestHandleExt;
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let run = Tailtriage::builder("svc").sink(MemorySink::new()).build()?;
+    /// # let started = run.begin_request("work");
+    /// let capacity = Arc::new(tokio::sync::Semaphore::new(1));
+    /// let permit_result = started
+    ///     .handle
+    ///     .owned_semaphore("capacity", Arc::clone(&capacity))
+    ///     .await;
+    /// let workload_result = match permit_result {
+    ///     Ok(permit) => {
+    ///         let permit: tokio::sync::OwnedSemaphorePermit = permit;
+    ///         tokio::task::yield_now().await; // protected work while the owned permit is alive
+    ///         drop(permit);
+    ///         Ok(())
+    ///     }
+    ///     Err(error) => Err(error),
+    /// };
+    /// # let workload_result = started.completion.finish_result(workload_result);
+    /// # run.shutdown()?;
+    /// # workload_result?;
+    /// # Ok(())
+    /// # }
+    /// ```
     fn owned_semaphore(
         &self,
         queue: impl Into<String>,
@@ -58,9 +125,10 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(sender.send(value))`.
     ///
-    /// Measures bounded-channel send/backpressure wait, not receiver-side processing.
-    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
-    /// Preserves `Result<(), SendError<T>>` unchanged. Request completion remains explicit.
+    /// Measures bounded-channel send/backpressure wait, not receiver-side processing, and preserves
+    /// `Result<(), SendError<T>>`. There is intentionally no generic receive helper: receiver wait
+    /// alone cannot distinguish worker idleness from queued-work residence. Ordinarily begin the
+    /// worker request/work-item capture after receipt unless explicit enqueue timing is available.
     fn mpsc_send<'a, T>(
         &'a self,
         queue: impl Into<String>,
@@ -71,9 +139,8 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(mutex.lock())`.
     ///
-    /// Measures lock acquisition only, not work while holding the guard.
-    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
-    /// Request completion remains explicit.
+    /// Measures lock acquisition only, not work while the returned native [`tokio::sync::MutexGuard`]
+    /// is held.
     fn mutex_lock<'req, 'lock, T>(
         &'req self,
         queue: impl Into<String>,
@@ -85,9 +152,8 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(lock.read())`.
     ///
-    /// Measures acquisition only, not work while holding the guard.
-    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
-    /// Request completion remains explicit.
+    /// Measures acquisition only, not work while the returned native
+    /// [`tokio::sync::RwLockReadGuard`] is held.
     fn rwlock_read<'req, 'lock, T>(
         &'req self,
         queue: impl Into<String>,
@@ -99,9 +165,8 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(lock.write())`.
     ///
-    /// Measures acquisition only, not work while holding the guard.
-    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
-    /// Request completion remains explicit.
+    /// Measures acquisition only, not work while the returned native
+    /// [`tokio::sync::RwLockWriteGuard`] is held.
     fn rwlock_write<'req, 'lock, T>(
         &'req self,
         queue: impl Into<String>,
@@ -354,6 +419,11 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
 }
 
 /// Errors produced while starting runtime sampling.
+///
+/// [`RuntimeSamplerBuilder::start`] resolves configuration first, then looks up the current Tokio
+/// runtime, and finally performs the run's one-time registration. A zero interval therefore wins
+/// over later failures. A duplicate registration remains a duplicate after the earlier sampler
+/// stops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SamplerStartError {
     /// Sampling interval must be greater than zero.
@@ -384,12 +454,21 @@ impl std::fmt::Display for SamplerStartError {
 
 impl std::error::Error for SamplerStartError {}
 
-/// Periodically samples Tokio runtime metrics and records them into a [`Tailtriage`] run.
+/// Owns periodic Tokio runtime sampling for an existing [`Arc<Tailtriage>`] run.
 ///
-/// The sampler records an initial runtime snapshot promptly after start, then
-/// follows the resolved cadence. The cadence is a target periodic sampling
-/// cadence, not a hard real-time guarantee; actual timing depends on Tokio
-/// scheduling and runtime conditions.
+/// Sampling begins only through [`RuntimeSamplerBuilder::start`]; choosing a core [`CaptureMode`]
+/// never starts it. Start requires an active Tokio runtime, and only one successful registration is
+/// allowed for a core run. That registration is not reusable after sampler shutdown.
+///
+/// Successful start registers effective configuration metadata before spawning the worker. The
+/// worker's `tokio::time::interval` has a prompt first tick, but start does not synchronously
+/// guarantee that a snapshot has been observed or retained. Starting or stopping the sampler does
+/// not finalize the core run.
+///
+/// This type has no custom `Drop`. Ordinary drop drops the one-shot stop sender, causing the
+/// worker's receiver to complete, and drops its Tokio [`JoinHandle`], which detaches rather than
+/// synchronously joining the task. Use [`RuntimeSampler::shutdown`] when the caller must know the
+/// worker has terminated.
 #[derive(Debug)]
 pub struct RuntimeSampler {
     stop_tx: Option<oneshot::Sender<()>>,
@@ -418,6 +497,9 @@ pub struct TokioSamplerModeDefaults {
 
 impl TokioSamplerModeDefaults {
     /// Returns Tokio-owned runtime sampler defaults for one capture mode.
+    ///
+    /// Light resolves to a `500ms` cadence and `5_000` requested snapshots; Investigation resolves
+    /// to `100ms` and `50_000`. The core runtime-snapshot cap is applied later by sampler resolution.
     #[must_use]
     pub const fn for_mode(mode: CaptureMode) -> Self {
         match mode {
@@ -433,7 +515,13 @@ impl TokioSamplerModeDefaults {
     }
 }
 
-/// Builder for configuring and starting [`RuntimeSampler`].
+/// Builder for resolving configuration and starting a [`RuntimeSampler`].
+///
+/// Resolution starts with the core run's selected [`CaptureMode`], applies an optional Tokio mode
+/// override, selects [`TokioSamplerModeDefaults`] for the resulting mode, then applies optional
+/// interval and sampler-retention overrides. Finally, retention is clamped to the core run's
+/// resolved `capture_limits.max_runtime_snapshots`. Defaults are consulted only at start; selecting
+/// a capture mode does not create a sampler.
 #[derive(Debug)]
 pub struct RuntimeSamplerBuilder {
     tailtriage: Arc<Tailtriage>,
@@ -453,6 +541,28 @@ struct ResolvedRuntimeSamplerConfig {
 
 impl RuntimeSampler {
     /// Creates a builder for configuring runtime sampling.
+    ///
+    /// ```no_run
+    /// use std::{sync::Arc, time::Duration};
+    /// use tailtriage_core::{CaptureMode, MemorySink, Tailtriage};
+    /// use tailtriage_tokio::RuntimeSampler;
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// let run = Arc::new(
+    ///     Tailtriage::builder("svc")
+    ///         .mode(CaptureMode::Light)
+    ///         .sink(MemorySink::new())
+    ///         .build()?,
+    /// );
+    /// let sampler = RuntimeSampler::builder(Arc::clone(&run))
+    ///     .mode(CaptureMode::Investigation)
+    ///     .interval(Duration::from_millis(250))
+    ///     .max_runtime_snapshots(1_000)
+    ///     .start()?;
+    /// sampler.shutdown().await;
+    /// run.shutdown()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[must_use]
     pub fn builder(tailtriage: Arc<Tailtriage>) -> RuntimeSamplerBuilder {
         RuntimeSamplerBuilder {
@@ -463,7 +573,11 @@ impl RuntimeSampler {
         }
     }
 
-    /// Requests sampler shutdown and waits for task completion.
+    /// Requests sampler shutdown and waits for worker-task termination.
+    ///
+    /// This consumes the handle, sends the stop signal, and awaits its [`JoinHandle`]. A worker
+    /// panic or cancellation is awaited but its join error is not returned. This does not call
+    /// [`Tailtriage::shutdown`]; finalize the core run separately after awaiting this method.
     pub async fn shutdown(mut self) {
         if let Some(stop_tx) = self.stop_tx.take() {
             let _ = stop_tx.send(());
@@ -475,24 +589,34 @@ impl RuntimeSampler {
 }
 
 impl RuntimeSamplerBuilder {
-    /// Overrides mode inheritance with an explicit Tokio-side capture mode.
+    /// Overrides the core-inherited mode used to select Tokio sampler defaults.
+    ///
+    /// It changes neither the core run's mode nor sampler startup by itself.
     #[must_use]
     pub fn mode(mut self, mode: CaptureMode) -> Self {
         self.explicit_mode_override = Some(mode);
         self
     }
 
-    /// Overrides resolved sampler cadence.
+    /// Sets a Rust [`Duration`] overriding the mode-derived sampler cadence.
     ///
     /// The resolved cadence is a target periodic sampling cadence after the
-    /// initial prompt sample, not a hard real-time timing guarantee.
+    /// prompt first tick, not a hard real-time timing guarantee. Zero is accepted by this setter but
+    /// rejected at [`Self::start`] as [`SamplerStartError::ZeroInterval`]. Tokio scheduling uses the
+    /// full `Duration`; persisted `resolved_sampler_cadence_ms` metadata truncates sub-millisecond
+    /// precision to whole milliseconds and saturates at `u64::MAX` if necessary.
     #[must_use]
     pub fn interval(mut self, interval: Duration) -> Self {
         self.interval_override = Some(interval);
         self
     }
 
-    /// Overrides resolved runtime snapshot retention for Tokio sampling.
+    /// Sets the sampler-requested maximum number of runtime snapshots.
+    ///
+    /// Omission uses the selected sampler mode's default. Resolution clamps this request to the core
+    /// run's effective `capture_limits.max_runtime_snapshots`, so it cannot enlarge the core cap.
+    /// Zero is valid: start still succeeds and registers metadata, then the worker exits at its zero
+    /// cap without recording a snapshot.
     #[must_use]
     pub fn max_runtime_snapshots(mut self, max_runtime_snapshots: usize) -> Self {
         self.max_runtime_snapshots_override = Some(max_runtime_snapshots);
@@ -511,8 +635,10 @@ impl RuntimeSamplerBuilder {
     ///
     /// Resolved runtime snapshot retention is clamped by the core run cap
     /// (`effective_core_config.capture_limits.max_runtime_snapshots`). The
-    /// sampler records an initial sample promptly after start, then follows the
-    /// resolved target cadence; cadence is not a hard real-time guarantee.
+    /// worker uses a prompt first interval tick and then the resolved target cadence; cadence is not
+    /// a hard real-time guarantee. Success means metadata was registered and the worker was spawned,
+    /// not that its first snapshot has already been observed or retained. Sampler shutdown neither
+    /// makes the registration reusable nor finalizes the core run.
     ///
     /// # Errors
     ///
@@ -611,6 +737,21 @@ impl ResolvedRuntimeSamplerConfig {
 }
 
 /// Captures one point-in-time runtime metrics snapshot from `handle`.
+///
+/// On stable Tokio this attempts to record `num_alive_tasks` as `alive_tasks`, `num_workers` as
+/// `worker_count`, and `global_queue_depth`. Each remains optional in the artifact: conversion to
+/// the schema's `u64`/`u32` type is fallible and yields `None` on overflow.
+///
+/// With a `tokio_unstable` build, this also attempts `local_queue_depth` (the checked sum of every
+/// worker's local depth), `blocking_queue_depth`, and `remote_schedule_count`. Without
+/// `tokio_unstable` those three fields are `None`; conversion or summation failure also makes the
+/// affected field `None` where applicable.
+///
+/// `None` means missing or unavailable observation, never measured zero. In particular, unavailable
+/// local depth makes normalized runnable-queue evidence weaker/a lower bound; absence of any field
+/// does not prove the corresponding pressure is absent. Every snapshot is point-in-time evidence
+/// for one runtime, workload, machine, and build profile. It can strengthen evidence-ranked triage
+/// suspects, but is not proof of root cause.
 #[must_use]
 pub fn capture_runtime_snapshot(handle: &Handle) -> RuntimeSnapshot {
     let metrics = handle.metrics();
