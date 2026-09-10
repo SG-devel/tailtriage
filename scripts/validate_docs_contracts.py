@@ -27,7 +27,7 @@ CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
-DOCS_INDEX_EXCLUDED_MARKDOWN = {".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/feature_request.md", ".github/pull_request_template.md", "AGENTS.md", "docs/README.md", "validation/collector-limits/README.md", "validation/collector-limits/latest/scorecard.md", "validation/diagnostics/README.md", "validation/diagnostics/latest/scorecard.md", "validation/runtime-cost/README.md", "validation/runtime-cost/latest/scorecard.md"}
+DOCS_INDEX_EXCLUDED_MARKDOWN = {".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/feature_request.md", ".github/pull_request_template.md", "AGENTS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", "docs/README.md", "validation/collector-limits/README.md", "validation/collector-limits/latest/scorecard.md", "validation/diagnostics/README.md", "validation/diagnostics/latest/scorecard.md", "validation/runtime-cost/README.md", "validation/runtime-cost/latest/scorecard.md"}
 RUSTDOC_INCLUDE_CRATE_LIBS = tuple(REPO_ROOT / crate / "src" / "lib.rs" for crate in ("tailtriage", "tailtriage-core", "tailtriage-controller", "tailtriage-tokio", "tailtriage-axum", "tailtriage-analyzer", "tailtriage-cli", "tailtriage-tracing"))
 PUBLISHED_CRATE_READMES = tuple(REPO_ROOT / crate / "README.md" for crate in ("tailtriage", "tailtriage-core", "tailtriage-controller", "tailtriage-tokio", "tailtriage-axum", "tailtriage-tracing", "tailtriage-analyzer", "tailtriage-cli"))
 DIAGNOSTIC_BENCHMARK_CI_ARGS = ("--manifest validation/diagnostics/manifest.json", "--min-top1 0.75", "--min-top2 0.90", "--max-high-confidence-wrong 0")
@@ -124,7 +124,7 @@ def validate_analyzer_ownership_navigation(
             "operations.md",
             "analyzer-guide.md",
             "diagnostics.md",
-            "dev/analyzer-rationale.md",
+            "dev/README.md",
             "../tailtriage-cli/README.md",
             "../tailtriage-analyzer/README.md",
             "../SPEC.md",

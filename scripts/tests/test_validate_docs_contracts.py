@@ -872,14 +872,14 @@ pub enum DiagnosisKind {
         validate_docs_contracts.validate_sampler_integration_boundary()
 
     # TT-TEST: M01 secondary
-    def test_docs_index_contract_checks_deliberate_developer_doc_link(self) -> None:
+    def test_docs_index_contract_checks_maintainer_gateway_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
             docs_dir = repo_root / 'docs'
             docs_dir.mkdir(parents=True)
             (repo_root / 'README.md').write_text('# Root\n', encoding='utf-8')
             docs_index_path = docs_dir / 'README.md'
-            docs_index_path.write_text('[Root](../README.md)\n[Validation](dev/VALIDATION.md)\n', encoding='utf-8')
+            docs_index_path.write_text('[Root](../README.md)\n[Maintainers](dev/README.md)\n', encoding='utf-8')
             with mock.patch.object(validate_docs_contracts, 'REPO_ROOT', repo_root), mock.patch.object(validate_docs_contracts, 'DOCS_INDEX_PATH', docs_index_path), mock.patch.object(validate_docs_contracts, 'DEV_DOCS_DIR', docs_dir / 'dev'), mock.patch.object(validate_docs_contracts, 'DOCS_INDEX_EXCLUDED_MARKDOWN', {'docs/README.md'}), self.assertRaisesRegex(ValueError, 'dead local Markdown links'):
                 validate_docs_contracts.validate_docs_index_contract()
 

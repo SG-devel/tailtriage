@@ -1,137 +1,104 @@
 # tailtriage
 
-`tailtriage` is the recommended default entry point for **Tokio tail-latency triage**.
+`tailtriage` is the default façade package for focused Tokio tail-latency triage. Choose it for one coherent capture API plus optional controller, Tokio, Axum, and tracing namespaces. Use a focused sibling crate directly only when you intentionally want a narrower dependency or API boundary.
 
-It re-exports `tailtriage-core` at the crate root and exposes integration namespaces for controller workflows, Tokio runtime sampling, tracing intake, and Axum request boundaries. `controller` and `tokio` are enabled by default; `axum` and tracing intake remain opt-in.
+It helps distinguish application queue pressure, executor pressure, blocking-pool pressure, and slow downstream stages. Analysis produces evidence-ranked suspects and next checks; suspects are leads, not proof of root cause. This crate is not an observability backend, distributed tracing backend, general telemetry platform, CPU profiler replacement, or root-cause proof engine.
 
-## What problem this solves
+## Install
 
-When a Tokio service slows down, the first triage question is often:
-
-> Is this slowdown mostly application queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
-
-`tailtriage` helps you run the loop:
-
-`capture -> analyze -> next check -> re-run`
-
-The analysis result is triage guidance (evidence-ranked suspects plus next checks), not proof of root cause.
-
-## Common use cases
-
-| Symptom | tailtriage helps check |
-| --- | --- |
-| p95/p99 latency spikes | whether tail latency is dominated by queueing, executor pressure, blocking-pool pressure, or downstream stage latency |
-| intermittent request timeouts | whether slow requests share a common bottleneck family in one captured run |
-| low CPU but high latency | whether requests are waiting in queues, blocked behind constrained resources, or delayed by downstream work |
-| suspected blocking in async code | whether blocking-pool pressure is visible and should be investigated with a targeted follow-up |
-| Tokio runtime seems overloaded | whether captured runtime-pressure signals point toward executor contention rather than app-level queueing |
-| slow database or external API suspected | whether a downstream stage dominates request latency enough to be the next check |
-
-## Installation
-
-For direct capture or repeated controller-managed capture windows:
+For the representative saved-Run workflow, install the façade and CLI. The example directly names Tokio, so declare Tokio directly with the features it uses:
 
 ```bash
 cargo add tailtriage
-```
-
-Optional integrations:
-
-```bash
-cargo add tailtriage --features axum
-cargo add tailtriage --features tracing
-cargo add tailtriage --features tracing-live
-cargo add tailtriage --features tracing-tokio
-```
-
-`tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work.
-
-For command-line analysis of saved Run artifact JSON:
-
-```bash
+cargo add tokio --features macros,rt,time
 cargo install tailtriage-cli
 ```
 
-For in-process Rust analysis/report generation:
-
-```bash
-cargo add tailtriage-analyzer
-```
-
-Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust code.
-- `tailtriage-cli` consumes Run artifact JSON from disk.
-- `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
-
-## Quick start
-
-### 1) Capture one run
+## Capture meaningful work
 
 ```rust,no_run
+use std::time::Duration;
 use tailtriage::Tailtriage;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let run = Tailtriage::builder("checkout-service")
         .output("tailtriage-run.json")
         .build()?;
 
     let started = run.begin_request("/checkout");
-    started.completion.finish_ok();
+    let request = started.handle.clone();
 
+    request
+        .queue("checkout_worker")
+        .await_on(tokio::time::sleep(Duration::from_millis(6)))
+        .await;
+
+    let workload = request
+        .stage("inventory_lookup")
+        .await_on(async {
+            tokio::time::sleep(Duration::from_millis(8)).await;
+            Ok::<(), std::io::Error>(())
+        })
+        .await;
+
+    let workload = started.completion.finish_result(workload);
     run.shutdown()?;
+    workload?;
     Ok(())
 }
 ```
 
-### 2) Analyze the captured run
+Replace the sleeps with a real queue wait and database call, downstream request, or handler/service operation. The handle records evidence; the completion token owns request completion. Finish exactly once after work, then call `shutdown()` to finalize and write `tailtriage-run.json`. Keep a fallible result until completion and shutdown have happened so `?` cannot bypass lifecycle work. Do not finalize while request tasks or completion tokens remain active.
 
-In process (typed `Report` + optional text/JSON rendering), use `tailtriage-analyzer`.
+Within a Run, one completed logical request/work item needs one unique tailtriage `request_id`; queue and stage evidence must reuse it only for that request.
 
-From the command line for saved artifacts, use `tailtriage-cli`:
+The example does not start runtime sampling. The default `tokio` feature makes the `tailtriage::tokio` sampler and Tokio helper APIs available; runtime sampling itself is optional and starts explicitly inside an active Tokio runtime.
+
+## Analyze and act
 
 ```bash
 tailtriage analyze tailtriage-run.json
 ```
 
-## Crate selection
+Text is the easiest first output. Read the primary suspect, its supporting evidence and warnings, then choose one next check and rerun under comparable conditions. A tiny capture may validly produce `insufficient_evidence`; add one useful missing queue/stage boundary or explicit runtime sampling, then rerun. No report proves root cause.
 
-Start with `tailtriage` when you want the recommended entry point and optional integrations behind feature flags.
+The CLI accepts supported finalized Run artifacts and applies strict generic core validation by default. Error-level findings block report generation; warning-only precision limitations are accepted. `--allow-ambiguous-artifact` is the explicit permissive-normalization escape hatch. Tracing import `--strict` is a separate tracing-source policy. The `tailtriage-analyzer` package is the separate choice for typed, permissive-by-default in-process analysis.
 
-Choose a focused crate only when you need a narrower boundary:
+Completed queue/stage distributions use completed observations. Partial helper observations are lower bounds through helper Drop, not proof that underlying work completed, failed, was cancelled, or stopped; selected lower-bound evidence can cap confidence.
 
-- `tailtriage-core`: framework-agnostic instrumentation primitives
-- `tailtriage-controller`: repeated bounded windows
-- `tailtriage-tokio`: runtime-pressure sampling and Tokio primitive helper trait (`TokioRequestHandleExt`)
-- `tailtriage-tracing`: tracing span intake bridge for JSONL import, live recording, and optional Tokio-coupled tracing sessions
-- `tailtriage-axum`: Axum request-boundary wiring
+## Feature matrix
 
-## Feature flags
+| Selection | Available façade surface |
+| --- | --- |
+| `default-features = false` | Core capture API at the crate root only |
+| defaults | Core root API plus `controller` and `tokio` namespaces |
+| `axum` | Adds the Axum namespace independently |
+| `tracing` | Adds typed records and stable completed-span JSONL tracing intake |
+| `tracing-live` | Includes `tracing`; adds live recorder/session APIs |
+| `tracing-tokio` | Includes `tokio` and `tracing-live`; adds Tokio-coupled live session support |
+| `full` | Combines `controller`, `tokio`, `axum`, and `tracing-tokio` (therefore tracing); it is not a distinct runtime mode |
 
-- `controller` _(default)_: enables `tailtriage::controller`
-- `tokio` _(default)_: enables `tailtriage::tokio`
-- `axum` _(opt-in)_: enables `tailtriage::axum`
-- `tracing` _(opt-in)_: enables `tailtriage::tracing` with typed tracing import APIs
-- `tracing-live` _(opt-in)_: enables live tracing recorder/session APIs
-- `tracing-tokio` _(opt-in)_: enables Tokio-coupled tracing sessions
-- `full`: enables `controller`, `tokio`, `axum`, and `tracing-tokio`
+Example dependency selections:
 
-Docs.rs note: `tailtriage` docs are built with `all-features = true`. In downstream crates, `tailtriage::tokio` is available with defaults, while `tailtriage::axum` and `tailtriage::tracing` remain feature-gated.
+```toml
+[dependencies]
+tailtriage = "0.3"
+# Core-only:
+# tailtriage = { version = "0.3", default-features = false }
+# Axum in addition to defaults:
+# tailtriage = { version = "0.3", features = ["axum"] }
+```
 
-If you want a smaller core-only dependency surface, use `tailtriage-core` directly or depend on `tailtriage` with `default-features = false`.
+Published crate documentation is generated with all façade features enabled, so feature-gated namespaces can appear in generated API documentation. Downstream availability still follows the features selected by that crate: core root exports are always present, defaults enable only `controller` and `tokio`, and other namespaces require their features.
 
-## Important constraints
+## Choosing optional paths
 
-- Capture and analysis are separate. For in-process analysis/report generation, use `tailtriage-analyzer`.
-- For command-line analysis of saved artifacts, use `tailtriage-cli`.
-- Tokio runtime sampling still requires explicit `RuntimeSampler::builder(...).start()` with an active Tokio runtime.
-- `CaptureMode` selection does not auto-start Tokio runtime sampling.
-- Analysis output is triage guidance, not root-cause proof.
+- `tailtriage::controller`: repeated bounded windows in a long-lived service; disable is reversible and shutdown is terminal.
+- `tailtriage::tokio`: explicitly started runtime-pressure sampling and Tokio helper APIs.
+- `tailtriage::axum`: request-boundary middleware; inner queue/stage instrumentation stays explicit.
+- `tailtriage::tracing`: supported typed/JSONL or live tracing intake for applications with suitable existing correlation.
+- `tailtriage-analyzer`: typed in-process Report values and renderers.
+- `tailtriage-cli`: saved-artifact analysis and supported tracing import.
 
-## Related crates
-
-- `tailtriage-core`: framework-agnostic instrumentation primitives and artifact model
-- `tailtriage-controller`: repeated bounded capture windows
-- `tailtriage-tokio`: Tokio runtime-pressure sampling
-- `tailtriage-tracing`: optional narrow tracing intake bridge for teams already emitting Rust `tracing` spans; converts tracing-shaped evidence into standard `tailtriage_core::Run` values
-- `tailtriage-axum`: Axum request-boundary integration
-- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
-- `tailtriage-cli`: command-line analysis of saved run artifacts
+Focused packages are `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, and `tailtriage-tracing`. Their Rustdoc owns exhaustive item contracts, including lifecycle, errors, defaults, limits, and feature conditions.
