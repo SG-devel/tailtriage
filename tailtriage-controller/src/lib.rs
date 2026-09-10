@@ -1678,10 +1678,10 @@ impl ControllerQueueTimer<'_> {
 ///         .stage("inventory")
 ///         .await_on(async { Ok(1) })
 ///         .await;
-///     value?;
-///     started.completion.finish_ok();
+///     let value = started.completion.finish_result(value);
 ///     controller.disable()?;
 ///     controller.shutdown()?;
+///     value?;
 ///     Ok(())
 /// }
 /// ```
@@ -1736,10 +1736,15 @@ impl ControllerStageTimer<'_> {
 
 /// In-flight gauge guard for a controller request.
 ///
-/// A captured guard increments the named gauge when constructed and decrements it on Drop, while
-/// capture remains able to retain those snapshots. Keep it around exactly the work whose
+/// A historically captured controller request does not guarantee an enabled guard. Guard creation
+/// is inert if capture is no longer open, or if a new distinct gauge cannot obtain live
+/// gauge-cardinality capacity; an already tracked gauge needs no additional distinct-gauge slot.
+/// When enabled, construction increments the live count immediately, while retention of that
+/// transition snapshot is separately bounded. Enabled Drop decrements the live count while capture
+/// remains open, with retention of the decrement transition separately bounded; Drop after
+/// finalization or closure has won is inert. Keep the guard around exactly the work whose
 /// concurrency it represents. An inert guard has no recording side effects and never joins a
-/// later generation.
+/// later generation. The guard does not own request completion.
 #[derive(Debug)]
 pub struct ControllerInflightGuard<'a> {
     _kind: ControllerInflightGuardKind<'a>,

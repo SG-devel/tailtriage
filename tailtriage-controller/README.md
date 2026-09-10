@@ -31,7 +31,7 @@ async fn capture_checkout() -> Result<(), Box<dyn std::error::Error>> {
 
     controller.enable()?;
     let started = controller.begin_request("/checkout");
-    {
+    let result = {
         let _inflight = started.handle.inflight("requests");
         started
             .handle
@@ -39,15 +39,16 @@ async fn capture_checkout() -> Result<(), Box<dyn std::error::Error>> {
             .with_depth_at_start(3)
             .await_on(async {})
             .await;
-        let result: Result<(), ()> = started
+        let result: Result<(), &'static str> = started
             .handle
             .stage("inventory")
             .await_on(async { Ok(()) })
-            .await;
-        result.map_err(|()| "inventory failed")?;
-    }
+            .await
+            .map_err(|()| "inventory failed");
+        result
+    };
     // The completion token, not a handle clone, owns request completion.
-    started.completion.finish_ok();
+    let result = started.completion.finish_result(result);
 
     // Reversible: closes admissions and finalizes now, or after admitted work drains.
     controller.disable()?;
@@ -55,6 +56,7 @@ async fn capture_checkout() -> Result<(), Box<dyn std::error::Error>> {
 
     // Terminal process-lifecycle step: later enable/reload calls are rejected.
     controller.shutdown()?;
+    result?;
     Ok(())
 }
 ```
@@ -108,8 +110,9 @@ generation or sampler.
 
 Rust sampler configuration uses `RuntimeSamplerTemplate` and `Option<Duration>`; TOML uses integer
 `interval_ms`. Merely choosing a capture mode, configuring, or reloading never starts sampling.
-An enabled sampler starts during `enable()`, which must run inside an active Tokio runtime and can
-return sampler-start validation errors. Runtime evidence remains bounded by capture limits.
+When runtime sampling is enabled, sampler startup occurs during `enable()`, and that activation
+must run inside an active Tokio runtime and can return sampler-start validation errors. Runtime
+evidence remains bounded by capture limits.
 
 ## Boundaries
 
