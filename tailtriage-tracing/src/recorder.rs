@@ -94,10 +94,12 @@ pub const DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS: usize = 65_536;
 ///
 /// **Requires the `live` feature.** These limits precede and are independent
 /// from semantic [`CaptureLimits`]. At either `>= limit` boundary, zero retains
-/// nothing at that raw stage; zero never means unlimited. Limit pressure emits
-/// warnings/truncation evidence. Closed-candidate pressure preferentially keeps
-/// request roots where possible, so child stage/queue evidence can be dropped
-/// or evicted.
+/// nothing at that raw stage; zero never means unlimited. In permissive
+/// conversion, recorder pressure is surfaced through warnings and
+/// truncation/limits-hit evidence. Strict live conversion instead rejects
+/// recorder loss or incomplete-candidate conditions as strict violations where
+/// implemented. Closed-candidate pressure preferentially keeps request roots
+/// where possible, so child stage/queue evidence can be dropped or evicted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RecorderLimits {
@@ -766,6 +768,16 @@ impl TracingSessionBuilder {
     /// Excluded, semantically dropped, and raw-unavailable records are absent.
     /// Completed-span JSONL does not encode Run-only metadata, runtime snapshots,
     /// lifecycle warnings, drop counters, or omitted-source diagnostics.
+    ///
+    /// Importing these records under equivalent applicable conversion options can
+    /// reproduce the normalized completed request, stage, and queue evidence
+    /// representable by the retained [`SpanRecord`] sources. This is not complete
+    /// [`tailtriage_core::Run`] equality or byte-for-byte replay. The guarantee
+    /// excludes generated and lifecycle metadata, runtime and in-flight snapshots,
+    /// Tokio sampler metadata, raw-recorder diagnostics and drop history, complete
+    /// lifecycle and truncation state, source file/line import context, output
+    /// failures, and evidence dropped before export. The file is therefore not a
+    /// complete trace archive and makes no universal diagnostic-equivalence claim.
     ///
     /// When both output paths are configured, this file is finalized independently and may
     /// exist even if the later run-json write fails.

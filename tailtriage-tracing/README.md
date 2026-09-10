@@ -143,6 +143,14 @@ run-relative microsecond interval, then falls back to the saturating Unix-ms
 delta. Optional run-relative intervals—not coarse wall-clock anchors—enable
 core precision and containment validation.
 
+`ImportOptions::new(...)` defaults to permissive (non-strict) conversion.
+Permissive tracing intake warns about or skips malformed and incomplete
+tracing-source evidence where implemented, then delegates generic `Run`
+normalization to core. Strict mode instead rejects tracing-source violations
+and error-level core validation findings; for live conversion, recorder loss
+and incomplete-candidate conditions that become warnings or truncation
+evidence in permissive mode are strict violations.
+
 Live `RecorderLimits` bound raw open candidates and closed candidates before
 conversion. `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride` bound
 semantic `Run` evidence. These independent limits can produce warnings and

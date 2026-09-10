@@ -32,6 +32,14 @@ const FORMAT_MARKER: &str = "tailtriage.tracing-span.v1";
 /// strictness, and core validation/normalization, returning an [`ImportedRun`]
 /// with accumulated warnings.
 ///
+/// In particular, stable-wrapper records written by
+/// [`crate::TracingSessionBuilder::completed_span_jsonl_path`] can, under
+/// equivalent applicable conversion options, reproduce only the normalized
+/// completed request/stage/queue evidence representable by the retained
+/// [`SpanRecord`] sources. They do not guarantee complete `Run` equality or
+/// replay evidence and state absent from those records; see that output method
+/// for the exhaustive boundary.
+///
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] for reader I/O failures,

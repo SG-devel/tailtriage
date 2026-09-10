@@ -170,10 +170,15 @@ pub(crate) fn persistable_zero_request_guidance() -> String {
 ///
 /// The result is an [`ImportedRun`], whose run and non-fatal warnings are
 /// available through accessors.
+///
 /// # Errors
 ///
+/// Returns [`ImportError::EmptyServiceName`] when the configured service name
+/// is empty or contains only whitespace.
+///
 /// Returns [`ImportError::StrictViolation`] when `options.strict(true)` is set
-/// and a tailtriage-tagged span is malformed or incomplete.
+/// and tracing-source evidence is invalid or incomplete, or when core reports
+/// an error-level validation finding for the converted run.
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn run_from_span_records<I>(
     spans: I,
