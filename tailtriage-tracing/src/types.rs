@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Semantic span kind used by tailtriage tracing intake.
+/// Semantic span kind selected by the string-valued `tt.kind` field.
+///
+/// Only `"request"`, `"stage"`, and `"queue"` are retained as Tailtriage
+/// evidence; arbitrary kinds are not accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -28,7 +31,15 @@ impl SpanKind {
     }
 }
 
-/// Supported scalar field values on imported spans.
+/// Scalar values representable on an imported source span.
+///
+/// This representation supports strings, booleans, numbers, and null, but each
+/// semantic `tt.*` key has a narrower contract. In particular, identity/name
+/// fields are strings, `tt.success` is a boolean (or case-insensitive string
+/// `"true"`/`"false"`), and `tt.depth_at_start` is a non-negative integer.
+/// Live callers should record numeric and boolean values as typed values:
+/// debug formatting (`?value`) can produce strings rejected by the semantic
+/// parser; display formatting (`%value`) is appropriate only for string fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 #[non_exhaustive]
@@ -83,7 +94,21 @@ impl From<f64> for FieldValue {
     }
 }
 
-/// A tracing-shaped finished span record ready for intake conversion.
+/// A completed tracing-shaped source record ready for intake conversion.
+///
+/// A record contains a span name, optional source span and parent IDs, arbitrary
+/// represented scalar fields, required Unix-millisecond start/finish anchors,
+/// optional run-relative microsecond offsets, and an optional explicit duration
+/// in microseconds. Source `id`/`parent_id` preserve tracing identity; they do
+/// not correlate Tailtriage evidence. Request correlation uses `tt.request_id`.
+///
+/// Semantic fields are:
+///
+/// | `tt.kind` | Required | Optional |
+/// | --- | --- | --- |
+/// | `request` | string `tt.request_id`, string `tt.route` | non-empty string `tt.outcome`; absent defaults to `ok` with a warning |
+/// | `stage` | string `tt.request_id`, string `tt.stage` | bool or case-insensitive boolean string `tt.success`; absent defaults to `true` with a warning |
+/// | `queue` | string `tt.request_id`, string `tt.queue` | non-negative integer `tt.depth_at_start` |
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpanRecord {
     id: Option<String>,
@@ -101,7 +126,7 @@ pub struct SpanRecord {
 }
 
 impl SpanRecord {
-    /// Creates a new span record with required timing fields.
+    /// Creates a record with its span name and required Unix-millisecond anchors.
     pub fn new(name: impl Into<String>, started_at_unix_ms: u64, finished_at_unix_ms: u64) -> Self {
         Self {
             id: None,
@@ -150,7 +175,11 @@ impl SpanRecord {
         self
     }
 
-    /// Sets explicit span duration in microseconds.
+    /// Sets the authoritative explicit elapsed duration in microseconds.
+    ///
+    /// Conversion uses this value even when timing anchors could derive another
+    /// duration. Without it, conversion uses a complete ordered run-relative
+    /// interval, then the saturating Unix-millisecond delta multiplied by 1,000.
     #[must_use]
     pub fn with_duration_us(mut self, duration_us: u64) -> Self {
         self.duration_us = Some(duration_us);
@@ -197,7 +226,10 @@ impl SpanRecord {
     pub fn finished_at_run_us(&self) -> Option<u64> {
         self.finished_at_run_us
     }
-    /// Returns explicit span duration in microseconds when present.
+    /// Returns the authoritative explicit duration in microseconds when supplied.
+    ///
+    /// `None` means conversion derives duration from a complete ordered
+    /// run-relative interval, or otherwise from the saturating Unix-ms delta.
     #[must_use]
     pub fn duration_us(&self) -> Option<u64> {
         self.duration_us
@@ -205,6 +237,9 @@ impl SpanRecord {
 }
 
 /// Import options for converting tracing-shaped spans into a run.
+///
+/// [`Self::new`] defaults to permissive conversion, light capture mode, no full
+/// capture limits, an empty partial override, and no service version or run ID.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ImportOptions {
@@ -218,7 +253,7 @@ pub struct ImportOptions {
 }
 
 impl ImportOptions {
-    /// Creates options with required service name.
+    /// Creates options with the required service name and documented defaults.
     pub fn new(service_name: impl Into<String>) -> Self {
         Self {
             service_name: service_name.into(),
@@ -252,21 +287,25 @@ impl ImportOptions {
         self
     }
 
-    /// Sets capture mode for import conversion semantics.
+    /// Sets capture mode whose core defaults apply when no full limits are set.
     #[must_use]
     pub fn mode(mut self, mode: tailtriage_core::CaptureMode) -> Self {
         self.mode = mode;
         self
     }
 
-    /// Sets full capture limits override for import conversion semantics.
+    /// Sets complete semantic capture limits.
+    ///
+    /// Once present, this full value wins over [`Self::capture_limits_override`]
+    /// regardless of setter order; the partial override is not layered onto it.
     #[must_use]
     pub fn capture_limits(mut self, capture_limits: tailtriage_core::CaptureLimits) -> Self {
         self.capture_limits = Some(capture_limits);
         self
     }
 
-    /// Sets additive capture limits override for import conversion semantics.
+    /// Sets partial semantic limits applied to the selected mode defaults only
+    /// when no full [`Self::capture_limits`] value is configured.
     #[must_use]
     pub fn capture_limits_override(
         mut self,
@@ -297,7 +336,10 @@ impl ImportOptions {
         self.strict
     }
 
-    /// Returns effective capture limits for import conversion semantics.
+    /// Returns effective semantic capture limits.
+    ///
+    /// A configured full value wins. Otherwise the partial override is applied
+    /// to the selected capture mode's core defaults.
     #[must_use]
     pub fn resolved_capture_limits(&self) -> tailtriage_core::CaptureLimits {
         self.capture_limits.unwrap_or_else(|| {
@@ -328,7 +370,7 @@ impl ImportWarning {
         }
     }
 
-    /// Returns warning message.
+    /// Returns the human-readable non-fatal source/conversion warning.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
@@ -386,19 +428,19 @@ impl ImportedRun {
         (self.run, self.warnings, self.retained_sources)
     }
 
-    /// Returns converted run artifact.
+    /// Returns the converted, core-validated/normalized run artifact.
     #[must_use]
     pub fn run(&self) -> &tailtriage_core::Run {
         &self.run
     }
 
-    /// Returns non-fatal warnings emitted during conversion.
+    /// Returns non-fatal tracing-source and conversion warnings.
     #[must_use]
     pub fn warnings(&self) -> &[ImportWarning] {
         &self.warnings
     }
 
-    /// Splits into converted run artifact and warnings.
+    /// Consumes the result and splits it into its run and warnings.
     #[must_use]
     pub fn into_parts(self) -> (tailtriage_core::Run, Vec<ImportWarning>) {
         (self.run, self.warnings)

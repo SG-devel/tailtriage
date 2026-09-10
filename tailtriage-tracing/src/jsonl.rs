@@ -9,9 +9,28 @@ const FORMAT_MARKER: &str = "tailtriage.tracing-span.v1";
 
 /// Imports newline-delimited stable completed-span JSONL records from a reader into a converted run.
 ///
+/// **Requires the `jsonl` feature.**
+///
 /// This parser accepts only records shaped as
 /// `{"format":"tailtriage.tracing-span.v1","span":{...}}`. Empty or
 /// whitespace-only lines are ignored.
+/// Raw top-level [`SpanRecord`] objects, unversioned `{ "span": ... }`
+/// envelopes, wrapper-level `tt.*` fields, timestamp aliases, generic tracing
+/// logs, and ordinary `tracing_subscriber` formatter JSON are unsupported.
+/// Timing is never inferred from line receipt.
+///
+/// Each serialized/raw JSON object is limited to 8 MiB; its newline is excluded
+/// from that limit. The fixed limit has no public tuning knob. There is no
+/// aggregate stream-byte ceiling, so total work remains proportional to the
+/// valid stream and this per-record bound is not a universal hostile-input
+/// memory-safety guarantee.
+///
+/// Malformed JSON and wrapper structure are format errors. In permissive mode,
+/// a wrapper whose inner `span` cannot deserialize may be warned and skipped;
+/// strict mode fails it. Successfully parsed records delegate to
+/// [`crate::run_from_span_records`] for the same semantic limits, source
+/// strictness, and core validation/normalization, returning an [`ImportedRun`]
+/// with accumulated warnings.
 ///
 /// # Errors
 ///
@@ -153,6 +172,10 @@ fn attach_parse_warnings_to_lifecycle(
 }
 
 /// Imports newline-delimited stable completed-span JSONL records from a filesystem path.
+///
+/// **Requires the `jsonl` feature.** Opens `path`, preserving its filesystem
+/// context in open errors, then delegates to [`import_jsonl_reader`] for the
+/// stable-wrapper format, limits, conversion, and line-read behavior.
 ///
 /// # Errors
 ///
