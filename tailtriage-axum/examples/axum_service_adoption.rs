@@ -69,7 +69,7 @@ async fn payment_gateway(req: &tailtriage_core::OwnedRequestHandle) -> Result<()
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let artifact_path = "tailtriage-run.json";
     let tailtriage = Arc::new(
         Tailtriage::builder("axum-service-adoption")
@@ -92,47 +92,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .with_state(app_state);
 
-    let health_status = app
-        .clone()
-        .oneshot(Request::builder().uri("/health").body(Body::empty())?)
-        .await?
-        .status();
-    if health_status != StatusCode::OK {
-        return Err(format!("health request failed with {health_status}").into());
+    let mut workload_result = async {
+        let health_status = app
+            .clone()
+            .oneshot(Request::builder().uri("/health").body(Body::empty())?)
+            .await?
+            .status();
+        if health_status != StatusCode::OK {
+            return Err(format!("health request failed with {health_status}").into());
+        }
+
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
     }
+    .await;
 
     // Drive concurrent checkout load in-process so queueing/inflight pressure
     // remains visible without reintroducing localhost networking.
     let mut tasks = Vec::new();
-    for _ in 0..8 {
-        let app = app.clone();
-        let request = Request::builder()
-            .uri("/checkout")
-            .body(Body::empty())
-            .expect("request should build");
-        tasks.push(tokio::spawn(async move {
-            let response = app.oneshot(request).await?;
-            let status = response.status();
-            let body = to_bytes(response.into_body(), usize::MAX).await?;
-            let payload: serde_json::Value = serde_json::from_slice(&body)?;
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((status, payload))
-        }));
+    if workload_result.is_ok() {
+        for _ in 0..8 {
+            let app = app.clone();
+            let request = Request::builder()
+                .uri("/checkout")
+                .body(Body::empty())
+                .expect("request should build");
+            tasks.push(tokio::spawn(async move {
+                let response = app.oneshot(request).await?;
+                let status = response.status();
+                let body = to_bytes(response.into_body(), usize::MAX).await?;
+                let payload: serde_json::Value = serde_json::from_slice(&body)?;
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>((status, payload))
+            }));
+        }
     }
 
     for task in tasks {
-        let (status, payload) = task
-            .await
-            .map_err(|err| format!("checkout task join failed: {err}"))?
-            .map_err(|err| format!("checkout task failed: {err}"))?;
-        if status != StatusCode::OK {
-            return Err(format!("checkout request failed with {status}").into());
+        let task_result = async {
+            let (status, payload) = task
+                .await
+                .map_err(|err| format!("checkout task join failed: {err}"))?
+                .map_err(|err| format!("checkout task failed: {err}"))?;
+            if status != StatusCode::OK {
+                return Err(format!("checkout request failed with {status}").into());
+            }
+            if payload != serde_json::json!({ "status": "ok" }) {
+                return Err(format!("checkout payload mismatch: {payload}").into());
+            }
+
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
         }
-        if payload != serde_json::json!({ "status": "ok" }) {
-            return Err(format!("checkout payload mismatch: {payload}").into());
+        .await;
+
+        if workload_result.is_ok() {
+            if let Err(error) = task_result {
+                workload_result = Err(error);
+            }
         }
     }
 
     tailtriage.shutdown()?;
+    workload_result?;
 
     println!("Wrote {artifact_path}");
     println!("This is a service-shaped axum adoption example, not a production case study.");

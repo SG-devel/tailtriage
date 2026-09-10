@@ -1,126 +1,101 @@
 # tailtriage-axum
 
-`tailtriage-axum` provides Axum-first request-boundary wiring for `tailtriage`.
-
-Use it when you want middleware to start and finish request lifecycle automatically at the Axum boundary, while still keeping queue/stage/inflight instrumentation explicit inside handlers or helper code.
-
-## What this crate does
-
-This crate gives you three Axum-facing pieces:
-
-- `middleware` for default request start/finish at the boundary
-- `middleware_with_status_classifier(...)` to customize HTTP-status -> outcome mapping
-- `TailtriageRequest` extractor to access the request-scoped handle in handlers
-
-This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body. For normally returned responses, the middleware starts and finishes the request lifecycle at the Axum boundary; a panic or abort before `next.run` returns would skip the explicit finish path.
-
-The primary integration path in this crate is `middleware`, `middleware_with_status_classifier(...)`, and `TailtriageRequest`.
-
-## When to choose this crate
-
-Choose `tailtriage-axum` when:
-
-- you already use Axum
-- you do not want to manually wire request start/finish in every handler
-- you still want explicit queue/stage/inflight instrumentation inside the request path
-
-Choose `tailtriage-core` directly when you want framework-agnostic manual instrumentation.
-
-Choose `tailtriage` when you want the default entry point and feature-gated Axum support.
+`tailtriage-axum` adds focused Axum middleware and an extractor to `tailtriage`.
+Use it when middleware should own request-boundary start and completion while
+application code records the internal queue, stage, and in-flight evidence that
+makes tail-latency triage useful.
 
 ## Installation
 
-Direct crates:
+The example below directly names Axum, Tokio, `tailtriage-core`, and this crate,
+so install each as a direct dependency:
 
 ```bash
-cargo add tailtriage-core tailtriage-axum
+cargo add axum tailtriage-core tailtriage-axum
+cargo add tokio --features macros,rt
 ```
 
-Via the default crate:
+## Axum adoption
 
-```bash
-cargo add tailtriage --features axum
-```
-
-## Quick start
+This complete setup uses an in-memory sink, installs the middleware, extracts
+the request handle, records an internal stage, and shuts down the collector:
 
 ```rust,no_run
 use std::sync::Arc;
 
 use axum::{middleware::from_fn_with_state, routing::get, Router};
 use tailtriage_axum::{middleware, TailtriageRequest};
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{MemorySink, Tailtriage};
 
-async fn checkout(TailtriageRequest(req): TailtriageRequest) {
-    let _: Result<(), ()> = req
+async fn checkout(TailtriageRequest(request): TailtriageRequest) -> &'static str {
+    // Internal boundaries remain explicit application instrumentation.
+    let _: Result<(), ()> = request
         .stage("inventory_lookup")
-        .await_on(async { Ok(()) })
+        .await_on(async {
+            /* call the downstream stage */
+            Ok(())
+        })
         .await;
+    "ok"
 }
 
-fn app(tailtriage: Arc<Tailtriage>) -> Router {
-    Router::new()
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tailtriage = Arc::new(
+        Tailtriage::builder("checkout-service")
+            .sink(MemorySink::new())
+            .build()?,
+    );
+
+    let app: Router = Router::new()
         .route("/checkout", get(checkout))
-        .layer(from_fn_with_state(tailtriage, middleware))
+        .layer(from_fn_with_state(
+            Arc::clone(&tailtriage),
+            middleware,
+        ));
+
+    // Serve `app` or exercise it in the application workload.
+    let _ = app;
+
+    // The middleware finishes each returned request; the application still
+    // owns final shutdown of the overall collector/run.
+    tailtriage.shutdown()?;
+    Ok(())
 }
 ```
 
-## Examples
+The middleware begins capture before running the downstream service, inserts a
+`TailtriageRequest` for handler extraction, and finishes after
+`next.run(request)` returns a `Response`. The returned status is classified at
+that point. It measures response production, not later body consumption: in
+particular, polling or consuming a streaming response body occurs outside this
+request boundary and cannot change its recorded outcome.
 
-- `axum_service_adoption`: primary service-shaped example using `tailtriage-axum` middleware + `TailtriageRequest`.
-- `axum_core_manual`: manual Axum + `tailtriage-core` wiring for equivalent framework integration without `tailtriage-axum`.
+Route labels prefer Axum's normalized `MatchedPath`. When it is unavailable,
+the label is the URI path (not its query string), which is not a normalized
+route template and can have high cardinality when paths contain concrete IDs.
+The default classifier maps 408 to timeout, other 4xx statuses to rejected, 5xx
+statuses to error, and every other status to ok. Use
+`middleware_with_status_classifier(...)` when the application owns a different
+status mapping.
 
-## Automatic vs explicit responsibilities
+Extraction succeeds only when the request reaching the handler already has the
+middleware-inserted context. Otherwise it rejects with
+`TailtriageExtractorError` and HTTP 500, which generally indicates missing or
+incorrect middleware wiring for that handler path.
 
-Automatic at the Axum boundary:
+The middleware does not automatically instrument internal queues, stages, or
+in-flight work, and it does not shut down the collector. Those remain explicit
+application responsibilities. Its output is scoped triage evidence for
+evidence-ranked suspects and next checks, not proof of root cause, full HTTP
+tracing, connection lifetime, socket flush, or client-observed latency.
 
-- request start
-- request finish for normally returned responses
-- request-scoped handle injection into handlers
-- request `kind` is set to `"http"`
+## Checked examples
 
-Still explicit in your code:
+- `axum_service_adoption` demonstrates middleware/extractor adoption in a
+  service-shaped workload.
+- `axum_core_manual` demonstrates equivalent manual request wiring with
+  `tailtriage-core`, without this adapter.
 
-- queue timing
-- stage timing
-- in-flight instrumentation
-- interpretation of the resulting artifact
-
-That split is important: this crate helps you integrate capture at the framework boundary, but it does not diagnose the slowdown by itself.
-
-## Important constraints
-
-- install `middleware` before using `TailtriageRequest`
-- missing middleware yields `TailtriageExtractorError` with HTTP 500 behavior
-- route labels prefer Axum `MatchedPath`; the fallback is the raw URI path
-- analysis is separate from capture integration
-- for in-process analysis/report generation, use `tailtriage-analyzer`
-- for command-line analysis of saved artifacts, use `tailtriage-cli`
-
-## Minimal handler example
-
-```rust,no_run
-use tailtriage_axum::TailtriageRequest;
-
-async fn checkout(TailtriageRequest(req): TailtriageRequest) {
-    req.queue("checkout_queue").await_on(async {}).await;
-    let _: Result<(), ()> = req.stage("db_call").await_on(async { Ok(()) }).await;
-}
-```
-
-## When not to use this crate
-
-Do not add this crate just to analyze artifacts or rank suspects.
-
-It is only for Axum integration ergonomics.
-
-If you do not use Axum, this crate is not the right abstraction boundary.
-
-## Related crates
-
-- `tailtriage`: recommended default entry point
-- `tailtriage-core`: framework-agnostic instrumentation primitives
-- `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values
-- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
-- `tailtriage-cli`: command-line analysis of saved run artifacts
+If the application does not use Axum, this crate is not the right integration
+boundary.
