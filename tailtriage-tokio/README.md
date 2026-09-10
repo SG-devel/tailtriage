@@ -15,6 +15,7 @@ For this package's direct API:
 
 ```bash
 cargo add tailtriage-core tailtriage-tokio
+cargo add tokio --features macros,rt,sync,time
 ```
 
 The default `tailtriage` package also reexports this surface under `tailtriage::tokio`.
@@ -76,20 +77,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let req = started.handle.clone();
     let capacity = tokio::sync::Semaphore::new(8);
 
-    let permit: tokio::sync::SemaphorePermit<'_> =
-        req.semaphore("db_capacity", &capacity).await?;
-    let result: Result<Result<(), &'static str>, tokio::time::error::Elapsed> = req
-        .timeout_stage("downstream", Duration::from_millis(200), async {
-            // Protected work; the permit is still held here.
-            Ok::<(), &'static str>(())
-        })
-        .await;
-    drop(permit);
+    let workload_result: Result<
+        Result<Result<(), &'static str>, tokio::time::error::Elapsed>,
+        tokio::sync::AcquireError,
+    > = match req.semaphore("db_capacity", &capacity).await {
+        Ok(permit) => {
+            let timeout_result = req
+                .timeout_stage("downstream", Duration::from_millis(200), async {
+                    // Protected work; the permit is still held here.
+                    Ok::<(), &'static str>(())
+                })
+                .await;
+            drop(permit);
+            Ok(timeout_result)
+        }
+        Err(error) => Err(error),
+    };
 
-    // Tokio's nested result is preserved. Finish the request before core shutdown.
-    started.completion.finish_ok();
+    // The helper's native nested results remain intact above. Map them only at the
+    // application boundary so completion records the outcome of the whole workload.
+    let workload_result: Result<(), Box<dyn std::error::Error>> = match workload_result {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(message))) => Err(std::io::Error::other(message).into()),
+        Ok(Err(error)) => Err(error.into()),
+        Err(error) => Err(error.into()),
+    };
+    let workload_result = started.completion.finish_result(workload_result);
     run.shutdown()?;
-    result??;
+    workload_result?;
     Ok(())
 }
 ```

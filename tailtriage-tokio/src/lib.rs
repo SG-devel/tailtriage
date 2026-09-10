@@ -52,18 +52,25 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// acquisition wait, not protected work; retain the permit for as long as capacity is in use.
     ///
     /// ```
-    /// # use tailtriage_core::Tailtriage;
+    /// # use tailtriage_core::{MemorySink, Tailtriage};
     /// # use tailtriage_tokio::TokioRequestHandleExt;
-    /// # async fn demo() -> Result<(), tokio::sync::AcquireError> {
-    /// # let run = Tailtriage::builder("svc").build().unwrap();
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let run = Tailtriage::builder("svc").sink(MemorySink::new()).build()?;
     /// # let started = run.begin_request("work");
     /// let capacity = tokio::sync::Semaphore::new(1);
-    /// let permit: tokio::sync::SemaphorePermit<'_> =
-    ///     started.handle.semaphore("capacity", &capacity).await?;
-    /// // Protected work occurs while `permit` remains alive; it is not queue timing.
-    /// tokio::task::yield_now().await;
-    /// drop(permit);
-    /// # started.completion.finish_ok();
+    /// let permit_result = started.handle.semaphore("capacity", &capacity).await;
+    /// let workload_result = match permit_result {
+    ///     Ok(permit) => {
+    ///         // Protected work occurs while the borrowed permit is alive; it is not queue timing.
+    ///         tokio::task::yield_now().await;
+    ///         drop(permit);
+    ///         Ok(())
+    ///     }
+    ///     Err(error) => Err(error),
+    /// };
+    /// # let workload_result = started.completion.finish_result(workload_result);
+    /// # run.shutdown()?;
+    /// # workload_result?;
     /// # Ok(())
     /// # }
     /// ```
@@ -84,19 +91,28 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// ```
     /// # use std::sync::Arc;
-    /// # use tailtriage_core::Tailtriage;
+    /// # use tailtriage_core::{MemorySink, Tailtriage};
     /// # use tailtriage_tokio::TokioRequestHandleExt;
-    /// # async fn demo() -> Result<(), tokio::sync::AcquireError> {
-    /// # let run = Tailtriage::builder("svc").build().unwrap();
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let run = Tailtriage::builder("svc").sink(MemorySink::new()).build()?;
     /// # let started = run.begin_request("work");
     /// let capacity = Arc::new(tokio::sync::Semaphore::new(1));
-    /// let permit: tokio::sync::OwnedSemaphorePermit = started
+    /// let permit_result = started
     ///     .handle
     ///     .owned_semaphore("capacity", Arc::clone(&capacity))
-    ///     .await?;
-    /// tokio::task::yield_now().await; // protected work
-    /// drop(permit);
-    /// # started.completion.finish_ok();
+    ///     .await;
+    /// let workload_result = match permit_result {
+    ///     Ok(permit) => {
+    ///         let permit: tokio::sync::OwnedSemaphorePermit = permit;
+    ///         tokio::task::yield_now().await; // protected work while the owned permit is alive
+    ///         drop(permit);
+    ///         Ok(())
+    ///     }
+    ///     Err(error) => Err(error),
+    /// };
+    /// # let workload_result = started.completion.finish_result(workload_result);
+    /// # run.shutdown()?;
+    /// # workload_result?;
     /// # Ok(())
     /// # }
     /// ```
@@ -528,10 +544,15 @@ impl RuntimeSampler {
     ///
     /// ```no_run
     /// use std::{sync::Arc, time::Duration};
-    /// use tailtriage_core::{CaptureMode, Tailtriage};
+    /// use tailtriage_core::{CaptureMode, MemorySink, Tailtriage};
     /// use tailtriage_tokio::RuntimeSampler;
     /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-    /// let run = Arc::new(Tailtriage::builder("svc").mode(CaptureMode::Light).build()?);
+    /// let run = Arc::new(
+    ///     Tailtriage::builder("svc")
+    ///         .mode(CaptureMode::Light)
+    ///         .sink(MemorySink::new())
+    ///         .build()?,
+    /// );
     /// let sampler = RuntimeSampler::builder(Arc::clone(&run))
     ///     .mode(CaptureMode::Investigation)
     ///     .interval(Duration::from_millis(250))
