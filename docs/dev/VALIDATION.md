@@ -41,14 +41,18 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
 | `scripts/validate_invariant_proofs.py` | Mechanical invariant/test linkage consistency | Yes | No |
-| `scripts/generate_diagnostic_scorecard.py` | Local/manual deterministic scorecard generation with provenance | No, local/manual | Local outputs only |
+| `scripts/generate_diagnostic_scorecard.py` | Deterministic scorecard generation; provenance-rich snapshots are local/manual | Generator smoke in applicable deterministic CI; full snapshot local/manual | No |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/demo_tool.py mitigation-report` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/measure_runtime_cost.py` | Runtime-cost operational validation | Manual/local; bounded smoke runs in CI | No |
 | `scripts/measure_collector_limits.py` | Collector-limit operational validation | Manual/local; bounded smoke runs in CI | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
-Normal CI owns the deterministic diagnostic regression gate and does not publish scorecards or GitHub artifacts. The existing `docs contracts` job owns documentation, source-policy, and invariant-linkage checks. `scripts/generate_diagnostic_scorecard.py` owns local/manual deterministic scorecard generation; its outputs are local evidence unless a maintainer separately archives them.
+Applicable deterministic CI owns the diagnostic regression gate and smoke-checks the scorecard
+generator, but does not publish provenance-rich scorecards or GitHub artifacts. The existing `docs
+contracts` job owns documentation, source-policy, and invariant-linkage checks.
+`scripts/generate_diagnostic_scorecard.py` owns local/manual provenance-rich scorecard generation;
+its outputs are local evidence unless a maintainer separately archives them.
 
 ### Normal CI ownership and cadence
 
@@ -211,7 +215,9 @@ Completed queue and stage distributions exclude partial observations. Partial du
 
 Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
 
-Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+Global, route, and temporal projections share this policy. Tracing imports remain completed-only.
+Mixed or partial Runs can change scores or ranking only when explicitly labeled lower-bound evidence
+is selected and qualified. Suspects remain triage leads, not root-cause proof.
 
 ### Native/tracing equivalence tracks
 

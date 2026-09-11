@@ -1,85 +1,51 @@
-# Getting started with demos
+# Worked demo: queue pressure
 
-Demos are deterministic triage exercises. They provide reproducible diagnosis behavior for this repository's scenarios, not universal causality proof.
+The flagship queue demo is one focused exercise in the capture -> analyze -> next check -> rerun
+workflow. It simulates requests waiting for a limited semaphore (`worker_permit`); its baseline uses
+tighter capacity and slower work than its mitigated variant.
 
-Scenario details: [demos/README.md](../demos/README.md)
+This controlled scenario is useful for learning how application-level queueing appears in a report.
+For other diagnosis shapes, choose a scenario from the [demo index](../demos/README.md).
 
-## Recommended first demos
+## Run and inspect the queue scenario
 
-- `queue_service`
-- `downstream_service`
-- `db_pool_saturation_service`
-
-## Additional useful demos
-
-- `shared_state_lock_service`
-- `retry_storm_service`
-- `mixed_contention_service`
-- `cold_start_burst_service`
-
-Synthetic analyzer-contract demos:
-
-- `blocking_service`
-- `executor_pressure_service`
-
-## Baseline diagnosis contract
-
-| Scenario      | Expected baseline primary suspect | Required supporting signal                               |
-| ------------- | --------------------------------- | -------------------------------------------------------- |
-| `queue`       | `application_queue_pressure`    | Queue evidence on primary suspect                        |
-| `downstream`  | `downstream_stage_dominance`      | Stage-dominance evidence on primary suspect              |
-| `db-pool`     | `application_queue_pressure`    | Queue pressure on DB admission path                      |
-| `shared-lock` | `application_queue_pressure`    | Queue wait/depth evidence from lock contention           |
-| `retry-storm` | `downstream_stage_dominance`      | Elevated service-share evidence from retry-heavy stage   |
-| `mixed`       | `application_queue_pressure`    | Downstream suspect also appears as secondary             |
-| `blocking`    | `blocking_pool_pressure`          | Blocking queue depth evidence remains visible            |
-| `cold-start`  | `application_queue_pressure`    | Evidence mentions `cold_start_stage` and/or queue impact |
-| `executor`    | `executor_pressure`     | Runtime snapshot pressure + executor suspect score       |
-
-## Run and validate
+Generate the current baseline and mitigated artifacts:
 
 ```bash
 python3 scripts/demo_tool.py run queue
-python3 scripts/demo_tool.py validate queue
-
-python3 scripts/demo_tool.py run downstream
-python3 scripts/demo_tool.py validate downstream
-
-python3 scripts/demo_tool.py run db-pool
-python3 scripts/demo_tool.py validate db-pool
 ```
 
-Run any other scenario with the same pattern.
+The command prints the concrete generated artifact paths. Analyze the Run JSON paths it reports,
+or use the supported validation command to run and check the scenario contract directly:
 
+```bash
+python3 scripts/demo_tool.py validate queue
+```
 
+Validation checks the controlled queue scenario without requiring an exact score or latency value.
+The bounded expected primary diagnosis family is `application_queue_pressure`, with queue evidence
+on the primary suspect.
 
-Interpretation note:
+## What to inspect
 
-- Some before/after pairs can stay at `score: 100 -> 100` even when mitigation helps.
-- In those cases, validate via p95 movement, suspect rank, and evidence changes rather than requiring an exact score drop.
+In the report, inspect:
 
+1. `primary_suspect.kind`;
+2. `p95_queue_share_permille`;
+3. queue-depth and queue-share evidence attached to the suspect;
+4. warnings, truncation, and `evidence_quality` before trusting the ranking;
+5. p95 and evidence movement between baseline and mitigated runs.
 
-## What to look for in each scenario
+A suspect score ranks candidates inside one report. It is not an absolute severity scale across
+runs, so a useful mitigation can leave a score unchanged even while latency and queue evidence
+move. Compare the underlying evidence and distributions rather than requiring a score decrease.
 
-- `queue`: queue-share and queue-depth evidence should dominate; after mitigation, p95 should drop materially.
-- `blocking`: blocking queue depth should be primary; `spawn_blocking`-style stage evidence can corroborate blocking pressure.
-- `executor`: runtime queue/local queue/alive-task pressure should drive executor suspicion.
-- `downstream`: tail-stage contribution should drive downstream suspicion.
-- `mixed`: multiple suspects can be plausible; ranking is a triage lead, not proof.
-- `cold-start`, `db-pool`, `shared-lock`: queue-like bottleneck shape should remain visible.
-- `retry-storm`: downstream/retry-tail contribution should drive downstream suspicion.
+## What this exercise establishes
 
-Avoid exact score expectations; focus on primary kind, evidence, p95 direction, and rank movement.
+The checked result establishes the repository's expected diagnosis family for this deterministic,
+simplified queue workload. It demonstrates a practical next check: change queue capacity/work and
+rerun under comparable conditions.
 
-## Before/after comparison usage
-
-Use fixture-backed before/after runs to evaluate one mitigation at a time:
-
-- compare p95 movement
-- compare suspect/evidence movement
-- treat results as triage evidence for the next step
-
-## Artifact policy
-
-- `demos/*/artifacts/`: generated, untracked outputs
-- `demos/*/fixtures/`: committed deterministic references
+It does not prove that every production queue topology behaves the same way, that score movement is
+causal, or that a matching production suspect is root-cause proof. Generated files under demo
+`artifacts/` directories are untracked; committed fixtures are deterministic references.

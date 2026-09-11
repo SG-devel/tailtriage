@@ -11,3 +11,6 @@ Collector-limit validation characterizes bounded collector pressure with retaine
 
 
 Unified orchestration: `scripts/validate_all.py` invokes collector-limits operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.
+
+Applicable code-changing pull-request CI and `workflow_dispatch` run the bounded `smoke` profile.
+The deeper `default` and `artifact_scaling` profiles remain manual/local characterization.

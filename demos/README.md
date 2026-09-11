@@ -15,17 +15,17 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 
 ## Instrumentation modes and parity
 
-- `queue_service`, `downstream_service`, `mixed_contention_service`, `cold_start_burst_service`, `db_pool_saturation_service`, `shared_state_lock_service`, and `retry_storm_service` accept `--instrumentation native|tracing` (default `native`).
-- This validates native-vs-tracing parity for request/stage evidence and queue evidence where applicable while still producing standard Run JSON for CLI analysis.
-- Tracing in-flight parity is not supported.
-- `blocking_service` and `executor_pressure_service` also support `--instrumentation native|tracing`.
-- Runtime-sensitive tracing parity uses `TracingSession` plus deterministic runtime snapshots recorded during workload execution.
-- Tracing parity is validated by `python3 scripts/demo_tool.py validate-tracing-parity all --profile release`.
-- Tracing spans alone do not infer runtime pressure; runtime-sensitive parity relies on those recorded snapshots.
-- Demo parity is semantic parity (request/stage/queue evidence shape and diagnosis direction), not exact latency or suspect-score equality.
-- Tracing inflight remains out of scope unless explicitly implemented.
-- This tracing demo mode is not OTel/OTLP and not an observability backend.
-- Suspects in parity runs remain triage leads, not proof of root cause.
+All diagnosis scenarios accept `--instrumentation native|tracing` and default to native. Choose
+native for the most direct exercise; choose tracing to inspect the supported span-intake path while
+still producing standard Run JSON. Tracing in-flight parity is not supported, and tracing spans
+alone do not provide runtime pressure evidence. Runtime-sensitive tracing demos explicitly record
+runtime snapshots.
+
+Validated demo parity concerns semantic request/stage/queue evidence shape and diagnosis direction,
+not exact latency, byte equality, or suspect-score equality. The maintainer
+[validation map](../docs/dev/VALIDATION.md) owns parity-gate composition and bookkeeping. Neither
+instrumentation mode proves production causality, and tracing demo mode is not OTel/OTLP or an
+observability backend.
 
 ## Strongest public demonstration scenarios
 

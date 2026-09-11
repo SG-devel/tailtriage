@@ -4,7 +4,7 @@ This directory defines the deterministic diagnostic-validation corpus used by `s
 
 Demos teach; validation measures.
 
-The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Normal CI checks the lock before running the deterministic corpus benchmark against `validation/diagnostics/manifest.json`; `scripts/generate_diagnostic_scorecard.py` produces local/manual deterministic scorecard evidence that is not automatically published.
+The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Applicable deterministic CI checks the lock and corpus benchmark and smoke-checks the scorecard generator. `scripts/generate_diagnostic_scorecard.py` produces provenance-rich local/manual scorecard evidence that is not automatically published.
 
 ## Validation classes and schema
 
@@ -85,4 +85,6 @@ Completed queue and stage distributions exclude partial observations. Partial du
 
 Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
 
-Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+Global, route, and temporal projections share this policy. Tracing imports remain completed-only.
+Mixed or partial Runs can change scores or ranking only when explicitly labeled lower-bound evidence
+is selected and qualified. Suspects remain triage leads, not root-cause proof.

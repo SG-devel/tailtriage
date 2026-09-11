@@ -1,59 +1,51 @@
-# Runtime cost measurement
+# Runtime-cost measurement
 
-This page describes the repository's runtime-overhead measurement path.
+This page answers one question: what cost does each `tailtriage` integration mode add under the
+repository's shared synthetic workload? For retention pressure rather than per-mode cost, use
+[collector limits](collector-limits.md). For production capture decisions, use
+[operations](operations.md).
 
-Use this path when you want overhead attribution across `tailtriage` integration modes on one shared synthetic workload shape.
+## What is measured
 
-For sustained stress/limits behavior instead, use [collector-limits.md](collector-limits.md).
-For production rollout and operations decisions that combine this data with capture-mode and troubleshooting guidance, see [operations.md](operations.md).
+`scripts/measure_runtime_cost.py` runs these categories as separate release-mode processes:
 
-## What this path measures
+- baseline without tailtriage instrumentation;
+- collector present without request-context calls;
+- native core capture in light and investigation modes;
+- each native mode with the Tokio sampler;
+- intentionally saturated native drop paths;
+- tracing light mode, with sampler, and with an intentionally saturated drop path.
 
-Measured categories:
+The summary attributes baked-in cost, core-mode cost, incremental sampler cost, post-limit/drop-path
+cost, and tracing-versus-native ratios. Separate processes allow process-global tracing subscriber
+installation without contaminating later modes.
 
-- `baseline` (no tailtriage instrumentation)
-- `baked_in_no_request_context` (collector initialized, request-context calls omitted)
-- `core_light`
-- `core_investigation`
-- `core_light_tokio_sampler`
-- `core_investigation_tokio_sampler`
-- `core_light_drop_path` (intentionally saturated limits)
-- `core_investigation_drop_path` (intentionally saturated limits)
-- `tracing_light`
-- `tracing_light_tokio_sampler`
-- `tracing_light_drop_path`
+This is a synthetic measurement. Its results are machine, workload, and profile scoped; they are
+not stable constants or universal production guarantees.
 
-Derived attribution sections in summary output:
-
-- Baked-in overhead
-- Core mode overhead
-- Tokio mode overhead
-- Incremental runtime sampler overhead
-- Post-limit / drop-path overhead
-- tracing-vs-native ratio summaries
-
-## What this path does not measure
-
-It does not provide:
-
-- universal production guarantees
-- cross-machine constants
-- full collector-stress operating limits
-
-Results are machine-scoped, workload-scoped synthetic measurements from this repository.
-
-## Canonical command
+## Reproduce a representative measurement
 
 ```bash
 python3 scripts/measure_runtime_cost.py
 ```
 
-The script builds `demos/runtime_cost` in release mode and runs warmup + measured rounds.
-Each mode is executed as a separate process; this keeps process-global tracing subscriber installation valid for tracing modes.
+Defaults are 6,000 requests, concurrency 64, 3 ms work, two warmup rounds, and six measured rounds.
+Override them with `--requests`, `--concurrency`, `--work-ms`, `--warmup-rounds`, and `--rounds`
+(or the corresponding uppercase environment variables). `--print-json` prints the full summary in
+addition to the compact table.
 
-## CI smoke policy
+By default outputs are written under `demos/runtime_cost/artifacts/`:
 
-Operational validation runs one bounded runtime-cost smoke:
+- `runtime-cost-raw.jsonl` contains per-sample records;
+- `runtime-cost-summary.json` contains aggregates, attribution, and measurement-quality labels.
+
+Records include the instrumentation family, sampler/drop-path flags, retained evidence counts,
+runtime snapshot count, finalization/analyze/render timings, lifecycle/sampler metadata, and the
+artifact path. Missing metrics are `null`, not estimates.
+
+## Bounded CI smoke
+
+For an applicable code-changing pull request or `workflow_dispatch`, the operational job runs:
 
 ```bash
 python3 scripts/measure_runtime_cost.py \
@@ -65,54 +57,34 @@ python3 scripts/measure_runtime_cost.py \
   --artifact-dir demos/runtime_cost/artifacts/ci-smoke
 ```
 
-Runtime-cost CI is a bounded smoke gate with broad tracing/native sanity thresholds. It enforces tracing/native parity hard checks (p95 <= 1.10x native and throughput >= 0.90x native), a 2% soft warning band (p95 > 1.02x or throughput < 0.98x), and required tracing evidence shape. It is not a rigorous benchmark suite and should not be interpreted as stable performance characterization. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. CI logs print compact runtime-cost tables by default, while full JSON remains in artifacts (`runtime-cost-summary.json`) and can be printed locally with `--print-json`. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This bounded smoke applies the producer's tracing/native evidence checks and broad hard sanity
+limits: tracing p95 must be at most 1.10 times native and tracing throughput at least 0.90 times
+native. Ratios outside a 2% parity band (p95 above 1.02 or throughput below 0.98) warn while still
+inside the hard limits. The CI smoke requests four measured rounds, matching the current minimum
+for a stable-quality classification. `insufficient_data`, `noisy`, and `unstable` are
+measurement-quality warnings themselves; separate producer sanity or tracing/native parity
+violations can still make the command fail.
 
-## Inputs and knobs
+CI checks outputs in place and does not upload a durable runtime-cost artifact by default. The
+deeper default measurement is manual/local. The smoke is regression-oriented evidence on the CI
+machine, not full benchmark characterization.
 
-CLI options (with equivalent env vars):
+## Interpret the output
 
-- `--requests` (`REQUESTS`, default `6000`)
-- `--concurrency` (`CONCURRENCY`, default `64`)
-- `--work-ms` (`WORK_MS`, default `3`)
-- `--warmup-rounds` (`WARMUP_ROUNDS`, default `2`)
-- `--rounds` (`ROUNDS`, default `6`)
-- `--print-json` (print full summary JSON after compact report)
+- Compare **baked-in overhead** with baseline to isolate collector-present cost when request
+  instrumentation is skipped.
+- Compare **core mode overhead** to evaluate light versus investigation without sampling.
+- Compare **incremental runtime sampler overhead** with the matching unsampled native mode.
+- Interpret **post-limit/drop-path overhead** only for deliberately saturated cases, alongside drop
+  counters and truncation.
+- Treat small movements inside the 2% band as noise-compatible parity, not a reason to change the
+  default native-integration recommendation.
+- Rerun noisy results on a quieter machine before drawing a stronger conclusion.
 
-## Artifacts emitted
+`CaptureMode` does not auto-start runtime sampling. Tracing spans alone do not provide runtime
+pressure evidence; tracing Tokio-session measurements need runtime snapshots. These semantics are
+important to attribution but do not make this workload representative of every production service.
 
-Path: `demos/runtime_cost/artifacts/`
-
-- `runtime-cost-raw.jsonl` (per-sample raw records)
-- `runtime-cost-summary.json` (aggregates + overhead attribution + quality labels)
-
-Per-mode records now include instrumentation family (`baseline` / `native` / `tracing`), runtime sampler/drop-path flags, run evidence counts, runtime snapshot counts, artifact finalization/analyze/render timings, sampler-metadata presence, inflight support, lifecycle warning count, and artifact path.
-
-## Interpreting results
-
-- Use **Baked-in overhead** to isolate collector-present cost when request instrumentation is skipped.
-- Use **Core mode overhead** to compare light vs investigation without runtime sampler startup.
-- Use **Incremental runtime sampler overhead** to isolate sampler contribution from same-mode core baselines.
-- Use **Post-limit / drop-path overhead** only for intentionally saturated-limit behavior.
-
-If `measurement_quality` reports noisy/unstable, CI reports warnings but does not fail solely for that quality classification; rerun on a quieter machine state before drawing stronger conclusions.
-If `measurement_quality` is `insufficient_data` after expected measured rounds, CI fails.
-Numbers are directional and machine/workload/profile scoped; this bounded smoke gate catches meaningful regressions, not rigorous benchmark conclusions or stable performance characterization.
-
-## Semantics reminder
-
-- `CaptureMode` changes retention defaults; it does not auto-start the runtime sampler.
-- In tracing Tokio-session modes, runtime snapshot retention is configured through the same core capture-limit model (`mode`/`capture_limits`/`capture_limits_override`) used by native sampling paths.
-- Tracing modes measure tailtriage semantic `tt.*` tracing spans (not OTel/OTLP export).
-- Tracing spans alone do not imply runtime-pressure evidence; runtime-pressure evidence requires Tokio-session runtime snapshots.
-- Post-limit overhead improvements come from cheaper drop-path handling after limits are hit, while preserving drop counters and truncation visibility.
-
-## Operational validation runner
-
-Use `python3 scripts/measure_runtime_cost.py` for manual/local runtime-cost validation that emits JSONL records and summary JSON. Results are machine/workload/profile scoped and should be treated as measurements, not universal guarantees. Missing metrics are emitted as `null` rather than guessed.
-
-
-Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 2% warning band are treated as parity, not as a reason to change the default recommendation.
-
-## Parity guardrails
-CI release validation runs parity checks that enforce shared capture mode/limit semantics across native and tracing demo captures, including tiny-limit exact truncation parity. This validation is a bounded triage consistency check, not universal production overhead proof and not root-cause certainty.
+The concrete domain owner for runner/output mechanics is
+[`validation/runtime-cost/README.md`](../validation/runtime-cost/README.md).
 

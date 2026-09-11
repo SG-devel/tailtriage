@@ -271,82 +271,22 @@ These are ranked suspects, not proof.
 
 ## 8. Validation contract
 
-Validation exists to show bounded diagnostic behavior, not root-cause proof.
+Validation establishes bounded behavior, not root-cause proof. The product validation surface
+contains typed analyzer tests, a deterministic committed corpus (including adversarial evidence),
+controlled live/parity demos, manual repeated-run and mitigation comparisons, runtime-cost
+measurement, collector-limit measurement, and planned curated real-service evidence.
 
-The validation surface includes:
+The deterministic corpus separates analyzer execution from Report-contract inspection and counts
+only unique accuracy-eligible controlled observations in accuracy metrics. Equivalent encodings may
+execute independently while representing one observation. Fixture labels express controlled
+scenario intent, not universal production truth.
 
-1. deterministic diagnostic corpus validation
-2. adversarial synthetic fixtures for sparse, missing, truncated, noisy, or mixed evidence
-3. repeated-run controlled demo validation
-4. mitigation matrix validation
-5. runtime-cost operational validation
-6. collector-limit operational validation
-7. future real-service validation
-
-### 8.1 Deterministic diagnostic corpus
-
-The schema-version-2 deterministic corpus mechanically separates analyzer-executed cases from report-contract cases. Diagnosis accuracy uses only unique accuracy-eligible observations; equivalent artifact encodings execute independently but count once. Report-contract fixtures validate Report output contracts without executing the analyzer or entering accuracy. The current corpus mixes analyzer-executed artifacts (`run_artifact` and `tracing_span_jsonl`, which flow through Run JSON analysis) with report-only fixtures that validate report contract handling without re-running the analyzer.
-
-It may check:
-
-- primary suspect expectations
-- required top-2 suspect visibility
-- expected and allowed warnings
-- required evidence substrings
-- required next-check substrings
-- confidence ceilings for sparse, missing, truncated, noisy, or ambiguous evidence
-- high-confidence-wrong counts
-
-Corpus labels describe expected diagnostic-family behavior for controlled fixtures. They are not production root-cause proof.
-
-### 8.2 Repeated-run validation
-
-Repeated-run validation measures stability across repeated controlled demo runs on a specific machine and workload profile.
-
-It may report:
-
-- top-1 accuracy
-- top-2 visibility
-- primary suspect stability
-- high-confidence-wrong count
-- confidence bucket summaries
-- p95/p99 latency distribution summaries
-
-Repeated-run validation is machine-scoped and workload-scoped.
-
-### 8.3 Mitigation validation
-
-Mitigation validation compares baseline and mitigated controlled runs.
-
-It may check:
-
-- p95/p99 movement
-- queue-share movement
-- service/stage-share movement
-- runtime-pressure movement
-- blocking-depth movement
-- explainable suspect movement
-
-Mitigation validation supports next-check usefulness. It does not prove formal causality.
-
-### 8.4 Operational validation
-
-Runtime-cost validation measures overhead under documented synthetic workloads.
-
-Collector-limit validation measures bounded retention behavior, visible truncation/drop counters, and pressure-onset and resource behavior. Analyzer and deterministic diagnostic validation separately own truncation warnings and confidence downgrade behavior.
-
-Operational validation is machine-scoped, workload-scoped, and profile-scoped. It is not a universal production guarantee.
-
-### 8.5 Validation non-claims
-
-Validation does not claim:
-
-- root-cause proof from one run
-- universal production accuracy
-- universal production overhead
-- replacement of tracing, metrics, tokio-console, or tokio-metrics
-- zero collector drops under all load
-- real-service validation until curated real-service artifacts exist
+Repeated-run, mitigation, runtime-cost, and collector-limit results are machine/workload/profile
+scoped. Mitigation movement supports next-check reasoning rather than formal causality. Collector
+measurement characterizes retained/truncation/drop evidence; it does not claim no drops. Current
+validation claims no universal production accuracy or overhead and no real-service coverage until
+curated evidence exists. Execution ownership and fixture mechanics are maintainer documentation,
+not normative wire behavior.
 
 ## 9. Runtime-cost and limits measurement contract
 
@@ -370,24 +310,9 @@ Collector-limits interpretation tracks at least:
 - dropped-category progression
 - artifact-size and memory trends under stress profiles
 
-## 10. Documentation contract
+## 10. Lifecycle and partial-evidence contracts
 
-When behavior or public guidance changes, update relevant public docs together:
-
-- `README.md`
-- `SPEC.md`
-- `docs/dev/IMPLEMENTATION_PLAN.md`
-- `docs/README.md`
-- `docs/user-guide.md`
-- `docs/diagnostics.md`
-- `docs/runtime-cost.md`
-- `docs/collector-limits.md`
-- `docs/getting-started-demo.md`
-- `docs/architecture.md`
-- relevant crate READMEs
-- relevant examples, demos, and tests
-
-### Request completion, cancellation, and shutdown lifecycle
+### 10.1 Request completion, cancellation, and shutdown lifecycle
 
 Explicit completion remains preferred whenever the application knows the request outcome. Dropping an admitted unfinished completion token while capture is still open records one completed request with outcome `cancelled`; Drop is non-panicking, including during panic unwinding. If shutdown wins before a held token finishes or drops, that request is recorded only as unfinished metadata and a late finish or Drop is inert. A finalized Run is immutable to late request admission, completion, stage, queue, in-flight, runtime-snapshot, sampler-metadata, and end-reason mutations.
 
@@ -399,22 +324,18 @@ Accepted in-flight transitions remain in the bounded Run artifact, including the
 
 Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap. Complete run-relative intervals are unioned within the request scope; duration-only fallback remains capped by the parent request duration.
 
-### Partial queue and stage events
+### 10.2 Partial queue and stage events
 
 Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
 
 Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
 
+Completed queue/stage distributions and public queue/service p95 fields exclude partial observations.
+Partial evidence remains visible in event totals, evidence-quality limitations, warnings, and suspect
+evidence. A materially partial-reliant queue/stage candidate cannot exceed medium confidence;
+unselected partial evidence does not automatically cap a completed candidate. Global, route, and
+temporal projections share this policy.
 
-
-## Partial queue/stage evidence
-
-Completed queue/stage distributions exclude partial observations. Partial durations are an observed lower bound: tailtriage observed the helper from first poll until Drop, not proof that the underlying operation completed, failed, or stopped. Partial evidence remains visible in event totals, evidence-quality limitations, top-level warnings, and suspect evidence.
-
-Queue/service public p95 fields remain completed-only. Materially partial-reliant queue/stage candidates cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
-
-Global, route, and temporal projections share this policy. Tracing intake remains completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
-
-### Native/tracing equivalence
+### 10.3 Native/tracing equivalence
 
 For independently encoded equivalent workloads, native/core Runs and stable completed-span JSONL must preserve the same normalized completed request, stage, and queue evidence, semantic order and configured retention, and analyzer diagnosis. Deterministic package fixtures compare each path against independent expected projections. Completed-span JSONL parity excludes generated/wall-clock/lifecycle/source metadata and cannot represent partial stage/queue, runtime, in-flight, sampler, or complete truncation state. Run JSON remains the complete artifact.
