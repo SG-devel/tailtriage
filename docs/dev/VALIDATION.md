@@ -40,6 +40,10 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 |---|---|---:|---:|
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
+| `cargo doc --workspace --all-features --no-deps --locked` | Rendered public documentation and warning proof | Yes, release Linux Cargo matrix | No |
+| Workspace and minimal feature-specific Rustdoc doctests | Public Rustdoc/package README examples and distinct documented feature boundaries | Yes, `docs contracts` | No |
+| `scripts/smoke_public_examples.py --check-markdown` | Actual selected root README and user-guide onboarding Rust fence bytes | Yes, `docs contracts` | No |
+| `scripts/smoke_public_examples.py` | Six durable executable examples, Run artifacts, and CLI analysis | Yes, `validation / deterministic` | No |
 | `scripts/validate_invariant_proofs.py` | Mechanical invariant/test linkage consistency | Yes | No |
 | `scripts/generate_diagnostic_scorecard.py` | Deterministic scorecard generation; provenance-rich snapshots are local/manual | Generator smoke in applicable deterministic CI; full snapshot local/manual | No |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
@@ -53,6 +57,19 @@ generator, but does not publish provenance-rich scorecards or GitHub artifacts. 
 contracts` job owns documentation, source-policy, and invariant-linkage checks.
 `scripts/generate_diagnostic_scorecard.py` owns local/manual provenance-rich scorecard generation;
 its outputs are local evidence unless a maintainer separately archives them.
+
+Documentation proof is deliberately split by artifact. The release Linux Cargo row renders docs
+with warnings denied but does not execute Rustdoc examples. The `docs contracts` job runs the one
+workspace all-feature doctest pass for Rustdoc and published crate README Rust fences, plus minimal
+feature rows that expose documented surfaces which an all-feature build can mask. That same job
+extracts the explicitly anchored `rust,no_run` fences from the root README and user guide and
+compiles their actual bytes as temporary downstream consumers. The default public-example smoke
+remains in `validation / deterministic`, where execution, Run shape, and CLI analysis are its
+distinct responsibility; docs-only changes do not duplicate that runtime proof.
+
+Structural navigation and published-README source/link policy remain owned by
+`scripts/validate_docs_contracts.py`. CI workflow source/security policy remains owned by
+`scripts/check_workflow_security.py`. Neither check substitutes for documentation compilation.
 
 ### Normal CI ownership and cadence
 

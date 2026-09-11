@@ -77,10 +77,19 @@ jobs:
     needs: changes
     if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.docs == 'true' || needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
+        with:
+          toolchain: stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: |
+            . -> target
       - name: Check workflow security policy
         run: python3 scripts/check_workflow_security.py
       - name: Validate workflow security policy unit tests
@@ -93,6 +102,28 @@ jobs:
         run: python3 scripts/validate_invariant_proofs.py
       - name: Validate invariant proof helper unit tests
         run: python3 -m unittest scripts.tests.test_validate_invariant_proofs
+      - name: Compile workspace Rustdoc and package README examples
+        run: cargo test --workspace --doc --all-features --locked
+      - name: Compile facade feature-boundary documentation
+        run: |
+          cargo test -p tailtriage --doc --no-default-features --locked
+          cargo test -p tailtriage --doc --locked
+          cargo test -p tailtriage --doc --no-default-features --features controller --locked
+          cargo test -p tailtriage --doc --no-default-features --features tokio --locked
+          cargo test -p tailtriage --doc --no-default-features --features axum --locked
+          cargo test -p tailtriage --doc --no-default-features --features tracing --locked
+          cargo test -p tailtriage --doc --no-default-features --features tracing-live --locked
+          cargo test -p tailtriage --doc --no-default-features --features tracing-tokio --locked
+      - name: Compile tracing feature-boundary documentation
+        run: |
+          cargo test -p tailtriage-tracing --doc --no-default-features --locked
+          cargo test -p tailtriage-tracing --doc --locked
+          cargo test -p tailtriage-tracing --doc --no-default-features --features live --locked
+          cargo test -p tailtriage-tracing --doc --no-default-features --features tokio --locked
+      - name: Validate selected onboarding Markdown examples
+        run: python3 scripts/smoke_public_examples.py --check-markdown
+      - name: Validate Markdown example helper unit tests
+        run: python3 -m unittest scripts.tests.test_smoke_public_examples
 
   verify:
     name: cargo / ${{ matrix.os }} / ${{ matrix.profile }}

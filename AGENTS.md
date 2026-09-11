@@ -357,6 +357,8 @@ If a task touches benchmarks or performance-sensitive code, also include:
 If a task changes public docs, crate READMEs, rustdoc, docs structure, or documentation contract wording:
 
 - docs contract validation must pass
+- workspace doctests and the selected onboarding Markdown compilation must pass through the
+  repository-owned commands in `.github/workflows/ci.yml`
 - any required updates to `scripts/validate_docs_contracts.py` and related tests must be included in the same change set
 - docs contract changes must be justified by code truth and intended public behavior
 
