@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-validate public examples.
+"""Smoke-validate public examples or compile selected onboarding Markdown.
 
 This script validates the public onboarding flow for selected examples:
 1) run the example
@@ -10,7 +10,9 @@ This script validates the public onboarding flow for selected examples:
 
 from __future__ import annotations
 
+import argparse
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -67,6 +69,12 @@ EXPECTED_ANALYSIS_TOP_LEVEL_KEYS = {
     "warnings",
 }
 
+MARKDOWN_SNIPPETS = (
+    ("README.md", "## Capture one useful Run"),
+    ("docs/user-guide.md", "## 2) Instrument one meaningful request"),
+)
+MARKDOWN_FENCE_INFO = "rust,no_run"
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -80,6 +88,76 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         capture_output=True,
     )
+
+
+def extract_markdown_rust_fence(markdown: str, *, anchor: str) -> str:
+    """Extract the sole selected Rust fence from one explicitly anchored section."""
+    headings = list(re.finditer(rf"(?m)^{re.escape(anchor)}\s*$", markdown))
+    if not headings:
+        raise ValueError(f"missing Markdown anchor: {anchor}")
+    if len(headings) > 1:
+        raise ValueError(
+            f"ambiguous Markdown anchor: expected exactly one {anchor}; "
+            f"found {len(headings)}"
+        )
+    heading = headings[0]
+
+    level = len(anchor) - len(anchor.lstrip("#"))
+    next_heading = re.search(
+        rf"(?m)^#{{1,{level}}}\s+", markdown[heading.end() :]
+    )
+    section_end = (
+        heading.end() + next_heading.start() if next_heading is not None else len(markdown)
+    )
+    section = markdown[heading.end() : section_end]
+    fences = re.findall(
+        rf"(?ms)^```{re.escape(MARKDOWN_FENCE_INFO)}\s*\n(.*?)^```\s*$", section
+    )
+    if len(fences) != 1:
+        raise ValueError(
+            f"expected exactly one {MARKDOWN_FENCE_INFO} fence after {anchor}; "
+            f"found {len(fences)}"
+        )
+    return fences[0]
+
+
+def compile_markdown_snippet(snippet: str, *, root: Path) -> None:
+    """Compile an extracted tutorial as an ephemeral downstream Cargo consumer."""
+    with tempfile.TemporaryDirectory(prefix="tailtriage-markdown-smoke-") as temp_dir:
+        consumer = Path(temp_dir)
+        (consumer / "src").mkdir()
+        (consumer / "Cargo.toml").write_text(
+            "[package]\n"
+            'name = "tailtriage-markdown-smoke"\n'
+            'version = "0.0.0"\n'
+            'edition = "2021"\n\n'
+            "[dependencies]\n"
+            f"tailtriage = {{ path = {json.dumps(str(root / 'tailtriage'))} }}\n"
+            'tokio = { version = "1", features = ["macros", "rt", "time"] }\n',
+            encoding="utf-8",
+        )
+        (consumer / "src" / "main.rs").write_text(snippet, encoding="utf-8")
+        run_cmd(
+            ["cargo", "check", "--quiet", "--manifest-path", str(consumer / "Cargo.toml")],
+            cwd=consumer,
+        )
+
+
+def validate_markdown_snippets() -> None:
+    root = repo_root()
+    extracted = []
+    for relative_path, anchor in MARKDOWN_SNIPPETS:
+        path = root / relative_path
+        snippet = extract_markdown_rust_fence(path.read_text(encoding="utf-8"), anchor=anchor)
+        extracted.append((relative_path, anchor, snippet))
+
+    unique_snippets = list(dict.fromkeys(snippet for _, _, snippet in extracted))
+    for snippet in unique_snippets:
+        compile_markdown_snippet(snippet, root=root)
+    if len(unique_snippets) == 1:
+        print("Selected README and user-guide Markdown fences are byte-identical and compile.")
+    else:
+        print("Selected README and user-guide Markdown fences differ and each compiles.")
 
 
 def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
@@ -158,6 +236,17 @@ def validate_example(example: dict[str, str]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check-markdown",
+        action="store_true",
+        help="compile only the selected README and user-guide Rust fences",
+    )
+    args = parser.parse_args()
+    if args.check_markdown:
+        validate_markdown_snippets()
+        return
+
     print("Smoke-validating public examples...")
     for example in EXAMPLES:
         validate_example(example)
