@@ -37,10 +37,10 @@ artifact. Such generated snapshots remain local/manual evidence unless separatel
 
 ## Interpreting diagnostic metrics
 
-- **Top-1**: the first ranked suspect matches the controlled fixture's expected diagnosis family.
-- **Top-2**: that expected family is visible as the primary or first secondary suspect.
-- **High-confidence-wrong**: a high-confidence primary does not match the fixture's expected family;
-  the benchmark can cap this count.
+- **Top-1**: the first-ranked suspect matches the controlled fixture's `ground_truth`.
+- **Top-2**: the controlled fixture's `ground_truth` is the primary or first secondary suspect.
+- **High-confidence-wrong**: a high-confidence primary falls outside that observation's accepted
+  `expected_primary_kinds` set; the benchmark can cap this count.
 - **Confidence-bucket summaries**: fixture outcomes grouped by the report's evidence-conditioned
   confidence label. They describe this corpus and are not probability calibration for production.
 

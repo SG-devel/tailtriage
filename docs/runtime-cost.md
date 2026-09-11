@@ -60,8 +60,10 @@ python3 scripts/measure_runtime_cost.py \
 This bounded smoke applies the producer's tracing/native evidence checks and broad hard sanity
 limits: tracing p95 must be at most 1.10 times native and tracing throughput at least 0.90 times
 native. Ratios outside a 2% parity band (p95 above 1.02 or throughput below 0.98) warn while still
-inside the hard limits. An expected run with insufficient measurement data fails; noisy/unstable
-classification warns rather than failing solely for that label.
+inside the hard limits. The CI smoke requests four measured rounds, matching the current minimum
+for a stable-quality classification. `insufficient_data`, `noisy`, and `unstable` are
+measurement-quality warnings themselves; separate producer sanity or tracing/native parity
+violations can still make the command fail.
 
 CI checks outputs in place and does not upload a durable runtime-cost artifact by default. The
 deeper default measurement is manual/local. The smoke is regression-oriented evidence on the CI
