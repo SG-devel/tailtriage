@@ -32,6 +32,20 @@ compile_error!("not selected");
             extract_markdown_rust_fence("# Page\n", anchor="## Missing")
 
     # TT-TEST: support
+    def test_duplicate_selected_anchor_fails(self) -> None:
+        markdown = """## Selected
+```rust,no_run
+fn first() {}
+```
+## Selected
+```rust,no_run
+fn second() {}
+```
+"""
+        with self.assertRaisesRegex(ValueError, "ambiguous Markdown anchor.*found 2"):
+            extract_markdown_rust_fence(markdown, anchor="## Selected")
+
+    # TT-TEST: support
     def test_missing_selected_fence_fails(self) -> None:
         with self.assertRaisesRegex(ValueError, "found 0"):
             extract_markdown_rust_fence("## Selected\ntext\n", anchor="## Selected")

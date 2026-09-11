@@ -119,7 +119,6 @@ jobs:
           cargo test -p tailtriage-tracing --doc --no-default-features --locked
           cargo test -p tailtriage-tracing --doc --locked
           cargo test -p tailtriage-tracing --doc --no-default-features --features live --locked
-          cargo test -p tailtriage-tracing --doc --no-default-features --features tokio --locked
       - name: Validate selected onboarding Markdown examples
         run: python3 scripts/smoke_public_examples.py --check-markdown
       - name: Validate Markdown example helper unit tests

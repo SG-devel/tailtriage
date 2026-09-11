@@ -92,9 +92,15 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 
 def extract_markdown_rust_fence(markdown: str, *, anchor: str) -> str:
     """Extract the sole selected Rust fence from one explicitly anchored section."""
-    heading = re.search(rf"(?m)^{re.escape(anchor)}\s*$", markdown)
-    if heading is None:
+    headings = list(re.finditer(rf"(?m)^{re.escape(anchor)}\s*$", markdown))
+    if not headings:
         raise ValueError(f"missing Markdown anchor: {anchor}")
+    if len(headings) > 1:
+        raise ValueError(
+            f"ambiguous Markdown anchor: expected exactly one {anchor}; "
+            f"found {len(headings)}"
+        )
+    heading = headings[0]
 
     level = len(anchor) - len(anchor.lstrip("#"))
     next_heading = re.search(
