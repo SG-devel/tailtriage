@@ -1,463 +1,172 @@
 # Production operations guide
 
-This guide focuses on operating `tailtriage` in real services.
-
-It is intentionally operational rather than API-centric.
-
-`tailtriage` is a bounded tail-latency triage tool. It produces evidence-ranked suspects and next checks from one captured run. Suspects are triage leads, not proof of root cause.
-
-This guide explains:
-
-* when to enable capture
-* how to roll out safely
-* when to use light versus investigation capture
-* when runtime sampling helps
-* how to reason about artifact growth and truncation
-* how to interpret weak or ambiguous output
-* what the current operational limits and non-fits are
-
-For API-level usage and request lifecycle contracts, see:
-
-- [user guide](user-guide.md)
-- [diagnostics guide](diagnostics.md)
-- [controller README](../tailtriage-controller/README.md)
-- [validation overview](dev/VALIDATION.md)
-
-## Recommended rollout path
-
-Use a staged rollout.
-
-Do not begin with dense runtime sampling and maximum capture limits in production.
-
-Recommended progression:
-
-1. start with direct capture or controller-managed bounded windows
-2. use `light` mode first
-3. add queue and stage instrumentation around suspected waits
-4. validate that artifacts analyze cleanly
-5. enable runtime sampling only when request timing alone is insufficient
-6. increase capture density only when the existing evidence is not enough
-
-A conservative rollout usually gives better operational signal than enabling every feature immediately.
-
-## Analyzer tuning in operations
-
-Keep rollout conservative: prefer default analyzer behavior first and tune only after comparing representative runs for your workload profile.
-
-Operational guardrails:
-
-- Do not tune around missing instrumentation; add needed queue/stage/runtime evidence first.
-- Do not use tuning to hide truncation or dropped-event warnings; address capture density/limits and re-run.
-- Commit analyzer TOML used in production workflows so repeated runs are reproducible.
-- Compare runs only when analyzer config is the same, or explicitly account for changed analyzer config when interpreting movement.
-- Use tuning to improve workload fit of evidence interpretation after baseline runs, not as a substitute for capture quality.
-
-## Choosing direct capture vs controller capture
-
-### Direct capture
-
-Use `Tailtriage` directly when:
-
-* you want one explicit bounded run
-* capture lifetime naturally matches process lifetime
-* you are validating instrumentation locally or in staging
-* you do not need repeated arm/disarm windows
-
-This model is:
+`tailtriage` supports a bounded operational loop:
 
 ```text
-build -> capture -> shutdown
+identify a slow window -> arm a bounded capture -> collect representative traffic
+-> stop/finalize -> inspect limitations -> analyze -> choose one next check
+-> change one thing -> rerun under comparable conditions
 ```
 
-### Controller capture
+The output is a set of evidence-ranked suspects and next checks. Suspects are leads, not proof of
+root cause, and comparability or mitigation movement does not establish formal causality.
 
-Use `TailtriageController` when:
+## 1. Choose the capture model
 
-* the service stays up continuously
-* you need repeated bounded capture windows
-* you want runtime arm/disarm control
-* you want TOML-backed operational configuration
-* you want future generations to pick up reloaded config
+Use `Tailtriage` for one explicit bounded run whose lifetime the application controls. Its simple
+lifecycle is `build -> capture -> shutdown`.
 
-This model is:
+Use `TailtriageController` for repeated bounded windows in a long-lived service. `disable()` closes
+the current generation but is reversible; a later `enable()` can create another generation.
+`shutdown()` is terminal: its first call permanently prevents future generations and makes new
+requests inert. Exact builder, TOML, and reload behavior belongs to the
+[controller README](../tailtriage-controller/README.md).
 
-```text
-enable -> capture -> disable -> re-enable later
-```
+Whichever model you choose, specify a time, traffic, or incident window before enabling capture.
+Avoid an unreviewed, open-ended production capture.
 
-Use `disable()` for a reversible capture-window boundary. Use controller `shutdown()` only at
-application/process shutdown: its first call permanently prevents future generations, makes new
-requests inert, and changes public status to `GenerationState::Shutdown`. If strict lifecycle
-returns an unfinished-request `GenerationFinalizationError`, already-admitted requests may drain
-and automatically finalize the same generation; call `shutdown()` again for authoritative stored
-success or failure. Replays do not perform another sink write.
+## 2. Arm a representative window
 
-Controller capture is usually the better production operational model.
-Configure its artifact destination explicitly with builder `.output(...)` or flat
-`controller.activation.output_path`. A TOML output overrides the builder value; sparse reloads
-fall back to the original builder output and fail transactionally when neither source supplies one.
+Choose a window that includes the slow behavior and enough representative traffic to distinguish
+it from startup noise. Record the service version, workload shape, capture mode, analyzer config,
+and relevant environment facts so a rerun can be compared honestly.
 
-## Capture mode guidance
+Start with narrow queue and stage instrumentation around waits that can explain request latency.
+Native request-context capture is the simplest choice for a new integration. Tracing intake is
+useful when reliable request correlation already exists; its exact span and replay contracts are
+owned by the [tracing crate](../tailtriage-tracing/README.md).
 
-### `light`
+## 3. Select capture density
 
-Use `light` mode first.
+- **`light`** is the conservative default first production choice. Use it to validate signal
+  quality with bounded retention and lower capture density.
+- **`investigation`** is a denser, still-bounded choice for an active investigation when light-mode
+  evidence is insufficient. It is not an always-on telemetry mode.
 
-Recommended for:
+Capture modes supply defaults; explicit limit overrides may change them. Consult the relevant item
+Rustdoc when exact defaults or setter behavior matters rather than copying a defaults table into an
+operations plan.
 
-* initial production rollout
-* lower-risk bounded captures
-* validating instrumentation quality
-* broad environment coverage
-* services where artifact growth must stay conservative
+## 4. Decide whether runtime sampling is needed
 
-Prefer `light` when:
+Runtime sampling is optional. `CaptureMode` and `Tailtriage::builder` do not start it. Starting a
+sampler requires an active Tokio runtime, and retained runtime snapshots consume bounded capture
+capacity.
 
-* you are still deciding where instrumentation belongs
-* you only need directional evidence
-* you expect many repeated capture windows
-* you are operating under tight retention constraints
+Begin without sampling when queue and stage evidence can answer the operational question. Add it
+when you need evidence to separate application queueing from executor or blocking-pool pressure.
+Missing runtime evidence means that evidence is unavailable; it does **not** mean runtime pressure
+was zero. Tracing-only evidence likewise does not fabricate runtime snapshots.
 
-### `investigation`
+## 5. Confirm effective retention and resource bounds
 
-Use `investigation` mode when:
+Inspect the resolved effective configuration recorded for the run instead of assuming requested
+values or mode defaults survived configuration resolution unchanged. Bound the window and each
+retained evidence family for the expected request rate.
 
-* a real tail-latency incident is active
-* `light` mode produced ambiguous evidence
-* runtime pressure needs deeper separation
-* you need more complete stage/queue visibility
-* you are intentionally running a denser bounded capture
+Core request, stage, queue, in-flight, and runtime-snapshot capacities legally permit zero. A zero
+capacity can mean that no evidence from that family is retained; it is not a universal validation
+error. In particular, do not generalize the CLI requirement for an analyzable persisted request
+artifact into a core `CaptureLimits` rule. Exact admission and cardinality behavior belongs to
+`CaptureLimits` Rustdoc.
 
-`investigation` mode is not intended as a permanent always-on telemetry configuration.
+When a limit is reached, inspect `truncation.limits_hit` and the dropped-category counters. They
+identify partial retention; they do not imply that uncaptured activity did not occur. Reduce the
+window or capture density, or raise only the relevant limit after checking resource impact. The
+[collector-limits evidence page](collector-limits.md) explains how to characterize onset and
+resource trends.
 
-## Runtime sampling guidance
+## 6. Capture, then stop and finalize safely
 
-Runtime sampling is optional enrichment.
+Stop only after the selected traffic has completed or after you have deliberately accepted partial
+lifecycle evidence. Prefer explicit request completion with the application's known outcome.
 
-It is most useful when request timing alone cannot clearly separate:
+Dropping an admitted unfinished completion token while capture is open records one `cancelled`
+request and resolves that tailtriage lifecycle. It does not prove the underlying external operation
+stopped. Consequently, a strict unfinished-work error points instead to work or tokens still alive,
+deliberately forgotten/leaked tokens, or cleanup/finalization ordering.
 
-* application queue saturation
-* executor pressure
-* blocking-pool pressure
+### Direct strict finalization recovery
 
-Runtime sampling is usually worth enabling when:
+A direct strict unfinished-request failure is retryable. It occurs before finalization and before
+any sink attempt, so admitted work can resolve before `shutdown()` is retried.
 
-* executor pressure is suspected
-* blocking-pool contention is suspected
-* queue wait alone does not explain the tail
-* request timing evidence is ambiguous
-* the service already uses Tokio heavily
+A serialization or persistence failure after an eligible sink attempt is different: that shutdown
+result is terminal. Later shutdown calls replay the stored failure and do not attempt a second sink
+write. Do not collapse this sink contract into unfinished-work recovery.
 
-Runtime sampling is usually unnecessary when:
+### Controller generation recovery
 
-* downstream stage latency clearly dominates
-* queue saturation is already obvious
-* the run already produces strong evidence quality
-* you only need high-level directional triage
+For an unfinished strict controller generation, already-admitted requests may drain and the
+generation can finalize after the drain. Retry `disable()` or `shutdown()` as appropriate to obtain
+the authoritative stored result. A terminal controller shutdown remains terminal even while this
+generation-finalization result is being resolved. Controller
+`GenerationFinalizationError` and core `ShutdownError` are distinct contracts.
 
-Important operational constraints:
+## 7. Handle and inspect the artifact
 
-* runtime sampling must start inside an active Tokio runtime
-* runtime snapshots are bounded by capture limits
-* Tokio sampling records optional `worker_count` evidence directly from the runtime; current-thread runtimes report one
-* some runtime fields require `tokio_unstable`
-* runtime sampling increases event volume and artifact growth
+Run JSON is the complete persisted triage artifact. Completed-span tracing JSONL is a narrower
+tracing-source interchange/replay surface, not a complete Run archive. Use Run JSON for an
+operational handoff when runtime, in-flight, lifecycle, and truncation context matters.
 
-Start conservatively.
-
-`worker_count` is optional in schema-v2 artifacts and may be absent. A zero value
-is invalid: strict validation rejects it, while permissive
-normalization clears only the invalid field and retains the runtime snapshot and
-typed validation finding. Complete, consistent, positive worker-count evidence
-enables normalized per-worker runnable-queue scoring. An unavailable worker count
-uses absolute-depth fallback without a worker-related confidence cap; partial,
-inconsistent, or invalid worker evidence uses the fallback with the documented
-confidence limits and without inventing a worker count.
-When local queue depth is missing, normalized runnable-queue evidence is a lower
-bound. See the [executor-pressure reference](diagnostics.md#executor-pressure)
-for the scoring and confidence details.
-
-Prefer moderate intervals and bounded runs before increasing density.
-
-## Operating with tracing-based runs
-
-Tracing intake works best when request correlation is already reliable and can be mapped to unique tailtriage request IDs. Every request, stage, and queue span for one completed logical request/work item must carry the same `tt.request_id`, and that ID must be unique among completed requests in one Run. External trace IDs that repeat across retries, fanout branches, batch items, or attempts should be expanded with attempt/span/branch/item information before becoming `tt.request_id`. Missing, inconsistent, or duplicated IDs cause child evidence to be skipped, weakened, or reported as ambiguous. Native capture is the recommended first path when correlation is not already available. Users remain responsible for meaningful instrumentation and request-boundary semantics.
-
-Tracing import expects completed tailtriage `tt.*` tracing span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Tracing-specific source parsing and retention happen before core normalization, and private provenance joins retained core evidence back to original source records. Completed-span JSONL contains only retained original source records, preserves source identity and fields, and replays equivalently only for normalized request/stage/queue evidence that JSONL can represent. Direct and JSONL imports preserve supplied source order; live output is section-grouped as requests, then stages, then queues, preserving recorder order within each section. Completed-span JSONL is not a production trace archive and does not preserve Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, semantic truncation counters, raw-recorder drop counters, source file/line context, omitted-source diagnostics, or output-path failures; prefer Run JSON when the artifact itself must carry that complete persisted triage context. Configured Run JSON and completed-span JSONL outputs are independent file transactions. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit Unix-ms start/end timestamps; complete run-relative monotonic offsets are optional and, when present, are preferred for elapsed-duration derivation and validation. OTel/OTLP intake remains out of scope on this path.
-
-Live tracing intake only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare it with `tracing::field::Empty` and then call `span.record(...)`; adding brand-new `tt.*` fields later with `span.record(...)` is not supported.
-
-Important limits for production interpretation:
-
-* tracing-only runs do not fabricate runtime snapshots
-* without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
-* runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling
-
-`TracingSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. For `TracingSession`, run metadata time bounds cover both retained tracing evidence and retained runtime snapshots. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots. `TracingSession` starts background sampling when configured with `sampler_interval(...)`; deterministic/manual runtime-sensitive workflows can call `manual_runtime_snapshots()` and inject snapshots via `record_runtime_snapshot(...)`; runtime-sensitive tracing contract parity requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit manual-runtime lifecycle warning (not ambient sampler metadata/noise). These are repeatable triage leads, not root-cause proof.
-
-Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
-
-## Current artifact and analyzer contracts
-
-Run JSON schema version 2 is the current Run JSON schema version. `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged. Active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version.
-
-CLI Run-artifact analysis is strict by default. Error-level canonical core findings stop report generation before stdout; warning-only findings remain accepted. `--allow-ambiguous-artifact` explicitly requests canonical permissive normalization, discloses every original issue on stderr, and analyzes normalized evidence only. Tracing import `--strict` is a separate malformed/incomplete `tt.*` parser/import policy and does not control saved-Run validation. Analyzer library defaults remain permissive, and core exposes explicit strict and permissive APIs. Reports provide evidence-ranked suspects and next checks as triage leads, not proof of root cause.
-
-Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly. These rankings remain triage leads, not proof of root cause.
-
-## Artifact sizing and retention expectations
-
-Artifact size depends on:
-
-* request count
-* queue event count
-* stage event count
-* runtime snapshot density
-* in-flight snapshot density
-* capture duration
-* truncation state
-
-Artifact growth is workload-shaped and machine-scoped.
-
-The repository intentionally does not claim universal production artifact sizing.
-
-Use:
-
-* [runtime cost measurement](runtime-cost.md)
-* [collector limits and stress guidance](collector-limits.md)
-* [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
-
-when establishing local operational expectations.
-
-### Input resource boundaries
-
-Tracing completed-span JSONL has a fixed 8 MiB maximum serialized JSON object size per record;
-the newline is excluded from that ceiling. The importer and completed-span writer share this
-ceiling. There is no aggregate stream byte ceiling and no public tuning knob, so a long valid
-stream can consume CPU and I/O in proportion to its length.
-
-Canonical Run JSON is decoded through the typed streaming path rather than first retaining a
-whole-file `String` or generic `Value`. It has no arbitrary whole-document byte ceiling, and a
-very large otherwise-valid Run may allocate typed state in proportion to its contents. Tailtriage
-therefore does not claim universal hostile-input memory safety.
-
-### Review artifacts before sharing
-
-Run, Report, and validation artifacts can contain operational or environment metadata, including host/PID, routes, queue/stage/in-flight labels, warnings, service or run identifiers, paths, and workflow-specific details. Review artifacts and, where appropriate, redact sensitive values before sharing them outside the intended trust boundary. Tailtriage does not automatically sanitize these artifacts. Structured JSON remains lossless data; human-readable output visibly escapes artifact-controlled control characters at human-output sinks.
-
-## Capture limits and truncation
-
-Capture limits are expected operational controls, not exceptional failures.
-
-When limits are hit:
-
-* retained data becomes partial
-* dropped counters become non-zero
-* evidence quality can downgrade
-* warnings can appear
-* interpretation confidence should become more conservative
-
-Treat truncation as a signal that:
-
-* the capture window was too dense
-* the run duration was too large
-* limits were too small for the workload
-* runtime sampling density may be too aggressive
-
-Do not treat truncation as proof the analyzer is wrong.
-
-Instead:
-
-1. inspect dropped counters
-2. inspect warnings
-3. reduce capture scope or increase limits
-4. rerun under comparable load
-
-For controller-managed runs, consider:
-
-* `continue_after_limits_hit`
-* `auto_seal_on_limits_hit`
-
-based on whether bounded retention or uninterrupted capture matters more operationally.
-
-## Operational guidance for bounded runs
-
-Prefer bounded investigative windows over continuous long-lived capture.
-
-Good operational patterns:
-
-* arm during a suspected incident window
-* collect enough traffic to produce stable evidence
-* disarm and analyze
-* compare before/after mitigation runs
-* rerun with one changed variable
-
-Avoid:
-
-* indefinite always-recording operation
-* continuously increasing limits without understanding growth
-* treating one run as causal proof
-* enabling every instrumentation surface immediately
-
-## Report interpretation during operations
-
-Use the [analyzer guide](analyzer-guide.md) to select a suspect-led next check and compare one controlled rerun. The [analyzer behavior reference](diagnostics.md) owns exact report fields, `evidence_quality` semantics, scoring, confidence, and fallback behavior. Operationally, treat every suspect as a lead rather than proof and preserve the capture conditions and analyzer configuration across the comparison.
-
-When the result is `insufficient_evidence`, use the guide's capture-improvement next check rather than treating abstention as evidence that no bottleneck exists.
-
-## Operational troubleshooting
-
-### Analyzer output feels ambiguous
-
-Most common causes:
-
-* multiple bottleneck families overlap
-* runtime evidence is incomplete
-* queue/stage instrumentation coverage is sparse
-* the workload is phase-changing during capture
-
-Recommended actions:
-
-* add one more instrumentation surface
-* shorten the capture window
-* compare multiple bounded runs
-* rerun after one targeted mitigation
-
-### Artifacts are too large
-
-Reduce:
-
-* runtime sampling density
-* capture duration
-* request volume per run
-* unnecessary instrumentation breadth
-
-Or:
-
-* lower capture concurrency
-* split captures into smaller bounded windows
-* use controller-managed operational windows
-
-### Runtime sampling overwhelms the run
-
-Use:
-
-* longer sample intervals
-* lower runtime snapshot limits
-* shorter capture windows
-* `light` mode instead of `investigation`
-
-### Strict lifecycle shutdown fails
-
-This usually means requests were started but not completed.
-
-Common causes:
-
-* an outstanding completion token is still held when shutdown runs
-* a completion token was intentionally forgotten or leaked instead of being finished or dropped
-* shutdown races task cleanup before admitted completion tokens are dropped
-
-An ordinary early return or task cancellation is not independently sufficient: dropping its
-admitted completion token while capture is still open records a `cancelled` request and resolves
-that lifecycle. Find tokens that remain alive or were deliberately forgotten, then finish or drop
-them before retrying strict shutdown. The retryable lifecycle error performs no sink attempt.
-
-Use stricter request lifecycle review before increasing capture density.
-
-## Operational validation workflow
-
-The repository includes local operational validation paths.
-
-Use these when evaluating:
-
-* runtime overhead
-* collector stress behavior
-* truncation onset
-* artifact growth
-* memory trends
-
-Primary references:
-
-* [validation overview](dev/VALIDATION.md)
-* [runtime cost measurement](runtime-cost.md)
-* [collector limits and stress guidance](collector-limits.md)
-* [`scripts/measure_runtime_cost.py`](../scripts/measure_runtime_cost.py)
-* [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
-
-These measurements are:
-
-* synthetic
-* workload-scoped
-* machine-scoped
-* intentionally conservative
-
-They are not universal production guarantees.
-
-## Current known limits and non-fits
-
-`tailtriage` is intentionally not:
-
-* a distributed tracing backend
-* a metrics platform
-* a permanent telemetry pipeline
-* a root-cause proof engine
-* a replacement for profiling
-* a replacement for `tokio-console`
-* a universal observability system
-
-Current operational limits include:
-
-* runtime sampling density can materially increase event volume
-* truncation can reduce evidence quality under heavy load
-* runtime-field visibility varies depending on Tokio capabilities
-* diagnosis quality depends heavily on instrumentation quality
-* one run provides bounded triage guidance, not certainty
-* repeated comparative runs are often more useful than one dense run
-
-## Recommended operational workflow
-
-A practical production loop:
-
-1. identify a slow window
-2. arm a bounded capture
-3. collect one representative run
-4. analyze the report
-5. choose one next check
-6. apply one targeted mitigation or instrumentation improvement
-7. rerun under comparable load
-8. compare suspect movement and p95 share movement
-
-Treat the workflow as iterative triage.
-
-Do not treat one report as final proof.
-
-
-## Tracing operations cross-reference
-
-For tracing import and tracing-session operations guidance, see the canonical section above: [Operating with tracing-based runs](#operating-with-tracing-based-runs).
-
-### Request completion, cancellation, and shutdown lifecycle
-
-Explicit completion remains preferred whenever the application knows the request outcome. Dropping an admitted unfinished completion token while capture is still open records one completed request with outcome `cancelled`; Drop is non-panicking, including during panic unwinding. If shutdown wins before a held token finishes or drops, that request is recorded only as unfinished metadata and a late finish or Drop is inert. A finalized Run is immutable to late request admission, completion, stage, queue, in-flight, runtime-snapshot, sampler-metadata, and end-reason mutations.
-
-Strict lifecycle shutdown with pending requests returns `ShutdownError::UnfinishedRequests { count }`, performs no sink attempt, leaves pending requests open, and does not add finalization provenance, timestamps, unfinished metadata, or lifecycle warnings. Sink I/O and serialization failures are `ShutdownError::Sink(...)`. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Successful direct shutdown records `RunEndReason::Shutdown` unless a more specific reason is present. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
-
-
-
-Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap. Complete run-relative intervals are unioned within the request scope; duration-only fallback remains capped by the parent request duration.
-
-### Partial queue and stage events
-
-Queue and stage Rust structs include `completed: bool`. Constructors default to completed evidence, and `into_partial()` intentionally constructs partial evidence. Schema-v2 JSON without `completed` is interpreted as completed evidence, and completed events omit `completed` when serialized.
-
-Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
-
-
-
-## Partial queue/stage evidence
-
-Completed queue/stage distributions exclude partial observations. Partial durations are an observed lower bound: tailtriage observed the helper from first poll until Drop, not proof that the underlying operation completed, failed, or stopped. Partial evidence remains visible in event totals, evidence-quality limitations, top-level warnings, and suspect evidence.
-
-Queue/service public p95 fields remain completed-only. Materially partial-reliant queue/stage candidates cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
-
-Global, route, and temporal projections share this policy. Tracing intake remains completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+Run artifacts may contain service, route, stage, queue, environment, and other operational labels
+or identifiers. Review and redact them before sharing outside the intended trust boundary;
+`tailtriage` does not automatically sanitize artifacts. Apply file-size and input-resource limits
+appropriate to the receiving environment. Exhaustive artifact input policy belongs to the
+[CLI README](../tailtriage-cli/README.md).
+
+Before interpreting a diagnosis, check:
+
+1. truncation and dropped counters;
+2. lifecycle and validation warnings;
+3. `evidence_quality` and signal availability;
+4. whether runtime evidence was intentionally collected;
+5. partial queue or stage events.
+
+Completed queue and stage distributions exclude partial observations. A partial duration is the
+observed lower bound from first poll until helper Drop, not proof that the underlying operation
+completed, failed, was cancelled, or stopped. Partial evidence can affect warnings, evidence
+quality, and ranking when selected. Tracing intake is completed-only.
+
+## 8. Analyze and choose one next check
+
+Use the [analyzer guide](analyzer-guide.md) for a practical report-to-next-check workflow and
+[diagnostics](diagnostics.md) for exact scoring, ordering, fallback, and field mechanics.
+
+Operationally:
+
+- suspect scores rank candidates inside one report; they are neither probabilities nor an absolute
+  severity scale across runs;
+- confidence is conditioned on available evidence, not causal certainty;
+- warnings and evidence quality bound how strongly to read the ranking;
+- `insufficient_evidence` is analyzer abstention, not proof that no bottleneck exists.
+
+Choose one next check that discriminates among plausible suspects. Examples include reducing one
+queue's contention, isolating one slow stage, or adding bounded runtime sampling. Change one thing
+rather than tuning multiple capture and service variables together.
+
+## 9. Troubleshoot weak or failed captures
+
+- **Ambiguous or insufficient report:** verify request boundaries and correlation, then add the
+  smallest missing queue, stage, or runtime signal. Analyzer tuning cannot repair absent evidence.
+- **Unexpectedly large artifact:** shorten the window, use light mode, lower the relevant effective
+  limit, or narrow labels. Preserve enough capacity for the evidence family under investigation.
+- **Too many runtime snapshots:** lengthen the sampling interval, shorten the window, or lower the
+  runtime-snapshot limit. Do not reinterpret absence after that change as zero pressure.
+- **Truncation:** treat retained evidence as partial and rerun with a better window/limit balance.
+- **Strict finalization failure:** find still-live or forgotten tokens and correct cleanup ordering;
+  ordinary open-capture Drop already resolves its lifecycle as cancellation.
+- **Tracing mismatch:** verify stable correlation and use Run JSON when complete run context is
+  required. Native capture is usually simpler for a new integration.
+
+## 10. Rerun under comparable conditions
+
+Preserve the workload shape, capture mode, effective limits, sampling choice, and analyzer config
+unless one of them is the deliberate change. Compare latency distributions, evidence availability,
+warnings, suspect ordering, and the evidence behind the selected suspect—not raw score alone.
+
+Movement after a mitigation supports or weakens the chosen next-check hypothesis within this
+controlled comparison. It is not formal causal proof. Runtime-cost and collector-limit results are
+also machine/workload/profile scoped; use the dedicated [runtime-cost](runtime-cost.md) and
+[collector-limits](collector-limits.md) pages rather than treating repository measurements as
+universal production guarantees.

@@ -1,88 +1,70 @@
-# Collector limits and stress guidance
+# Collector limits and pressure measurement
 
-This page describes the repository's sustained collector-stress measurement path.
+This page answers one question: how do bounded retention, truncation, artifact size, and resource
+signals behave as a synthetic collector workload increases? For per-mode runtime overhead, use
+[runtime cost](runtime-cost.md). For production capture choices, use [operations](operations.md).
 
-Use this path when you want to understand truncation onset, dropped-category progression, artifact-size growth, and memory trends under stress-shaped synthetic workloads.
+## What is measured
 
-For runtime-overhead attribution across fixed modes, use [runtime-cost.md](runtime-cost.md).
-For production rollout and operations decisions that combine limits behavior with capture-mode and troubleshooting guidance, see [operations.md](operations.md).
+`scripts/measure_collector_limits.py` runs the `demos/collector_stress` workload and records:
 
-## What this path measures
+- retained counts, `limits_hit`, and dropped counters by evidence family;
+- truncation onset and dropped-category progression;
+- throughput and latency;
+- artifact-size growth and peak-memory trends;
+- optional runtime-sampler density effects.
 
-The path runs the `demos/collector_stress` workload matrix through `scripts/measure_collector_limits.py` and records:
+Profiles have different jobs:
 
-- throughput and latency
-- retained counts and truncation/drop counters
-- artifact-size growth
-- peak memory trends
-- optional runtime sampler density effects
+- `smoke` is a quick bounded check;
+- `default` provides the deeper reference progression;
+- `artifact_scaling` focuses on bounded artifact-growth behavior.
 
-Profiles:
-
-- `default` (reference progression)
-- `artifact_scaling` (bounded scaling-focused progression)
-- `smoke` (quick validation)
-
-## What outputs it emits
-
-Artifacts are written under `demos/collector_stress/artifacts/`:
-
-- `collector-limits-<profile>-raw.jsonl`
-- `collector-limits-<profile>-summary.json`
-
-Summary output includes onset helpers such as:
-
-- first case where limits are hit
-- first case where each dropped category becomes non-zero
-- growth-threshold crossings for artifact size and memory
-
-## Interpreting onset and truncation signals
-
-Treat these as practical warning markers in the measured matrix:
-
-1. `limits_hit_runs > 0` means capture is no longer fully retained for that case.
-2. non-zero dropped counters show which data category saturates first (`requests`, `stages`, `queues`, `inflight`, `runtime`).
-3. once truncation is active, artifact bytes can flatten or invert because retained output is capped.
-
-Interpret artifact-size trends most confidently on mostly-unsaturated points.
-
-## Artifact-size and memory guidance (bounded claims)
-
-- Use growth trends as machine-scoped operating guidance, not universal limits.
-- Compare modes and cases with truncation context, not throughput alone.
-- Treat memory and artifact thresholds as conservative local indicators for your current machine/workload shape.
-
-## What this path does not prove
-
-It does not prove:
-
-- universal production behavior
-- fixed safe operating ranges for all environments
-- root cause certainty
-- analyzer warning or diagnosis downgrade behavior from partial or truncated evidence
-
-Like runtime-cost data, these are synthetic, machine-scoped, workload-scoped measurements from this repository.
-
-## Commands
-
-Default profile:
+## Reproduce the evidence
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile default
-```
-
-Artifact-scaling profile:
-
-```bash
 python3 scripts/measure_collector_limits.py --profile artifact_scaling
+python3 scripts/measure_collector_limits.py --profile smoke
 ```
 
-Quick smoke profile:
+Outputs under the selected artifact directory include
+`collector-limits-<profile>-raw.jsonl` and
+`collector-limits-<profile>-summary.json`. The summary identifies the first case with limits hit,
+the first non-zero drop for each category, and artifact-size or memory growth-threshold crossings.
+
+## CI and manual boundary
+
+For an applicable code-changing pull request or `workflow_dispatch`, the operational CI job runs:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile smoke
 ```
 
-## Operational collector-limit validation
+That bounded smoke checks the runner and visible retention/truncation/drop behavior on the CI
+machine. The deeper `default` and `artifact_scaling` characterizations are manual/local. Generated
+outputs are checked in their selected directories and are not uploaded as durable CI artifacts by
+default.
 
-Use `python3 scripts/measure_collector_limits.py` for manual/local limit-pressure validation. The bounded claim covers retained counts, truncation and dropped-category counters, and measured pressure-onset and resource behavior; it does **not** claim the collector never drops. Analyzer warning and diagnosis-downgrade behavior for partial or truncated evidence is validated separately by analyzer tests and the deterministic diagnostic corpus.
+## Interpret onset and resource signals
+
+1. `limits_hit_runs > 0` marks a case in which the capture was not fully retained.
+2. Non-zero dropped counters identify which family—requests, stages, queues, in-flight, or
+   runtime—reached its bound.
+3. Unsaturated points are the clearest basis for interpreting artifact-size growth.
+4. After retention caps saturate, artifact bytes can flatten or fall even while workload pressure
+   grows. That is a cap effect, not evidence that load diminished.
+5. Compare memory, artifact, throughput, and latency together and within the same profile.
+
+Truncated retained evidence is partial. This path characterizes visibility of retention and drops;
+analyzer tests and the deterministic corpus separately own warning, evidence-quality, and diagnosis
+downgrade behavior for partial or truncated input.
+
+## What the measurement does not prove
+
+Results are synthetic and machine/workload/profile scoped. They do not establish a universal safe
+operating range, universal artifact or memory thresholds, root-cause certainty, or "no drops."
+Sampler-density results likewise describe only the selected workload and cadence.
+
+The concrete domain owner for runner/output mechanics is
+[`validation/collector-limits/README.md`](../validation/collector-limits/README.md).
