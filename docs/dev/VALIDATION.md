@@ -40,7 +40,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 |---|---|---:|---:|
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
-| `cargo doc --workspace --all-features --no-deps --locked` | Rendered public documentation and warning proof | Yes, release Linux Cargo matrix | No |
+| `cargo doc --workspace --all-features --no-deps --locked` | Rendered public documentation and warning proof | Yes, `docs contracts` | No |
 | Workspace and minimal feature-specific Rustdoc doctests | Public Rustdoc/package README examples and distinct documented feature boundaries | Yes, `docs contracts` | No |
 | `scripts/smoke_public_examples.py --check-markdown` | Actual selected root README and user-guide onboarding Rust fence bytes | Yes, `docs contracts` | No |
 | `scripts/smoke_public_examples.py` | Six durable executable examples, Run artifacts, and CLI analysis | Yes, `validation / deterministic` | No |
@@ -58,9 +58,9 @@ contracts` job owns documentation, source-policy, and invariant-linkage checks.
 `scripts/generate_diagnostic_scorecard.py` owns local/manual provenance-rich scorecard generation;
 its outputs are local evidence unless a maintainer separately archives them.
 
-Documentation proof is deliberately split by artifact. The release Linux Cargo row renders docs
-with warnings denied but does not execute Rustdoc examples. The `docs contracts` job runs the one
-workspace all-feature doctest pass for Rustdoc and published crate README Rust fences, plus minimal
+Documentation proof is deliberately split by artifact. The `docs contracts` job renders public
+documentation with warnings denied and runs the one workspace all-feature doctest pass for Rustdoc
+and published crate README Rust fences, plus minimal
 feature rows that expose documented surfaces which an all-feature build can mask. That same job
 extracts the explicitly anchored `rust,no_run` fences from the root README and user guide and
 compiles their actual bytes as temporary downstream consumers. The default public-example smoke
@@ -74,7 +74,7 @@ Structural navigation and published-README source/link policy remain owned by
 ### Normal CI ownership and cadence
 
 Normal mandatory CI runs on relevant pull requests. The Cargo matrix owns cross-platform dev and
-release Cargo proof, including release documentation and dependency-policy checks. Independent
+release Cargo proof, including dependency-policy checks. Independent
 Linux jobs run after changed-path detection: `validation / deterministic` owns the deterministic
 corpus, fixture, and public-example checks; `validation / live` owns release demo validation and
 live tracing parity; and `validation / operational` owns bounded runtime-cost and collector-limit

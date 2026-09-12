@@ -102,6 +102,10 @@ jobs:
         run: python3 scripts/validate_invariant_proofs.py
       - name: Validate invariant proof helper unit tests
         run: python3 -m unittest scripts.tests.test_validate_invariant_proofs
+      - name: Render workspace Rustdoc with warnings denied
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --all-features --no-deps --locked
       - name: Compile workspace Rustdoc and package README examples
         run: cargo test --workspace --doc --all-features --locked
       - name: Compile facade feature-boundary documentation
@@ -168,11 +172,6 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked ${{ matrix.profile == 'release' && '--release' || '' }} -- -D warnings
       - name: Cargo test
         run: cargo test --workspace --all-targets --all-features --locked ${{ matrix.profile == 'release' && '--release' || '' }}
-      - name: Cargo doc
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release'
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --all-features --no-deps --locked
       - name: Cargo deny
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release'
         run: cargo deny check
