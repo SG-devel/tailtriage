@@ -275,10 +275,17 @@ def verify_recorded_plan(output: Path, experiments: list[dict[str, Any]],
 
 def ensure_output(output: Path) -> Path:
     output = output.resolve()
+    target = (REPO / "target").resolve()
     try:
-        output.relative_to(REPO.resolve())
+        relative = output.relative_to(target)
     except ValueError as error:
-        raise SystemExit(f"--output must be under repository root {REPO}") from error
+        raise SystemExit(
+            f"--output must be a directory beneath repository target/ ({target})"
+        ) from error
+    if not relative.parts:
+        raise SystemExit(
+            f"--output must be a directory beneath repository target/ ({target})"
+        )
     return output
 
 

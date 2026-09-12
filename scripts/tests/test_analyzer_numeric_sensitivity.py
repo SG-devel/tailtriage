@@ -75,11 +75,25 @@ class AnalyzerNumericSensitivityTests(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), (second / "inputs" / path.name).read_bytes())
 
     # TT-TEST: support
-    def test_output_must_stay_under_repository(self):
-        inside = sensitivity.ensure_output(sensitivity.REPO / "target" / "custom")
-        self.assertTrue(inside.is_relative_to(sensitivity.REPO.resolve()))
-        with self.assertRaises(SystemExit):
-            sensitivity.ensure_output(Path(tempfile.gettempdir()) / "outside-tailtriage")
+    def test_output_must_be_beneath_repository_target(self):
+        target = sensitivity.REPO / "target"
+        accepted = [target / "custom", target / "nested" / "custom"]
+        for path in accepted:
+            with self.subTest(path=path):
+                self.assertEqual(sensitivity.ensure_output(path), path.resolve())
+
+        rejected = [
+            sensitivity.REPO,
+            target,
+            sensitivity.REPO / "docs" / "analyzer-numeric-sensitivity",
+            sensitivity.REPO / "scripts" / "analyzer-numeric-sensitivity",
+            target / "custom" / ".." / ".." / "docs" / "escaped",
+            Path(tempfile.gettempdir()) / "outside-tailtriage",
+        ]
+        for path in rejected:
+            with self.subTest(path=path), self.assertRaisesRegex(
+                    SystemExit, r"--output must be a directory beneath repository target/"):
+                sensitivity.ensure_output(path)
 
     # TT-TEST: support
     def test_recorded_plan_and_inputs_verify(self):
