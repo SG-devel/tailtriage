@@ -227,7 +227,7 @@ Analyzer output includes:
 - p50/p95/p99 request latency
 - p95 queue/service share summaries
 - warnings, including analyzer/report warnings such as truncation and evidence-quality limitations
-- canonical core validation warnings in permissive analysis when generic completed-Run evidence is excluded, repaired, or precision-limited
+- canonical core validation warnings in permissive analysis when generic Run evidence is excluded, canonicalized, or precision-limited
 - primary and secondary suspects with evidence and next checks
 
 Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, all ambiguity-cluster members are capped uniformly, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
