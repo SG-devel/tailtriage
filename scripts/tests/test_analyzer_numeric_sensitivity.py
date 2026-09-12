@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts import analyzer_numeric_sensitivity as sensitivity
 
@@ -114,6 +115,21 @@ class AnalyzerNumericSensitivityTests(unittest.TestCase):
         def mutate(output, _experiments, _inputs):
             (output / "inputs" / "stale.json").write_text("{}\n", encoding="utf-8")
         self.assert_recorded_plan_rejected(mutate)
+
+    # TT-TEST: support
+    def test_run_rejects_stale_input_before_analyzer_execution(self):
+        (sensitivity.REPO / "target").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=sensitivity.REPO / "target") as directory:
+            output = Path(directory)
+            (output / "inputs").mkdir()
+            (output / "inputs" / "stale.json").write_text("{}\n", encoding="utf-8")
+            with mock.patch.object(sensitivity, "execute") as execute, \
+                 mock.patch("sys.stderr") as stderr:
+                result = sensitivity.main(["--output", str(output), "run", "--skip-build"])
+            self.assertEqual(result, 1)
+            self.assertIn("verification failed", "".join(call.args[0]
+                          for call in stderr.write.call_args_list if call.args))
+            execute.assert_not_called()
 
     # TT-TEST: support
     def test_current_generator_input_drift_is_rejected(self):

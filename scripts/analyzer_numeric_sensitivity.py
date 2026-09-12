@@ -457,11 +457,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "plan":
         write_plan(output); print("generated 108 experiments"); return 0
     if args.command == "run":
-        experiments, _ = write_plan(output)
-        if not args.skip_build:
-            subprocess.run(["cargo", "build", "-p", "tailtriage-cli", "--locked"], cwd=REPO,
-                           shell=False, check=True)
-        execute(output, experiments); print("ran and verified 108 experiments"); return 0
+        experiments, inputs = write_plan(output)
+        try:
+            verify_recorded_plan(output, experiments, inputs)
+            if not args.skip_build:
+                subprocess.run(["cargo", "build", "-p", "tailtriage-cli", "--locked"], cwd=REPO,
+                               shell=False, check=True)
+            execute(output, experiments)
+        except (OSError, json.JSONDecodeError, VerificationError) as error:
+            print(f"verification failed: {error}", file=sys.stderr)
+            return 1
+        print("ran and verified 108 experiments"); return 0
     experiments, inputs = generate_plan()
     try:
         verify_recorded_plan(output, experiments, inputs)
