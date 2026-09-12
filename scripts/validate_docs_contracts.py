@@ -82,6 +82,26 @@ def markdown_http_autolinks(markdown: str) -> set[str]:
     return set(re.findall(r"<(https?://[^<>\s]+)>", markdown, flags=re.IGNORECASE))
 
 
+def markdown_outside_fenced_code(markdown: str) -> str:
+    """Return Markdown lines outside ordinary backtick fenced code blocks."""
+    rendered_lines: list[str] = []
+    fence_length: int | None = None
+    for line in markdown.splitlines():
+        if fence_length is None:
+            opening = re.match(r"^[ \t]{0,3}(`{3,})(?:[^`]*)$", line)
+            if opening is not None:
+                fence_length = len(opening.group(1))
+                continue
+            rendered_lines.append(line)
+            continue
+
+        closing = re.match(r"^[ \t]{0,3}(`+)[ \t]*$", line)
+        if closing is not None and len(closing.group(1)) >= fence_length:
+            fence_length = None
+
+    return "\n".join(rendered_lines)
+
+
 def resolve_local_markdown_destination(
     document: Path, destination: str, *, repo_root: Path = REPO_ROOT
 ) -> Path | None:
@@ -109,7 +129,7 @@ def github_heading_slugs(markdown: str) -> set[str]:
     """Return the GitHub-style slugs for ATX headings, including duplicate suffixes."""
     slugs: set[str] = set()
     occurrences: dict[str, int] = {}
-    for line in markdown.splitlines():
+    for line in markdown_outside_fenced_code(markdown).splitlines():
         match = re.match(r"^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", line)
         if match is None:
             continue
@@ -134,12 +154,15 @@ def validate_public_markdown_links(
     errors: list[str] = []
     for document in documents:
         markdown = document.read_text(encoding="utf-8")
-        destinations = markdown_links(markdown) | markdown_reference_destinations(markdown)
+        rendered_markdown = markdown_outside_fenced_code(markdown)
+        destinations = markdown_links(rendered_markdown) | markdown_reference_destinations(
+            rendered_markdown
+        )
         for destination in sorted(destinations):
             target = resolve_local_markdown_destination(
                 document, destination, repo_root=repo_root
             )
-            if target is None or target.suffix.lower() != ".md":
+            if target is None:
                 continue
             display_document = (
                 document.relative_to(repo_root)
@@ -148,6 +171,8 @@ def validate_public_markdown_links(
             )
             if not target.is_file():
                 errors.append(f"{display_document}: missing local file: {destination}")
+                continue
+            if target.suffix.lower() != ".md":
                 continue
             fragment = unquote(urlsplit(destination).fragment)
             if fragment and fragment not in github_heading_slugs(

@@ -860,6 +860,26 @@ pub enum DiagnosisKind {
                 validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
 
     # TT-TEST: support
+    def test_public_markdown_links_accept_valid_local_toml_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('[Config](examples/analyzer-config.toml)\n', encoding='utf-8')
+            target = root / 'examples' / 'analyzer-config.toml'
+            target.parent.mkdir()
+            target.write_text('[analyzer]\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_reject_missing_local_toml_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('[Config](examples/analyzer-config.toml)\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'missing local file'):
+                validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
     def test_public_markdown_links_accept_valid_same_file_fragment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -900,6 +920,26 @@ pub enum DiagnosisKind {
             root = Path(tmp_dir)
             source = root / 'guide.md'
             source.write_text('# Check\n\n## Check\n\n[Second](#check-1)\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_ignore_heading_inside_fenced_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text(
+                '```bash\n# Not a real heading\n```\n\n[Jump](#not-a-real-heading)\n',
+                encoding='utf-8',
+            )
+            with self.assertRaisesRegex(ValueError, 'missing heading fragment'):
+                validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_ignore_link_inside_fenced_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('```text\n[Example](missing.md)\n```\n', encoding='utf-8')
             validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
 
     # TT-TEST: M01 primary
