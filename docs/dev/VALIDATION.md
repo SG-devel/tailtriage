@@ -46,6 +46,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/smoke_public_examples.py` | Six durable executable examples, Run artifacts, and CLI analysis | Yes, `validation / deterministic` | No |
 | `scripts/validate_invariant_proofs.py` | Mechanical invariant/test linkage consistency | Yes | No |
 | `scripts/generate_diagnostic_scorecard.py` | Deterministic scorecard generation; provenance-rich snapshots are local/manual | Generator smoke in applicable deterministic CI; full snapshot local/manual | No |
+| `scripts/analyzer_numeric_sensitivity.py` | Deterministic synthetic analyzer sensitivity characterization around selected numeric defaults | No, manual/local | Local outputs only under `target/` |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/demo_tool.py mitigation-report` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/measure_runtime_cost.py` | Runtime-cost operational validation | Manual/local; bounded smoke runs in CI | No |
@@ -143,6 +144,30 @@ The corpus includes deterministic adversarial validation that checks sparse, mis
 It writes raw JSONL run records plus summary JSON (and optional Markdown scorecard) for stability metrics including top-1 accuracy, top-2 recall, high-confidence-wrong count, per-scenario primary stability, confidence bucket accuracy, and p95/p99 latency distribution summaries.
 
 This repeated-run validation is manual/local (not mandatory CI). Publishable repeated-run outputs are generated locally and are not committed by default. Results are machine/workload scoped.
+
+## Analyzer numeric sensitivity (manual/local)
+
+Use the reusable deterministic sensitivity harness when reviewing analyzer
+numeric or default changes:
+
+```bash
+python3 scripts/analyzer_numeric_sensitivity.py run
+python3 scripts/analyzer_numeric_sensitivity.py verify
+```
+
+The script generates schema-v2 synthetic Runs, builds the CLI once, invokes the
+built binary across nearby boundaries, retains raw output, and writes a compact
+normalized projection under `target/analyzer-numeric-sensitivity/`. `verify`
+reruns the recorded commands and checks input/output hashes, normalized results,
+and the aggregate hash. Outputs are local and are not committed.
+
+This is supplemental, manual/local sensitivity and reproducibility
+characterization. It is not mandatory CI, a production calibration benchmark,
+a root-cause proof, a universal-accuracy claim, a release gate by itself, or a
+replacement for the committed diagnostic corpus. Typed Rust tests and the
+committed corpus remain the regression and correctness owners. The synthetic
+matrix exposes current boundary behavior; it does not establish production
+truth or causality.
 
 ## Live-demo mitigation validation (manual/local)
 `scripts/demo_tool.py mitigation-report` runs paired baseline/mitigated controlled demo scenarios and compares latency plus evidence movement for targeted mitigations.
