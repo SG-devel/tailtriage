@@ -57,7 +57,7 @@ Adds optional Axum request-boundary ergonomics (middleware + extractor).
 
 ### `tailtriage-analyzer`
 
-Owns in-process analysis/report generation from completed runs:
+Owns in-process analysis/report generation from typed `Run` values:
 
 - typed `Report` model
 - `analyze_run` entry point
