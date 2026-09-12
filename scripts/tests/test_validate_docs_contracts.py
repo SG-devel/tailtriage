@@ -840,6 +840,68 @@ pub enum DiagnosisKind {
             with self.assertRaisesRegex(ValueError, 'escapes repository root'):
                 validate_docs_contracts.validate_analyzer_ownership_navigation(required_links={source: ('../outside.md',)}, repo_root=repo_root)
 
+    # TT-TEST: support
+    def test_public_markdown_links_accept_valid_relative_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'docs' / 'guide.md'
+            source.parent.mkdir()
+            source.write_text('[Details](details.md)\n', encoding='utf-8')
+            (source.parent / 'details.md').write_text('# Details\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_reject_missing_local_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('[Missing](missing.md)\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'missing local file'):
+                validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_accept_valid_same_file_fragment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('# Next Check\n\n[Jump](#next-check)\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_accept_valid_cross_file_fragment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            target = root / 'details.md'
+            source.write_text('[Jump](details.md#next-check)\n', encoding='utf-8')
+            target.write_text('# Next Check\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_reject_missing_fragment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('# Existing\n\n[Jump](#missing)\n', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'missing heading fragment'):
+                validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_ignore_external_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('[External](https://example.com/missing.md#missing)\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
+    # TT-TEST: support
+    def test_public_markdown_links_accept_duplicate_heading_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / 'guide.md'
+            source.write_text('# Check\n\n## Check\n\n[Second](#check-1)\n', encoding='utf-8')
+            validate_docs_contracts.validate_public_markdown_links(documents=(source,), repo_root=root)
+
     # TT-TEST: M01 primary
     def test_docs_index_contract(self) -> None:
         validate_docs_contracts.validate_docs_index_contract()

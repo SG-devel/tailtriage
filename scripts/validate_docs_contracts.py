@@ -10,7 +10,7 @@ import shlex
 import tomllib
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
@@ -103,6 +103,60 @@ def resolve_local_markdown_destination(
             f"{document} Markdown destination escapes repository root: {destination}"
         ) from error
     return resolved
+
+
+def github_heading_slugs(markdown: str) -> set[str]:
+    """Return the GitHub-style slugs for ATX headings, including duplicate suffixes."""
+    slugs: set[str] = set()
+    occurrences: dict[str, int] = {}
+    for line in markdown.splitlines():
+        match = re.match(r"^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", line)
+        if match is None:
+            continue
+        heading = re.sub(r"<[^>]*>", "", match.group(1)).lower()
+        base = re.sub(r"[^\w\s-]", "", heading, flags=re.UNICODE)
+        base = re.sub(r"\s", "-", base)
+        duplicate_index = occurrences.get(base, 0)
+        occurrences[base] = duplicate_index + 1
+        slugs.add(base if duplicate_index == 0 else f"{base}-{duplicate_index}")
+    return slugs
+
+
+def validate_public_markdown_links(
+    *, documents: tuple[Path, ...] | None = None, repo_root: Path = REPO_ROOT
+) -> None:
+    """Validate local Markdown files and heading fragments linked by public docs."""
+    if documents is None:
+        documents = tuple(
+            sorted(repo_root / path for path in repo_markdown_files())
+        ) + (DOCS_INDEX_PATH,)
+
+    errors: list[str] = []
+    for document in documents:
+        markdown = document.read_text(encoding="utf-8")
+        destinations = markdown_links(markdown) | markdown_reference_destinations(markdown)
+        for destination in sorted(destinations):
+            target = resolve_local_markdown_destination(
+                document, destination, repo_root=repo_root
+            )
+            if target is None or target.suffix.lower() != ".md":
+                continue
+            display_document = (
+                document.relative_to(repo_root)
+                if document.is_relative_to(repo_root)
+                else document
+            )
+            if not target.is_file():
+                errors.append(f"{display_document}: missing local file: {destination}")
+                continue
+            fragment = unquote(urlsplit(destination).fragment)
+            if fragment and fragment not in github_heading_slugs(
+                target.read_text(encoding="utf-8")
+            ):
+                errors.append(f"{display_document}: missing heading fragment: {destination}")
+
+    if errors:
+        raise ValueError("invalid public Markdown links:\n" + "\n".join(errors))
 
 
 def has_markdown_heading(markdown: str, heading_pattern: str) -> bool:
@@ -1137,6 +1191,7 @@ def main() -> int:
     validate_residual_public_api_cleanup()
     validate_controller_readme_toml()
     validate_docs_index_contract()
+    validate_public_markdown_links()
     validate_root_readme_docs_link()
     validate_analyzer_config_example_contract()
     validate_cli_not_presented_as_library_analyzer_api()
