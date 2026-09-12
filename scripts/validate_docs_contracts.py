@@ -540,17 +540,28 @@ def _workflow_indented_list(workflow_text: str, *, key: str, indent: int) -> set
 
 
 def validate_ci_proof_input_routing(*, workflow_path: Path = CI_WORKFLOW_PATH) -> None:
-    """Require executable non-Rust proof inputs in both CI routing layers."""
+    """Require an unfiltered PR trigger and proof inputs in operational routing."""
     workflow_text = workflow_path.read_text(encoding="utf-8")
-    routes = {
-        "pull_request.paths": _workflow_indented_list(workflow_text, key="paths", indent=4),
-        "changes -> code": _workflow_indented_list(workflow_text, key="code", indent=12),
-    }
+    lines = workflow_text.splitlines()
+    try:
+        trigger_start = lines.index("  pull_request:") + 1
+    except ValueError as error:
+        raise ValueError(".github/workflows/ci.yml is missing pull_request trigger") from error
+
     errors = []
-    for route, patterns in routes.items():
-        missing = [pattern for pattern in CI_PROOF_INPUT_PATTERNS if pattern not in patterns]
-        if missing:
-            errors.append(f"{route} is missing: {', '.join(missing)}")
+    for line in lines[trigger_start:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= 2:
+            break
+        if line.strip() in {"paths:", "paths-ignore:"}:
+            errors.append(f"pull_request trigger must not use {line.strip()}")
+
+    patterns = _workflow_indented_list(workflow_text, key="code", indent=12)
+    missing = [pattern for pattern in CI_PROOF_INPUT_PATTERNS if pattern not in patterns]
+    if missing:
+        errors.append(f"changes -> code is missing: {', '.join(missing)}")
     if errors:
         raise ValueError("CI proof-input routing contract failed:\n" + "\n".join(errors))
 

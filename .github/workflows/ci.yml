@@ -2,31 +2,6 @@ name: CI
 
 on:
   pull_request:
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "**/build.rs"
-      - "deny.toml"
-      - "rustfmt.toml"
-      - "clippy.toml"
-      - ".cargo/**/*.toml"
-      - "examples/analyzer-config.toml"
-      - "scripts/**/*.py"
-      - "demos/**/fixtures/**/*.json"
-      - "tailtriage-analyzer/tests/fixtures/**/*.json"
-      - "tailtriage-analyzer/tests/expected/**/*.json"
-      - "tailtriage-tracing/tests/fixtures/**/*.json"
-      - "tailtriage-tracing/tests/fixtures/**/*.jsonl"
-      - "tailtriage-tracing/tests/expected/**/*.json"
-      - "tailtriage-tracing/examples/**/*.jsonl"
-      - "validation/**/*.json"
-      - "validation/**/*.jsonl"
-      - "**/*.md"
-      - "rust-toolchain"
-      - "rust-toolchain.toml"
-      - ".github/workflows/**/*.yml"
-      - ".github/workflows/**/*.yaml"
   workflow_dispatch:
 
 concurrency:
@@ -40,7 +15,8 @@ env:
   CARGO_TERM_COLOR: always
 
 # CI policy:
-# - Relevant pull requests run mandatory CI; workflow_dispatch provides a manual full run.
+# - All pull requests run path detection and CI required; expensive validation is path-routed.
+#   workflow_dispatch provides a manual full run.
 # - Docs contracts owns rendered public documentation/Rustdoc warning proof; the Cargo matrix owns
 #   cross-platform dev/release Cargo proof and release dependency policy.
 # - Independent deterministic, live, and bounded operational Linux proof runs in parallel after path detection.
@@ -337,16 +313,22 @@ jobs:
           LIVE_RESULT: ${{ needs.live.result }}
           OPERATIONAL_RESULT: ${{ needs.operational.result }}
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
+          DOCS_CHANGED: ${{ needs.changes.outputs.docs }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           test "$CHANGES_RESULT" = success
-          test "$DOCS_RESULT" = success
           if [ "$EVENT_NAME" = workflow_dispatch ] || [ "$CODE_CHANGED" = true ]; then
+            test "$DOCS_RESULT" = success
             test "$CARGO_RESULT" = success
             test "$DETERMINISTIC_RESULT" = success
             test "$LIVE_RESULT" = success
             test "$OPERATIONAL_RESULT" = success
           else
+            if [ "$DOCS_CHANGED" = true ]; then
+              test "$DOCS_RESULT" = success
+            else
+              test "$DOCS_RESULT" = skipped
+            fi
             test "$CARGO_RESULT" = skipped
             test "$DETERMINISTIC_RESULT" = skipped
             test "$LIVE_RESULT" = skipped
