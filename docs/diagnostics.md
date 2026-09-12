@@ -46,9 +46,7 @@ owns item-level API details; this document owns analyzer interpretation.
 For a nonempty ascending series of length `n`, percentile `p/q` selects index
 `ceil((n - 1) * p / q)`, clamped to `n - 1`. Empty input produces no
 percentile. Thus all p95 values below use `ceil((n - 1) * 95 / 100)`; this is
-not interpolation. At p95, series of 19 and 20 values select the maximum; a
-series of 21 selects the second-highest value. The rationale and small-sample
-limitations are cataloged in [AN-PCTL-001](dev/analyzer-rationale.md#an-pctl-001--deterministic-non-interpolated-percentiles).
+not interpolation.
 
 | Unit | Use |
 | --- | --- |
@@ -93,16 +91,10 @@ sample contribution is:
 | `40..=99` | 5 |
 | `100+` | 8 |
 
-These are active score steps, not statistical-sufficiency claims. See
-[AN-SCORE-002](dev/analyzer-rationale.md#an-score-002--shared-sample-quality-contribution).
-
 ## Candidate eligibility and scoring
 
 Every formula is finally clamped to `0..=100`. A “soft cap” is applied before
-that clamp unless the stated clean-extreme condition holds. Shares are clamped
-to `0..=1000` permille. When no diagnosis candidate is eligible, the
-`insufficient_evidence` fallback has score 50 and is ordered after eligible
-diagnosis candidates. See [AN-SCORE-001](dev/analyzer-rationale.md#an-score-001--bounded-score-representation-and-fallback).
+that clamp unless the stated clean-extreme condition holds.
 
 ### Application queue pressure
 
@@ -126,11 +118,6 @@ and whether the selected value is a lower bound. Next checks target admission,
 producer bursts, and a controlled parallelism comparison. Selecting the
 lower-bound candidate caps confidence at Medium.
 
-The trigger controls eligibility only; once admitted, the configured trigger
-does not enter the score formula. Retention rationale is in
-[AN-QUEUE-001](dev/analyzer-rationale.md#an-queue-001--queue-eligibility-and-score-geometry)
-and [AN-QUEUE-002](dev/analyzer-rationale.md#an-queue-002--queue-cap-and-clean-extreme).
-
 ### Blocking-pool pressure
 
 The evidence series is present `blocking_queue_depth` values. Let `P` be p95,
@@ -144,9 +131,6 @@ score = 32 + min(P, 24) + floor(min(K, 24) / 2)
 ```
 
 The score is soft-capped at 94 unless `P >= 16`, `K >= 24`, and `Z >= 900`.
-Under this formula the raw mathematical maximum is
-`32 + 24 + 12 + 12 + 8 = 88`, so neither the 94 cap nor its current
-clean-extreme bypass can affect output.
 Evidence reports p95, peak, and `N/T`; next checks audit synchronous hot-path
 work and `spawn_blocking` call sites. The configurable “strong blocking” test
 requires all of `blocking.strong_p95_threshold`, `strong_peak_threshold`,
@@ -155,8 +139,6 @@ the blocking score; it controls correlation with blocking-looking downstream
 stage names.
 
 Runtime truncation or missing/partial key runtime fields can cap confidence.
-See [AN-BLOCK-001](dev/analyzer-rationale.md#an-block-001--persistent-blocking-eligibility-and-score)
-and [AN-BLOCK-002](dev/analyzer-rationale.md#an-block-002--blocking-cap-and-strong-correlation-gates).
 
 ### Executor pressure
 
@@ -198,10 +180,6 @@ Eligibility is normalized p95 `R` at least
 | `4000..=7999` | 40 |
 | `8000+` | 55 |
 
-These bands are step functions: reaching an inclusive lower edge applies the
-new contribution without interpolation. Their retention rationale is in
-[AN-EXEC-002](dev/analyzer-rationale.md#an-exec-002--worker-normalized-eligibility-and-bands).
-
 ```text
 score = 34 + normalized_queue_contribution(R) + G + S
 ```
@@ -232,10 +210,6 @@ uses the same formula without inventing a worker count, but caps confidence at
 Medium. Evidence names the scoring mode and relevant limitation. Next checks
 target long non-yielding polls, fanout, and stage isolation.
 
-Worker-evidence compatibility rationale is in
-[AN-EXEC-001](dev/analyzer-rationale.md#an-exec-001--worker-evidence-classification)
-and [AN-EXEC-003](dev/analyzer-rationale.md#an-exec-003--absolute-depth-compatibility-scoring).
-
 ### Downstream-stage dominance
 
 Each completed or observed-lower-bound stage summary is eligible when its
@@ -261,13 +235,6 @@ at most `blocking_score - downstream.blocking_correlation_score_margin`
 states the correlation so blocking pressure stays prioritized. Otherwise next
 checks target the named dependency, retries, and its SLO. Selecting a partial
 stage path caps confidence at Medium.
-
-Three distinct attributed requests therefore admit a candidate. If Run-level
-request evidence is otherwise mature and those requests dominate tail and
-cumulative shares, that candidate can reach High confidence; no separate
-stage-sample confidence cap applies. See
-[AN-DOWN-001](dev/analyzer-rationale.md#an-down-001--distinct-request-eligibility-and-score)
-through [AN-DOWN-003](dev/analyzer-rationale.md#an-down-003--blocking-correlated-stage-margin).
 
 ## Confidence, ambiguity, and final ordering
 
@@ -306,11 +273,6 @@ descending, and this stable kind tie order:
 
 Raw-score ambiguity intentionally uses different input from final visible
 ordering; a lower raw score can appear first if it retains higher confidence.
-At defaults, scores below 65 begin Low, 65 through 84 begin Medium, and 85 or
-higher begin High. These are score buckets, not probabilities. The ambiguity
-minimum is 60 and its inclusive maximum raw-score gap is 4. See
-[AN-CONF-001](dev/analyzer-rationale.md#an-conf-001--confidence-buckets) and
-[AN-RANK-001](dev/analyzer-rationale.md#an-rank-001--confidence-first-ordering-and-ambiguity).
 
 ## Warnings, confidence notes, and evidence quality
 
@@ -364,12 +326,6 @@ request count descending, then route ascending; it truncates to
 `route.breakdown_limit`. A route-scoped warning notes low-volume omitted routes.
 The global divergence warning considers only emitted breakdowns.
 
-Defaults are at least 3 requests per route, at least 2 eligible routes, a
-10-entry output limit, slowest:fastest p95 `>=3/2`, and slowest:global p95
-`>=5/4`. The structural and materiality roles are separated in
-[AN-ROUTE-001](dev/analyzer-rationale.md#an-route-001--structural-route-minimum-and-bounded-output)
-and [AN-ROUTE-002](dev/analyzer-rationale.md#an-route-002--route-materiality-gates).
-
 ### Temporal segments
 
 Temporal analysis needs `temporal.min_request_count` completed requests and at
@@ -394,12 +350,6 @@ supporting p95, queue-share, or service-share movement. Large p95 and enabled
 suspect shifts add global warnings. Unix fallback, sparse runtime-dependent
 interpretation, and concurrent early/late window overlap add segment warnings;
 overlap makes timestamp attribution approximate.
-
-Defaults are 20 total requests, 8 requests per segment, an inclusive 200
-permille share movement, and an inclusive `3/2` p95 ratio. At the minimum
-total, each half has 10 requests; p95 at either 8 or 10 samples selects that
-segment's maximum, so one observation can control it. See
-[AN-TEMP-001](dev/analyzer-rationale.md#an-temp-001--temporal-structure-and-movement).
 
 ## Analyzer tuning and configuration transparency
 

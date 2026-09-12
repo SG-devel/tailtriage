@@ -7,6 +7,15 @@ from scripts import analyzer_numeric_sensitivity as sensitivity
 
 
 class AnalyzerNumericSensitivityTests(unittest.TestCase):
+    def assert_recorded_plan_rejected(self, mutate):
+        (sensitivity.REPO / "target").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=sensitivity.REPO / "target") as directory:
+            output = Path(directory)
+            experiments, inputs = sensitivity.write_plan(output)
+            mutate(output, experiments, inputs)
+            with self.assertRaises(sensitivity.VerificationError):
+                sensitivity.verify_recorded_plan(output, experiments, inputs)
+
     # TT-TEST: support
     def test_plan_has_stable_unique_matrix(self):
         experiments, inputs = sensitivity.generate_plan()
@@ -70,6 +79,47 @@ class AnalyzerNumericSensitivityTests(unittest.TestCase):
         self.assertTrue(inside.is_relative_to(sensitivity.REPO.resolve()))
         with self.assertRaises(SystemExit):
             sensitivity.ensure_output(Path(tempfile.gettempdir()) / "outside-tailtriage")
+
+    # TT-TEST: support
+    def test_recorded_plan_and_inputs_verify(self):
+        (sensitivity.REPO / "target").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=sensitivity.REPO / "target") as directory:
+            output = Path(directory)
+            experiments, inputs = sensitivity.write_plan(output)
+            sensitivity.verify_recorded_plan(output, experiments, inputs)
+
+    # TT-TEST: support
+    def test_mutated_recorded_plan_is_rejected(self):
+        def mutate(output, _experiments, _inputs):
+            path = output / "experiment-plan.csv"
+            path.write_bytes(path.read_bytes().replace(b"P95-19", b"P95-X9", 1))
+        self.assert_recorded_plan_rejected(mutate)
+
+    # TT-TEST: support
+    def test_mutated_recorded_input_is_rejected(self):
+        def mutate(output, _experiments, _inputs):
+            path = output / "inputs" / "p95-19.json"
+            path.write_bytes(path.read_bytes().replace(b'"latency_us":1000',
+                                                       b'"latency_us":1001', 1))
+        self.assert_recorded_plan_rejected(mutate)
+
+    # TT-TEST: support
+    def test_missing_recorded_input_is_rejected(self):
+        def mutate(output, _experiments, _inputs):
+            (output / "inputs" / "p95-19.json").unlink()
+        self.assert_recorded_plan_rejected(mutate)
+
+    # TT-TEST: support
+    def test_extra_recorded_input_is_rejected(self):
+        def mutate(output, _experiments, _inputs):
+            (output / "inputs" / "stale.json").write_text("{}\n", encoding="utf-8")
+        self.assert_recorded_plan_rejected(mutate)
+
+    # TT-TEST: support
+    def test_current_generator_input_drift_is_rejected(self):
+        def mutate(_output, _experiments, inputs):
+            inputs["p95-19"]["requests"][0]["latency_us"] += 1
+        self.assert_recorded_plan_rejected(mutate)
 
 
 if __name__ == "__main__":
