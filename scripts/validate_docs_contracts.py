@@ -23,6 +23,16 @@ ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 ANALYZER_CONFIG_EXAMPLE_PATH = REPO_ROOT / "examples" / "analyzer-config.toml"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+CI_PROOF_INPUT_PATTERNS = (
+    "examples/analyzer-config.toml",
+    "demos/**/fixtures/**/*.json",
+    "tailtriage-analyzer/tests/fixtures/**/*.json",
+    "tailtriage-analyzer/tests/expected/**/*.json",
+    "tailtriage-tracing/tests/fixtures/**/*.json",
+    "tailtriage-tracing/tests/fixtures/**/*.jsonl",
+    "tailtriage-tracing/tests/expected/**/*.json",
+    "tailtriage-tracing/examples/**/*.jsonl",
+)
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
@@ -505,6 +515,44 @@ def _workflow_step_blocks(workflow_text: str) -> list[str]:
 
     starts.append(len(workflow_text))
     return [workflow_text[starts[index] : starts[index + 1]] for index in range(len(starts) - 1)]
+
+
+def _workflow_indented_list(workflow_text: str, *, key: str, indent: int) -> set[str]:
+    """Extract a simple YAML list under one exact, indentation-scoped key."""
+    lines = workflow_text.splitlines()
+    header = f"{' ' * indent}{key}:"
+    try:
+        start = lines.index(header) + 1
+    except ValueError as error:
+        raise ValueError(f".github/workflows/ci.yml is missing {header.strip()}") from error
+
+    values: set[str] = set()
+    for line in lines[start:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent <= indent:
+            break
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            values.add(stripped[2:].strip().strip("'\""))
+    return values
+
+
+def validate_ci_proof_input_routing(*, workflow_path: Path = CI_WORKFLOW_PATH) -> None:
+    """Require executable non-Rust proof inputs in both CI routing layers."""
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    routes = {
+        "pull_request.paths": _workflow_indented_list(workflow_text, key="paths", indent=4),
+        "changes -> code": _workflow_indented_list(workflow_text, key="code", indent=12),
+    }
+    errors = []
+    for route, patterns in routes.items():
+        missing = [pattern for pattern in CI_PROOF_INPUT_PATTERNS if pattern not in patterns]
+        if missing:
+            errors.append(f"{route} is missing: {', '.join(missing)}")
+    if errors:
+        raise ValueError("CI proof-input routing contract failed:\n" + "\n".join(errors))
 
 
 def _compact_command_text(text: str) -> str:
@@ -1221,6 +1269,7 @@ def main() -> int:
     validate_analyzer_config_example_contract()
     validate_cli_not_presented_as_library_analyzer_api()
     validate_published_crate_readmes_are_self_contained()
+    validate_ci_proof_input_routing()
     validate_diagnostic_benchmark_ci_contract()
     validate_sampler_integration_boundary()
     validate_manual_release_boundary()

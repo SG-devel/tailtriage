@@ -15,6 +15,58 @@ import validate_docs_contracts
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    def _ci_routing_workflow(self) -> str:
+        top = '\n'.join(f'      - "{pattern}"' for pattern in validate_docs_contracts.CI_PROOF_INPUT_PATTERNS)
+        code = '\n'.join(f"              - '{pattern}'" for pattern in validate_docs_contracts.CI_PROOF_INPUT_PATTERNS)
+        return f'''on:
+  pull_request:
+    paths:
+{top}
+jobs:
+  changes:
+    steps:
+      - with:
+          filters: |
+            code:
+{code}
+            docs:
+              - '**/*.md'
+'''
+
+    def _validate_ci_routing_source(self, source: str) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workflow = Path(tmp_dir) / 'ci.yml'
+            workflow.write_text(source, encoding='utf-8')
+            validate_docs_contracts.validate_ci_proof_input_routing(workflow_path=workflow)
+
+    # TT-TEST: support
+    def test_ci_proof_input_routing_accepts_current_workflow(self) -> None:
+        validate_docs_contracts.validate_ci_proof_input_routing()
+
+    # TT-TEST: support
+    def test_ci_proof_input_routing_rejects_analyzer_config_missing_from_trigger(self) -> None:
+        source = self._ci_routing_workflow().replace('      - "examples/analyzer-config.toml"\n', '', 1)
+        with self.assertRaisesRegex(ValueError, r'pull_request\.paths is missing: examples/analyzer-config\.toml'):
+            self._validate_ci_routing_source(source)
+
+    # TT-TEST: support
+    def test_ci_proof_input_routing_rejects_analyzer_config_missing_from_code(self) -> None:
+        source = self._ci_routing_workflow().replace("              - 'examples/analyzer-config.toml'\n", '', 1)
+        with self.assertRaisesRegex(ValueError, r'changes -> code is missing: examples/analyzer-config\.toml'):
+            self._validate_ci_routing_source(source)
+
+    # TT-TEST: support
+    def test_ci_proof_input_routing_rejects_fixture_class_missing_from_trigger(self) -> None:
+        source = self._ci_routing_workflow().replace('      - "tailtriage-tracing/tests/fixtures/**/*.jsonl"\n', '', 1)
+        with self.assertRaisesRegex(ValueError, r'pull_request\.paths is missing: tailtriage-tracing/tests/fixtures/\*\*/\*\.jsonl'):
+            self._validate_ci_routing_source(source)
+
+    # TT-TEST: support
+    def test_ci_proof_input_routing_rejects_golden_class_missing_from_code(self) -> None:
+        source = self._ci_routing_workflow().replace("              - 'tailtriage-analyzer/tests/expected/**/*.json'\n", '', 1)
+        with self.assertRaisesRegex(ValueError, r'changes -> code is missing: tailtriage-analyzer/tests/expected/\*\*/\*\.json'):
+            self._validate_ci_routing_source(source)
+
     def _write_residual_api_sources(self, root: Path, overrides: dict[str, str] | None = None) -> None:
         sources = {
             'tailtriage-controller/src/lib.rs': '''pub struct TailtriageController;

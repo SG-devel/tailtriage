@@ -11,7 +11,15 @@ on:
       - "rustfmt.toml"
       - "clippy.toml"
       - ".cargo/**/*.toml"
+      - "examples/analyzer-config.toml"
       - "scripts/**/*.py"
+      - "demos/**/fixtures/**/*.json"
+      - "tailtriage-analyzer/tests/fixtures/**/*.json"
+      - "tailtriage-analyzer/tests/expected/**/*.json"
+      - "tailtriage-tracing/tests/fixtures/**/*.json"
+      - "tailtriage-tracing/tests/fixtures/**/*.jsonl"
+      - "tailtriage-tracing/tests/expected/**/*.json"
+      - "tailtriage-tracing/examples/**/*.jsonl"
       - "validation/**/*.json"
       - "validation/**/*.jsonl"
       - "**/*.md"
@@ -33,7 +41,8 @@ env:
 
 # CI policy:
 # - Relevant pull requests run mandatory CI; workflow_dispatch provides a manual full run.
-# - The Cargo matrix owns cross-platform dev/release Cargo proof, with release docs and dependency policy.
+# - Docs contracts owns rendered public documentation/Rustdoc warning proof; the Cargo matrix owns
+#   cross-platform dev/release Cargo proof and release dependency policy.
 # - Independent deterministic, live, and bounded operational Linux proof runs in parallel after path detection.
 # - Runtime-cost and collector-limit results are machine/workload/profile scoped, not universal guarantees.
 # - CI required only aggregates applicable job results and performs no validation itself.
@@ -62,7 +71,15 @@ jobs:
               - 'rustfmt.toml'
               - 'clippy.toml'
               - '.cargo/**/*.toml'
+              - 'examples/analyzer-config.toml'
               - 'scripts/**/*.py'
+              - 'demos/**/fixtures/**/*.json'
+              - 'tailtriage-analyzer/tests/fixtures/**/*.json'
+              - 'tailtriage-analyzer/tests/expected/**/*.json'
+              - 'tailtriage-tracing/tests/fixtures/**/*.json'
+              - 'tailtriage-tracing/tests/fixtures/**/*.jsonl'
+              - 'tailtriage-tracing/tests/expected/**/*.json'
+              - 'tailtriage-tracing/examples/**/*.jsonl'
               - 'validation/**/*.json'
               - 'validation/**/*.jsonl'
               - 'rust-toolchain'
