@@ -140,7 +140,8 @@ Semantics:
 
 ### 5.8 In-process analyzer (`tailtriage-analyzer`)
 
-`tailtriage-analyzer` is the diagnosis engine and owns typed report generation from completed runs:
+`tailtriage-analyzer` is the diagnosis engine and owns typed report generation from one supplied
+typed, in-memory `Run`:
 
 - `analyze_run(&Run, AnalyzeOptions) -> Result<Report, AnalyzeConfigError>`
 - `render_text(&Report)` for human-readable output
@@ -148,7 +149,10 @@ Semantics:
 - `render_json_pretty(&Report)` for canonical pretty Report JSON
 - callers compose checked analysis with `render_json` or `render_json_pretty` for Report JSON
 
-Semantics are batch/snapshot for completed runs, not streaming analysis.
+Analysis is batch/snapshot rather than streaming. `analyze_run` validates analyzer options and
+applies the analyzer's accepted generic-Run normalization boundary. The in-process API does not
+require the supplied `Run` to be finalized and accepts zero-request typed Runs; finalized persisted
+artifact and nonempty-request requirements belong to the CLI boundary instead.
 
 
 Analyzer configuration contract:
@@ -202,9 +206,11 @@ Run artifacts include request, stage, queue, in-flight, and optional runtime sna
 
 Direct capture lifecycle output options:
 
-- default direct capture writes a local run artifact JSON through `LocalJsonSink`
-- choose `MemorySink` when you want a finalized typed `Run` in memory without file output
-- choose `DiscardSink` when you want shutdown/finalization without persisting the finalized `Run`
+- there is no implicit or default sink
+- `.output(path)` explicitly selects `LocalJsonSink` for a local run artifact
+- `.sink(...)` explicitly supplies another sink; construction without either output choice fails
+  with `BuildError::MissingSink`
+- `MemorySink` and `DiscardSink` are valid explicit alternatives where appropriate
 
 Analyzer output includes:
 
