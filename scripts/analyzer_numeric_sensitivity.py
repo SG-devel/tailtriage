@@ -106,8 +106,9 @@ def queue_run(input_id: str, n: int, waits: Iterable[int], depth: int = 0,
 
 
 def runtime_run(input_id: str, blocking: list[int] | None = None,
-                global_depth: int = 0, worker_count: int = 4, snapshots: int = 40) -> dict[str, Any]:
-    run = base_run(input_id, [1000] * 40 if input_id.startswith("EXEC") else [1000] * 20)
+                global_depth: int = 0, worker_count: int = 4, snapshots: int = 40,
+                request_count: int = 20) -> dict[str, Any]:
+    run = base_run(input_id, [1000] * request_count)
     blocking = blocking if blocking is not None else [0] * snapshots
     run["runtime_snapshots"] = [
         {"at_unix_ms": 1, "at_run_us": i, "alive_tasks": 1, "worker_count": worker_count,
@@ -184,7 +185,7 @@ def generate_plan() -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     for target in (499, 500, 999, 1000, 1999, 2000, 3999, 4000, 7999, 8000):
         iid = f"exec-{target}"
         add(f"EXEC-{target}", "executor", f"normalized={target}", iid,
-            runtime_run(iid, global_depth=target, worker_count=1000),
+            runtime_run(iid, global_depth=target, worker_count=1000, request_count=40),
             ["evidence.low_completed_request_threshold=0"])
     target_run = inputs["exec-500"]
     for threshold in (250, 500, 1000):
@@ -453,7 +454,8 @@ def execute(output: Path, experiments: list[dict[str, Any]], verify: bool = Fals
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
-                        help="artifact directory under this repository (default: target/analyzer-numeric-sensitivity)")
+                        help="artifact directory beneath repository target/ "
+                             "(default: target/analyzer-numeric-sensitivity)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("plan", help="generate the deterministic plan and schema-v2 inputs")
     run_parser = sub.add_parser("run", help="build once, execute all experiments, and verify output")

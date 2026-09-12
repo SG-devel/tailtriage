@@ -44,9 +44,15 @@ class AnalyzerNumericSensitivityTests(unittest.TestCase):
         for n in (7, 8, 19, 20, 39, 40, 99, 100):
             self.assertEqual(len(inputs[f"sample-{n:03d}"]["requests"]), n)
         for target in (499, 500, 999, 1000, 1999, 2000, 3999, 4000, 7999, 8000):
-            snapshot = inputs[f"exec-{target}"]["runtime_snapshots"][0]
+            run = inputs[f"exec-{target}"]
+            self.assertEqual(len(run["requests"]), 40)
+            self.assertEqual(len(run["runtime_snapshots"]), 40)
+            snapshot = run["runtime_snapshots"][0]
             self.assertEqual((snapshot["global_queue_depth"], snapshot["local_queue_depth"],
                               snapshot["worker_count"]), (target, 0, 1000))
+        for input_id in ("block-max", "block-nz890"):
+            self.assertEqual(len(inputs[input_id]["requests"]), 20)
+            self.assertEqual(len(inputs[input_id]["runtime_snapshots"]), 100)
         for k in (2, 3, 4, 5):
             self.assertEqual(len(inputs[f"down-k{k}-extreme"]["stages"]), k)
         for n in (19, 20, 21):
