@@ -95,6 +95,101 @@ are different facts.
 | Completed versus lower-bound representation support | **Family-local support tracked separately for completed and observed/lower-bound representations of one family.** | Queue currently builds completed-event and all-observed maps but emits equally long share vectors over every nonzero-latency completed request; stage records basis-specific distinct-request counts. `EvidenceBasis` labels the selected candidate. `CompletionCounts` counts raw completed/partial events only, and `PartialEvidenceProfile` supplies warnings/coverage context. | `partial_evidence.rs::{EvidenceBasis,CompletionCounts,PartialEvidenceProfile,ScoredSuspect}`; queue paths `lib.rs::request_time_shares` / `scoring.rs::queue_saturation_suspect`; stage paths `stage_attribution.rs::dual_stage_summaries` / `scoring.rs::downstream_stage_suspect` | Queue: no dedicated basis-support count (derive map-key intersections as above); stage: each `StageSummary.request_samples`; context only: `profile.queues/stages.{completed,partial}` | Completed/lower-bound are representations, not diagnosis families. Candidate support is neither raw partial-event count nor report event totals. EVIDENCE-02b owns later same-family resolution if needed. |
 | Report-level completed-request context | **All retained completed request records in the analyzed run.** | Include every canonical `run.requests` entry. This count drives report percentiles/context and the current global low-count confidence/evidence policy, independent of whether a request contributes family evidence. | `lib.rs::analyze_run_internal` (`request_latencies`, `Report.request_count`); `confidence.rs::apply_evidence_aware_confidence_caps_scored`; `evidence.rs::{evidence_quality,request_status}` | `run.requests.len()` / `Report.request_count` / `EvidenceQuality.request_count` | **Total completed-request count is report-level context and is not a substitute for any diagnosis family's relevant-support count.** |
 
+## Frozen 0.4 calibration charter
+
+These landmarks freeze physical/evidentiary input scenarios for later single-family surface and
+pairwise cross-family comparison. The magnitude vocabulary is exactly `material`, `substantial`,
+`dominant`, and `extreme`. Those labels describe magnitude anchors only: they do not correspond to
+Low, Medium, or High confidence, and confidence/maturity remains separately owned.
+
+Every row deliberately uses a common calibration population of **40 family-relevant support
+units**. Forty is a simple, mature evaluation population comfortably separated from sparse
+evidence across all four accepted units. It is not derived from `score_sample_quality`, is not an
+EVIDENCE-04 maturity threshold, and does not ratify the provisional `<8` / `8..19` / `>=20`
+bridge. The population is held constant so later comparisons measure magnitude rather than sample
+count.
+
+### Queue landmarks
+
+`depth_at_start` is present on the contributing queue evidence and the table gives its exact
+bounded corroborating value. In-flight corroboration is deliberately absent in every canonical
+row (no in-flight samples); later formula candidates may retain or omit that separate
+corroboration without moving the frozen share/depth coordinates.
+
+| Landmark | p95 queue-time share (permille) | `depth_at_start` | In-flight state | Mature relevant support | Physical interpretation / non-claim |
+| --- | ---: | ---: | --- | ---: | --- |
+| `material` | 300 | 2 | absent (no samples) | 40 completed requests contributing usable queue evidence | A visible tail wait with bounded depth corroboration; not a production trigger. |
+| `substantial` | 500 | 6 | absent (no samples) | 40 completed requests contributing usable queue evidence | Half of p95 request time is attributed to queueing; not a confidence assignment. |
+| `dominant` | 750 | 12 | absent (no samples) | 40 completed requests contributing usable queue evidence | Queueing occupies most p95 request time with deeper corroboration; not causal proof. |
+| `extreme` | 950 | 24 | absent (no samples) | 40 completed requests contributing usable queue evidence | Nearly all p95 request time is attributed to queueing with pronounced depth; not an optimality claim. |
+
+These anchors neither redefine `queueing.trigger_permille` nor select a future queue materiality
+threshold. Total requests, raw queue-event count, and the current additive sample bonus are not
+dimensions of these scenarios.
+
+### Blocking landmarks
+
+The share is the exact fraction, in permille, of the 40 usable snapshots whose present
+`blocking_queue_depth` is nonzero. Present zero values remain usable support; snapshots where the
+field is missing are excluded. The peak is at least the p95 in every row.
+
+| Landmark | p95 `blocking_queue_depth` | Peak `blocking_queue_depth` | Nonzero share (permille) | Mature relevant support | Physical interpretation / non-claim |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `material` | 2 | 4 | 500 | 40 usable blocking-queue snapshots | A persistent but shallow blocking backlog; not the lexical strong-blocking policy. |
+| `substantial` | 8 | 12 | 700 | 40 usable blocking-queue snapshots | A sustained, larger blocking backlog; not a confidence assignment. |
+| `dominant` | 16 | 24 | 900 | 40 usable blocking-queue snapshots | Deep blocking pressure across nearly all usable snapshots; not a typed-relation conclusion. |
+| `extreme` | 32 | 48 | 1000 | 40 usable blocking-queue snapshots | Very deep blocking pressure in every usable snapshot; not causal proof. |
+
+These values do not freeze the current strong-blocking lexical-correlation thresholds; typed
+relation cutover remains separately owned.
+
+### Normalized executor landmarks
+
+Each row is a canonical complete-normalization scenario: all 40 included snapshots have
+`worker_count: Some(4)`, `global_queue_depth: Some`, and `local_queue_depth: Some`, with a
+consistent nonzero worker count. Every snapshot in a row uses the exact global/local depths shown,
+so the resulting normalized p95 is exact. In-flight corroboration is absent (no in-flight samples)
+in every row.
+
+| Landmark | `global_queue_depth` | `local_queue_depth` | Normalized p95 runnable pressure (milli-tasks/worker) | In-flight state | Mature relevant support | Physical interpretation / non-claim |
+| --- | ---: | ---: | ---: | --- | ---: | --- |
+| `material` | 1 | 1 | 500 | absent (no samples) | 40 usable normalized-executor snapshots | Half a runnable task per worker at p95; not a production eligibility threshold. |
+| `substantial` | 4 | 4 | 2,000 | absent (no samples) | 40 usable normalized-executor snapshots | Two runnable tasks per worker at p95; not a confidence assignment. |
+| `dominant` | 10 | 10 | 5,000 | absent (no samples) | 40 usable normalized-executor snapshots | Five runnable tasks per worker at p95; not a formula-band endorsement. |
+| `extreme` | 20 | 20 | 10,000 | absent (no samples) | 40 usable normalized-executor snapshots | Ten runnable tasks per worker at p95; not causal proof. |
+
+Missing-local lower bounds and denominator-free fallback remain A03 concerns and are not mixed
+into this canonical magnitude scale. There is no competing legacy-executor landmark scale here;
+EVIDENCE-07 may choose any suitable monotone mapping without moving these inputs.
+
+### Downstream landmarks
+
+Every row uses the completed representation and overlap-safe, request-scoped attribution. Support
+is 40 distinct completed requests with usable evidence for the one relevant stage; repeated stage
+events for a request are attribution inputs, not additional support. Lower-bound/observed evidence
+must later reuse this physical magnitude concept rather than define another scale.
+
+| Landmark | Tail attributed contribution (permille) | Cumulative attributed contribution (permille) | Mature relevant support | Physical interpretation / non-claim |
+| --- | ---: | ---: | ---: | --- |
+| `material` | 300 | 150 | 40 distinct completed requests contributing usable evidence to the stage | A visible stage contribution, especially in the tail; not downstream eligibility. |
+| `substantial` | 500 | 300 | 40 distinct completed requests contributing usable evidence to the stage | Half of tail latency and a material overall share are attributed; not confidence. |
+| `dominant` | 750 | 600 | 40 distinct completed requests contributing usable evidence to the stage | The stage accounts for most tail and cumulative latency; not causal proof. |
+| `extreme` | 950 | 900 | 40 distinct completed requests contributing usable evidence to the stage | The stage accounts for nearly all tail and cumulative latency; not an optimality claim. |
+
+The first landmark's name does not resolve EVIDENCE-03 or establish a downstream threshold.
+EVIDENCE-03 still owns the measurement/bridge decision, and EVIDENCE-08 owns any later internal
+materiality default after that decision. Neither raw stage-event count nor noncontributing completed
+requests count as support.
+
+### Charter non-claims and change control
+
+The frozen landmarks assign neither final raw scores nor confidence. They select no outcome for
+EVIDENCE-04, EVIDENCE-05, EVIDENCE-06, EVIDENCE-07, EVIDENCE-08, EVIDENCE-09, EVIDENCE-09b, or
+EVIDENCE-10; change no public option, production threshold, or default; and prove no statistical
+or causal optimality. They are stable later comparison inputs and must not be silently moved to
+make a candidate formula look better. Changing a frozen physical landmark requires an explicit,
+reviewed design decision rather than formula-tuning convenience.
+
 ## Deferred 0.4 evidence and compatibility register
 
 The ledger references, but deliberately does not resolve: EVIDENCE-01 percentile selection;

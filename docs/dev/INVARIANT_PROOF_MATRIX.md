@@ -4,6 +4,30 @@ This registry owns stable semantic contracts and classifies their executable pro
 Adjacent `TT-TEST` comments identify exact proof owners. Suspects produced by Tailtriage
 remain evidence-ranked triage leads, not proof of root cause.
 
+## 0.4 analyzer target ownership map
+
+This map is the destination for proof ownership during the 0.4 redesign. It reuses A01–A13 rather
+than creating a parallel registry, and it does **not** claim that target semantics are already
+implemented or proved. Until each cutover lands with its executable proof updates, the current
+invariant-registry rows below remain authoritative—for example, current A06 continues to describe
+raw-score-cluster ambiguity even though target A06 will own independent ambiguity.
+
+| ID | Target 0.4 semantic ownership |
+| --- | --- |
+| A01 | Eligibility and materiality |
+| A02 | Raw magnitude |
+| A03 | Normalized-executor lower-bound and denominator-free fallback semantics |
+| A04 | Maturity plus candidate-local limitations composing into confidence |
+| A05 | Final support/confidence-first ranking, then magnitude, then deterministic tie-break |
+| A06 | Independent ambiguity semantics |
+| A07 | Warnings and evidence limitations |
+| A08 | Route isolation |
+| A09 | Temporal isolation |
+| A10 | Completed/lower-bound representation semantics |
+| A11 | Existing analyzer input-policy/public-API boundary |
+| A12 | Existing render/serialization equivalence boundary |
+| A13 | Existing `Report`/analyzer-config schema and default-transparency boundary |
+
 ## Invariant registry
 
 | ID | Invariant / contract | Behavior owner | Primary proof boundary | Secondary boundary / non-claim | Proof class / cadence |
