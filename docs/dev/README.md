@@ -74,6 +74,7 @@ types, parsing, overrides, and validation where applicable.
 | Reading a report and choosing a next check | [Analyzer guide](../analyzer-guide.md) |
 | Exact analyzer behavior | [Analyzer behavior reference](../diagnostics.md) |
 | Analyzer rationale and proof ownership | [Analyzer rationale](analyzer-rationale.md) |
+| Analyzer rule classification, 0.4 disposition, and family evidence-unit ownership | [Analyzer design ledger](analyzer-design-ledger.md) |
 | Normative product and data contracts | [SPEC.md](../../SPEC.md) |
 | Validation evidence and non-claims | [VALIDATION.md](VALIDATION.md) and [diagnostic validation](../diagnostic-validation.md) |
 | Tailtriage 0.4 invariant and test-proof ownership | [Invariant proof matrix](INVARIANT_PROOF_MATRIX.md) |
