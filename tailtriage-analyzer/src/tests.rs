@@ -449,7 +449,7 @@ fn ambiguity_cluster_membership_uses_raw_scores_only() {
     ];
 
     for permutation in permutations {
-        let cluster = super::confidence::current_relation_and_ambiguity(&permutation, &options)
+        let cluster = super::confidence::current_ambiguity_cluster_indices(&permutation, &options)
             .into_iter()
             .map(|idx| permutation[idx].suspect.kind.clone())
             .collect::<Vec<_>>();

@@ -50,7 +50,7 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
                 .runtime_snapshots
                 .iter()
                 .all(|snapshot| snapshot.global_queue_depth.is_none()));
-    let ambiguous_cluster = current_relation_and_ambiguity(suspects, options);
+    let ambiguous_cluster = current_ambiguity_cluster_indices(suspects, options);
     for (i, scored) in suspects.iter_mut().enumerate() {
         let suspect = &mut scored.suspect;
         let mut cap = Confidence::High;
@@ -190,8 +190,8 @@ fn apply_family_evidence_caps(
     }
 }
 
-/// Applies the current score-gap relation policy before confidence and ranking.
-pub(super) fn current_relation_and_ambiguity(
+/// Returns current raw-score ambiguity-cluster membership used by confidence capping.
+pub(super) fn current_ambiguity_cluster_indices(
     suspects: &[SupportedCandidate],
     options: &AnalyzeOptions,
 ) -> Vec<usize> {

@@ -741,21 +741,13 @@ pub(super) fn downstream_stage_suspect(
     });
     let best =
         DownstreamRepresentations(downstream_stage_candidates(run, p95_req, options)).select()?;
-    let mut downstream_score = best.score;
-    let mut correlation_evidence: Option<String> = None;
-    if stage_correlates_with_blocking_pool(&best.measurement.stage, options)
-        && blocking.is_some_and(|signal| strong_blocking_signal(signal, options))
-        && blocking_score.is_some()
-    {
-        let cap = blocking_score
-            .unwrap_or(downstream_score)
-            .saturating_sub(options.downstream.blocking_correlation_score_margin);
-        downstream_score = downstream_score.min(cap);
-        correlation_evidence = Some(format!(
-            "Stage '{}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized.",
-            best.measurement.stage
-        ));
-    }
+    let (downstream_score, correlation_evidence) = apply_current_downstream_relation_policy(
+        &best.measurement.stage,
+        best.score,
+        blocking,
+        blocking_score,
+        options,
+    );
     let mut evidence = downstream_stage_evidence(&best);
     if let Some(extra) = correlation_evidence {
         evidence.push(extra);
@@ -780,6 +772,30 @@ pub(super) fn downstream_stage_suspect(
         basis: best.measurement.basis,
         executor_limitation: None,
     })
+}
+
+fn apply_current_downstream_relation_policy(
+    stage: &str,
+    downstream_score: u8,
+    blocking: Option<BlockingMeasurement>,
+    blocking_score: Option<u8>,
+    options: &AnalyzeOptions,
+) -> (u8, Option<String>) {
+    if stage_correlates_with_blocking_pool(stage, options)
+        && blocking.is_some_and(|signal| strong_blocking_signal(signal, options))
+        && blocking_score.is_some()
+    {
+        let cap = blocking_score
+            .unwrap_or(downstream_score)
+            .saturating_sub(options.downstream.blocking_correlation_score_margin);
+        return (
+            downstream_score.min(cap),
+            Some(format!(
+                "Stage '{stage}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
+            )),
+        );
+    }
+    (downstream_score, None)
 }
 
 fn downstream_stage_evidence(best: &StageCandidate) -> Vec<String> {
