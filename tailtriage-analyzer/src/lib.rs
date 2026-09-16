@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Serialize, Serializer};
 
 mod attribution;
+mod candidate;
 mod confidence;
 mod evidence;
 mod options;
@@ -17,13 +18,14 @@ mod slicing;
 mod stage_attribution;
 mod temporal;
 
+use candidate::{completed_candidate, fallback_candidate, FamilyCandidates, SupportedCandidate};
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
 pub use options::{
     analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
     BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions, ExecutorOptions,
     QueueingOptions, RouteOptions, TemporalOptions,
 };
-use partial_evidence::{EvidenceBasis, PartialEvidenceProfile, ScoredSuspect};
+use partial_evidence::PartialEvidenceProfile;
 use tailtriage_core::{
     normalize_run_permissive, summarize_run_validation, InFlightSnapshot, QueueEvent, Run,
     RuntimeSnapshot,
@@ -457,7 +459,7 @@ fn analyze_run_internal(
         .as_ref()
         .map(|candidate| candidate.trend.clone());
 
-    let mut suspects = Vec::new();
+    let mut family_candidates = FamilyCandidates::default();
 
     if let Some(queue_suspect) = scoring::queue_saturation_suspect(
         run,
@@ -466,34 +468,34 @@ fn analyze_run_internal(
         inflight_candidate.as_ref(),
         options,
     ) {
-        suspects.push(queue_suspect);
+        family_candidates.set_queue(Some(queue_suspect));
     }
 
     if let Some(blocking_suspect) = scoring::blocking_pressure_suspect(run, options) {
-        suspects.push(ScoredSuspect {
-            suspect: blocking_suspect,
-            basis: EvidenceBasis::Completed,
-            executor_limitation: None,
-        });
+        family_candidates.set_blocking(Some(completed_candidate(blocking_suspect)));
     }
 
     if let Some(executor_suspect) =
         scoring::executor_pressure_suspect(run, worker_status, inflight_candidate.as_ref(), options)
     {
         let (executor_suspect, executor_limitation) = executor_suspect;
-        suspects.push(ScoredSuspect {
+        family_candidates.set_executor(Some(SupportedCandidate {
             suspect: executor_suspect,
-            basis: EvidenceBasis::Completed,
+            basis: partial_evidence::EvidenceBasis::Completed,
             executor_limitation,
-        });
+        }));
     }
 
     if let Some(stage_suspect) = scoring::downstream_stage_suspect(run, options) {
-        suspects.push(stage_suspect);
+        family_candidates.set_downstream(Some(stage_suspect));
     }
 
+    // Completed and lower-bound representations have already been selected by
+    // their family owner. Only one candidate per real family crosses this boundary.
+    let mut suspects = family_candidates.into_cross_family_candidates();
+
     if suspects.is_empty() {
-        suspects.push(ScoredSuspect { suspect: Suspect::new(
+        suspects.push(fallback_candidate(Suspect::new(
             DiagnosisKind::InsufficientEvidence,
             50,
             vec![
@@ -505,7 +507,7 @@ fn analyze_run_internal(
                 "Enable RuntimeSampler during the run to capture runtime pressure signals."
                     .to_string(),
             ],
-        ), basis: EvidenceBasis::Completed, executor_limitation: None });
+        )));
     }
 
     let evidence_quality = evidence::evidence_quality(run, options);
@@ -541,7 +543,7 @@ fn analyze_run_internal(
 }
 
 fn finalize_scored_suspects(
-    mut suspects: Vec<ScoredSuspect>,
+    mut suspects: Vec<SupportedCandidate>,
     run: &Run,
     evidence_quality: &EvidenceQuality,
     options: &AnalyzeOptions,
@@ -560,7 +562,7 @@ fn finalize_scored_suspects(
     suspects.into_iter().map(|s| s.suspect).collect()
 }
 
-fn final_suspect_order(a: &ScoredSuspect, b: &ScoredSuspect) -> std::cmp::Ordering {
+fn final_suspect_order(a: &SupportedCandidate, b: &SupportedCandidate) -> std::cmp::Ordering {
     let a_insufficient = a.suspect.kind == DiagnosisKind::InsufficientEvidence;
     let b_insufficient = b.suspect.kind == DiagnosisKind::InsufficientEvidence;
     a_insufficient

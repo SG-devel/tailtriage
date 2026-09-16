@@ -1,7 +1,8 @@
 use tailtriage_core::Run;
 
 use crate::{
-    partial_evidence::{EvidenceBasis, PartialEvidenceProfile, ScoredSuspect},
+    candidate::SupportedCandidate,
+    partial_evidence::{EvidenceBasis, PartialEvidenceProfile},
     percentile, runtime_metric_series, stage_attribution, AnalyzeOptions, DiagnosisKind,
     InflightCandidate, InflightOrdering, Suspect,
 };
@@ -153,7 +154,7 @@ pub(super) fn queue_saturation_suspect(
     observed_queue_shares: &[u64],
     inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
-) -> Option<ScoredSuspect> {
+) -> Option<SupportedCandidate> {
     let completed_p95 = percentile(completed_queue_shares, 95, 100);
     let completed = queue_candidate(
         run,
@@ -171,11 +172,26 @@ pub(super) fn queue_saturation_suspect(
         inflight_trend,
         options,
     );
-    match (completed, observed) {
-        (Some(c), Some(o)) if o.suspect.score > c.suspect.score => Some(o),
-        (Some(c), _) => Some(c),
-        (None, Some(o)) => Some(o),
-        (None, None) => None,
+    QueueRepresentations {
+        completed,
+        observed_lower_bound: observed,
+    }
+    .select()
+}
+
+struct QueueRepresentations {
+    completed: Option<SupportedCandidate>,
+    observed_lower_bound: Option<SupportedCandidate>,
+}
+
+impl QueueRepresentations {
+    fn select(self) -> Option<SupportedCandidate> {
+        match (self.completed, self.observed_lower_bound) {
+            (Some(c), Some(o)) if o.suspect.score > c.suspect.score => Some(o),
+            (Some(c), _) => Some(c),
+            (None, Some(o)) => Some(o),
+            (None, None) => None,
+        }
     }
 }
 
@@ -186,7 +202,26 @@ fn queue_candidate(
     completed_queue_p95_permille: Option<u64>,
     inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
-) -> Option<ScoredSuspect> {
+) -> Option<SupportedCandidate> {
+    let measurement = eligible_queue_measurement(
+        run,
+        queue_shares,
+        completed_only,
+        completed_queue_p95_permille,
+        inflight_trend,
+        options,
+    )?;
+    Some(queue_magnitude(measurement, inflight_trend, options))
+}
+
+fn eligible_queue_measurement(
+    run: &Run,
+    queue_shares: &[u64],
+    completed_only: bool,
+    completed_queue_p95_permille: Option<u64>,
+    inflight_trend: Option<&InflightCandidate>,
+    options: &AnalyzeOptions,
+) -> Option<QueueMeasurement> {
     let measurement = queue_measurement(
         run,
         queue_shares,
@@ -194,10 +229,15 @@ fn queue_candidate(
         completed_queue_p95_permille,
         inflight_trend,
     )?;
+    (measurement.p95_share_permille >= options.queueing.trigger_permille).then_some(measurement)
+}
+
+fn queue_magnitude(
+    measurement: QueueMeasurement,
+    inflight_trend: Option<&InflightCandidate>,
+    options: &AnalyzeOptions,
+) -> SupportedCandidate {
     let p95_queue_share_permille = measurement.p95_share_permille;
-    if p95_queue_share_permille < options.queueing.trigger_permille {
-        return None;
-    }
     let max_depth = measurement.max_depth_at_start;
     let growth_bonus = if measurement.inflight_growth { 5 } else { 0 };
     let depth_bonus = (max_depth.min(40) * 2) / 3;
@@ -242,7 +282,7 @@ fn queue_candidate(
     if let Some(trend) = inflight_trend.filter(|trend| trend.known_positive_growth()) {
         evidence.push(inflight_growth_evidence(trend));
     }
-    Some(ScoredSuspect {
+    SupportedCandidate {
         suspect: suspect(
             DiagnosisKind::ApplicationQueuePressure,
             score,
@@ -256,7 +296,7 @@ fn queue_candidate(
         ),
         basis: measurement.basis,
         executor_limitation: None,
-    })
+    }
 }
 
 fn queue_measurement(
@@ -295,7 +335,7 @@ pub(super) fn queue_candidate_for_test(
     completed_only: bool,
     completed_queue_p95_permille: Option<u64>,
     options: &AnalyzeOptions,
-) -> Option<ScoredSuspect> {
+) -> Option<SupportedCandidate> {
     queue_candidate(
         run,
         queue_shares,
@@ -390,7 +430,7 @@ pub(super) fn executor_pressure_suspect(
     inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
 ) -> Option<(Suspect, Option<ExecutorConfidenceLimitation>)> {
-    let measurement = executor_measurement(run, worker_status?, inflight_trend)?;
+    let measurement = eligible_executor_measurement(run, worker_status?, inflight_trend, options)?;
     let p95_global = measurement.p95_global_queue_depth;
     let growth_bonus = if measurement.inflight_growth { 4 } else { 0 };
     let legacy_score = || {
@@ -418,13 +458,11 @@ pub(super) fn executor_pressure_suspect(
     let (score, limitation) = match measurement.worker_status {
         WorkerEvidenceStatus::Complete { worker_count, .. } => {
             let p95 = measurement.normalized_p95_milli?;
-            if p95
-                < options
+            debug_assert!(
+                p95 >= options
                     .executor
                     .min_runnable_queue_per_worker_p95_milli_for_signal
-            {
-                return None;
-            }
+            );
             let contribution = normalized_queue_contribution(p95);
             evidence.push(format!(
                 "Runnable queue depth p95 is {p95} milli-tasks per worker across {} samples with worker_count={worker_count}.",
@@ -445,9 +483,7 @@ pub(super) fn executor_pressure_suspect(
             )
         }
         WorkerEvidenceStatus::HistoricalAbsent => {
-            if p95_global < options.executor.min_global_queue_p95_for_signal {
-                return None;
-            }
+            debug_assert!(p95_global >= options.executor.min_global_queue_p95_for_signal);
             evidence[0] = format!(
                 "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
             );
@@ -457,9 +493,7 @@ pub(super) fn executor_pressure_suspect(
         status @ (WorkerEvidenceStatus::Partial
         | WorkerEvidenceStatus::Inconsistent
         | WorkerEvidenceStatus::InvalidZero) => {
-            if p95_global < options.executor.min_global_queue_p95_for_signal {
-                return None;
-            }
+            debug_assert!(p95_global >= options.executor.min_global_queue_p95_for_signal);
             evidence[0] = format!(
                 "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
             );
@@ -483,6 +517,31 @@ pub(super) fn executor_pressure_suspect(
         ),
         limitation,
     ))
+}
+
+fn eligible_executor_measurement(
+    run: &Run,
+    worker_status: WorkerEvidenceStatus,
+    inflight_trend: Option<&InflightCandidate>,
+    options: &AnalyzeOptions,
+) -> Option<ExecutorMeasurement> {
+    let measurement = executor_measurement(run, worker_status, inflight_trend)?;
+    let eligible = match measurement.worker_status {
+        WorkerEvidenceStatus::Complete { .. } => {
+            measurement.normalized_p95_milli.is_some_and(|p95| {
+                p95 >= options
+                    .executor
+                    .min_runnable_queue_per_worker_p95_milli_for_signal
+            })
+        }
+        WorkerEvidenceStatus::HistoricalAbsent
+        | WorkerEvidenceStatus::Partial
+        | WorkerEvidenceStatus::Inconsistent
+        | WorkerEvidenceStatus::InvalidZero => {
+            measurement.p95_global_queue_depth >= options.executor.min_global_queue_p95_for_signal
+        }
+    };
+    eligible.then_some(measurement)
 }
 
 fn executor_measurement(
@@ -559,6 +618,32 @@ struct StageCandidate {
     score: u8,
 }
 
+struct DownstreamRepresentations(Vec<StageCandidate>);
+
+impl DownstreamRepresentations {
+    fn select(self) -> Option<StageCandidate> {
+        self.0.into_iter().max_by(|a, b| {
+            a.score
+                .cmp(&b.score)
+                .then_with(|| {
+                    a.measurement
+                        .tail_share_permille
+                        .cmp(&b.measurement.tail_share_permille)
+                })
+                .then_with(|| {
+                    a.measurement
+                        .cumulative_share_permille
+                        .cmp(&b.measurement.cumulative_share_permille)
+                })
+                .then_with(|| {
+                    (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
+                        .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
+                })
+                .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
+        })
+    }
+}
+
 fn downstream_measurements(run: &Run, p95_req: u64) -> Vec<DownstreamMeasurement> {
     stage_attribution::dual_stage_summaries(run, p95_req)
         .into_iter()
@@ -631,7 +716,7 @@ pub(super) fn downstream_stage_candidates_for_test(
 pub(super) fn downstream_stage_suspect(
     run: &Run,
     options: &AnalyzeOptions,
-) -> Option<ScoredSuspect> {
+) -> Option<SupportedCandidate> {
     let p95_req = percentile(
         &run.requests
             .iter()
@@ -654,47 +739,20 @@ pub(super) fn downstream_stage_suspect(
             94,
         )
     });
-    let best = downstream_stage_candidates(run, p95_req, options)
-        .into_iter()
-        .max_by(|a, b| {
-            a.score
-                .cmp(&b.score)
-                .then_with(|| {
-                    a.measurement
-                        .tail_share_permille
-                        .cmp(&b.measurement.tail_share_permille)
-                })
-                .then_with(|| {
-                    a.measurement
-                        .cumulative_share_permille
-                        .cmp(&b.measurement.cumulative_share_permille)
-                })
-                .then_with(|| {
-                    (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
-                        .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
-                })
-                .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
-        })?;
-    let mut downstream_score = best.score;
-    let mut correlation_evidence: Option<String> = None;
-    if stage_correlates_with_blocking_pool(&best.measurement.stage, options)
-        && blocking.is_some_and(|signal| strong_blocking_signal(signal, options))
-        && blocking_score.is_some()
-    {
-        let cap = blocking_score
-            .unwrap_or(downstream_score)
-            .saturating_sub(options.downstream.blocking_correlation_score_margin);
-        downstream_score = downstream_score.min(cap);
-        correlation_evidence = Some(format!(
-            "Stage '{}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized.",
-            best.measurement.stage
-        ));
-    }
+    let best =
+        DownstreamRepresentations(downstream_stage_candidates(run, p95_req, options)).select()?;
+    let (downstream_score, correlation_evidence) = apply_current_downstream_relation_policy(
+        &best.measurement.stage,
+        best.score,
+        blocking,
+        blocking_score,
+        options,
+    );
     let mut evidence = downstream_stage_evidence(&best);
     if let Some(extra) = correlation_evidence {
         evidence.push(extra);
     }
-    Some(ScoredSuspect {
+    Some(SupportedCandidate {
         suspect: suspect(
             DiagnosisKind::DownstreamStageDominance,
             downstream_score,
@@ -714,6 +772,30 @@ pub(super) fn downstream_stage_suspect(
         basis: best.measurement.basis,
         executor_limitation: None,
     })
+}
+
+fn apply_current_downstream_relation_policy(
+    stage: &str,
+    downstream_score: u8,
+    blocking: Option<BlockingMeasurement>,
+    blocking_score: Option<u8>,
+    options: &AnalyzeOptions,
+) -> (u8, Option<String>) {
+    if stage_correlates_with_blocking_pool(stage, options)
+        && blocking.is_some_and(|signal| strong_blocking_signal(signal, options))
+        && blocking_score.is_some()
+    {
+        let cap = blocking_score
+            .unwrap_or(downstream_score)
+            .saturating_sub(options.downstream.blocking_correlation_score_margin);
+        return (
+            downstream_score.min(cap),
+            Some(format!(
+                "Stage '{stage}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
+            )),
+        );
+    }
+    (downstream_score, None)
 }
 
 fn downstream_stage_evidence(best: &StageCandidate) -> Vec<String> {
