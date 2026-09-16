@@ -1,7 +1,5 @@
 use tailtriage_core::Run;
 
-use crate::Suspect;
-
 pub(super) const PARTIAL_WARNING: &str =
     "Partial queue/stage observations are lower bounds; completed-duration percentiles exclude them.";
 pub(super) const PARTIAL_QUEUE_CONFIDENCE_NOTE: &str =
@@ -57,11 +55,4 @@ impl PartialEvidenceProfile {
 pub(super) enum EvidenceBasis {
     Completed,
     ObservedLowerBound,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ScoredSuspect {
-    pub(super) suspect: Suspect,
-    pub(super) basis: EvidenceBasis,
-    pub(super) executor_limitation: Option<crate::scoring::ExecutorConfidenceLimitation>,
 }

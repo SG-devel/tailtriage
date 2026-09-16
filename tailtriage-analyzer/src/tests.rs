@@ -153,7 +153,7 @@ fn literal_scored(
     kind: DiagnosisKind,
     score: u8,
     confidence: Confidence,
-) -> super::partial_evidence::ScoredSuspect {
+) -> super::candidate::SupportedCandidate {
     let mut suspect = Suspect::new(
         kind,
         score,
@@ -161,7 +161,7 @@ fn literal_scored(
         vec![format!("check-{score}")],
     );
     suspect.confidence = confidence;
-    super::partial_evidence::ScoredSuspect {
+    super::candidate::SupportedCandidate {
         suspect,
         basis: super::partial_evidence::EvidenceBasis::Completed,
         executor_limitation: None,
@@ -169,10 +169,59 @@ fn literal_scored(
 }
 
 fn finalized_literal_order(
-    mut suspects: Vec<super::partial_evidence::ScoredSuspect>,
+    mut suspects: Vec<super::candidate::SupportedCandidate>,
 ) -> Vec<DiagnosisKind> {
     suspects.sort_by(super::final_suspect_order);
     suspects.into_iter().map(|s| s.suspect.kind).collect()
+}
+
+// TT-TEST: support
+#[test]
+fn family_candidate_owner_emits_at_most_one_candidate_per_real_family() {
+    let mut families = super::candidate::FamilyCandidates::default();
+    families.set_queue(Some(literal_scored(
+        DiagnosisKind::ApplicationQueuePressure,
+        70,
+        Confidence::Medium,
+    )));
+    families.set_queue(Some(literal_scored(
+        DiagnosisKind::ApplicationQueuePressure,
+        71,
+        Confidence::Medium,
+    )));
+    families.set_blocking(Some(literal_scored(
+        DiagnosisKind::BlockingPoolPressure,
+        72,
+        Confidence::Medium,
+    )));
+    families.set_executor(Some(literal_scored(
+        DiagnosisKind::ExecutorPressure,
+        73,
+        Confidence::Medium,
+    )));
+    families.set_downstream(Some(literal_scored(
+        DiagnosisKind::DownstreamStageDominance,
+        74,
+        Confidence::Medium,
+    )));
+
+    let candidates = families.into_cross_family_candidates();
+    assert_eq!(candidates.len(), 4);
+    assert_eq!(candidates[0].suspect.score, 71);
+    for kind in [
+        DiagnosisKind::ApplicationQueuePressure,
+        DiagnosisKind::BlockingPoolPressure,
+        DiagnosisKind::ExecutorPressure,
+        DiagnosisKind::DownstreamStageDominance,
+    ] {
+        assert_eq!(
+            candidates
+                .iter()
+                .filter(|candidate| candidate.suspect.kind == kind)
+                .count(),
+            1
+        );
+    }
 }
 
 // TT-TEST: A05 primary
@@ -400,7 +449,7 @@ fn ambiguity_cluster_membership_uses_raw_scores_only() {
     ];
 
     for permutation in permutations {
-        let cluster = super::confidence::ambiguity_cluster_indices(&permutation, &options)
+        let cluster = super::confidence::current_relation_and_ambiguity(&permutation, &options)
             .into_iter()
             .map(|idx| permutation[idx].suspect.kind.clone())
             .collect::<Vec<_>>();

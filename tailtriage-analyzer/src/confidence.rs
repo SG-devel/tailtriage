@@ -1,8 +1,9 @@
 use tailtriage_core::Run;
 
 use super::{
+    candidate::SupportedCandidate,
     partial_evidence::{
-        EvidenceBasis, ScoredSuspect, PARTIAL_QUEUE_CONFIDENCE_NOTE, PARTIAL_STAGE_CONFIDENCE_NOTE,
+        EvidenceBasis, PARTIAL_QUEUE_CONFIDENCE_NOTE, PARTIAL_STAGE_CONFIDENCE_NOTE,
     },
     AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
 };
@@ -17,7 +18,7 @@ pub(super) fn apply_evidence_aware_confidence_caps(
     let mut scored = suspects
         .iter()
         .cloned()
-        .map(|suspect| ScoredSuspect {
+        .map(|suspect| SupportedCandidate {
             suspect,
             basis: EvidenceBasis::Completed,
             executor_limitation: None,
@@ -30,7 +31,7 @@ pub(super) fn apply_evidence_aware_confidence_caps(
 }
 
 pub(super) fn apply_evidence_aware_confidence_caps_scored(
-    suspects: &mut [ScoredSuspect],
+    suspects: &mut [SupportedCandidate],
     run: &Run,
     evidence_quality: &EvidenceQuality,
     options: &AnalyzeOptions,
@@ -49,7 +50,7 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
                 .runtime_snapshots
                 .iter()
                 .all(|snapshot| snapshot.global_queue_depth.is_none()));
-    let ambiguous_cluster = ambiguity_cluster_indices(suspects, options);
+    let ambiguous_cluster = current_relation_and_ambiguity(suspects, options);
     for (i, scored) in suspects.iter_mut().enumerate() {
         let suspect = &mut scored.suspect;
         let mut cap = Confidence::High;
@@ -189,8 +190,9 @@ fn apply_family_evidence_caps(
     }
 }
 
-pub(super) fn ambiguity_cluster_indices(
-    suspects: &[ScoredSuspect],
+/// Applies the current score-gap relation policy before confidence and ranking.
+pub(super) fn current_relation_and_ambiguity(
+    suspects: &[SupportedCandidate],
     options: &AnalyzeOptions,
 ) -> Vec<usize> {
     let mut ranked = suspects
