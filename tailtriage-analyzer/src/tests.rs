@@ -7555,6 +7555,46 @@ fn validation_corpus_completed_defaults_and_partial_flags_deserialize() {
     assert!(saw_explicit_partial);
 }
 
+// TT-TEST: A02 secondary
+#[test]
+fn percentiles_use_nearest_rank_selected_values() {
+    assert_eq!(super::percentile(&[4, 1, 3, 2], 50, 100), Some(2));
+    assert_eq!(
+        super::percentile(&(1..=20).collect::<Vec<_>>(), 95, 100),
+        Some(19)
+    );
+    assert_eq!(
+        super::percentile(&(1..=100).collect::<Vec<_>>(), 99, 100),
+        Some(99)
+    );
+
+    let mut one_extreme_outlier = vec![1; 19];
+    one_extreme_outlier.push(1_000);
+    assert_eq!(super::percentile(&one_extreme_outlier, 95, 100), Some(1));
+}
+
+// TT-TEST: A02 secondary
+#[test]
+fn p95_nearest_rank_differs_at_reviewed_small_sample_boundaries() {
+    let differing_lengths = (1_usize..=128)
+        .filter(|&len| {
+            let samples = (0..u64::try_from(len).unwrap()).collect::<Vec<_>>();
+            let nearest_rank = super::percentile(&samples, 95, 100).unwrap();
+            let previous_index = (len - 1).saturating_mul(95).div_ceil(100);
+            nearest_rank != samples[previous_index]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(differing_lengths, [20, 40, 60, 80, 100, 120]);
+}
+
+// TT-TEST: support
+#[test]
+fn percentile_absence_edges_remain_none() {
+    assert_eq!(super::percentile(&[], 95, 100), None);
+    assert_eq!(super::percentile(&[1, 2, 3], 95, 0), None);
+}
+
 fn partial_policy_run(queue_partial: bool, stage_partial: bool) -> Run {
     let mut run = test_run();
     run.requests = (0..45)

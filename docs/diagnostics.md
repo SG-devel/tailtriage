@@ -44,9 +44,9 @@ owns item-level API details; this document owns analyzer interpretation.
 ### Percentiles and units
 
 For a nonempty ascending series of length `n`, percentile `p/q` selects index
-`ceil((n - 1) * p / q)`, clamped to `n - 1`. Empty input produces no
-percentile. Thus all p95 values below use `ceil((n - 1) * 95 / 100)`; this is
-not interpolation.
+`ceil(n * p / q) - 1`, clamped to `n - 1`. Empty input produces no percentile.
+Thus all p95 values below use conventional non-interpolated nearest-rank
+selection.
 
 | Unit | Use |
 | --- | --- |
