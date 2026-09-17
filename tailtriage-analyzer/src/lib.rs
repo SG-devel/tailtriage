@@ -921,11 +921,12 @@ fn percentile_sorted_u64(values: &[u64], numerator: usize, denominator: usize) -
         return None;
     }
 
-    let max_index = values.len().saturating_sub(1);
-    let index = max_index
+    let len = values.len();
+    let index = len
         .saturating_mul(numerator)
         .div_ceil(denominator)
-        .min(max_index);
+        .saturating_sub(1)
+        .min(len.saturating_sub(1));
     values.get(index).copied()
 }
 

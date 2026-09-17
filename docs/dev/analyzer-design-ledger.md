@@ -28,7 +28,7 @@ share a row only when owner, surface, and 0.4 disposition are the same.
 
 | Stable rule | Primary class | Current implementation owner | Current behavior/value | Surface | Durable rationale/proof | 0.4 disposition | Later decision |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Percentile estimator and p95 use | measurement definition | `lib.rs::percentile`, `percentile_sorted_u64`; callers in `analyze_run_internal`, `scoring.rs`, `stage_attribution.rs` | Sorted non-interpolated index `ceil((n-1)*p/q)`, clamped; empty or zero denominator gives `None`. Analyzer tails use p95; reports also use p50/p99. | public behavior/report contract | [AN-PCTL-001/002](analyzer-rationale.md#an-pctl-001--deterministic-non-interpolated-percentiles); A02 | calibrate/verify later | EVIDENCE-01 |
+| Percentile estimator and p95 use | measurement definition | `lib.rs::percentile`, `percentile_sorted_u64`; callers in `analyze_run_internal`, `scoring.rs`, `stage_attribution.rs` | Sorted non-interpolated nearest-rank index `ceil(n*p/q)-1`, clamped; empty or zero denominator gives `None`. Analyzer tails use p95; reports also use p50/p99. | public behavior/report contract | [AN-PCTL-001/002](analyzer-rationale.md#an-pctl-001--deterministic-non-interpolated-percentiles); A02 | selected and settled | EVIDENCE-01 selected |
 | Overlap-safe bounded attribution | measurement definition | `attribution.rs::attributed_elapsed_duration`; `lib.rs::queue_attribution_input`; `stage_attribution.rs::dual_stage_summaries` | Complete run-relative intervals are unioned; if any interval is missing, authoritative durations are saturating-summed; either result is capped at request latency. | public behavior/report contract | [AN-ATTR-001](analyzer-rationale.md#an-attr-001--overlap-safe-bounded-attribution); A02 | preserve unless a concrete defect is found | — |
 | Queue share populations | measurement definition | `lib.rs::request_time_shares` / `RequestTimeShares` | Every nonzero-latency completed request contributes a completed and observed permille share. Completed uses only completed queue events; observed uses completed plus partial events. Service share subtracts completed wait. All shares floor and cap at 1000. | public behavior/report contract | [AN-EVID-001](analyzer-rationale.md#an-evid-001--completed-distributions-and-partial-lower-bounds); A10 | preserve measurement; representation resolution refactors | EVIDENCE-02b |
 | Queue eligibility | tunable policy | `options/registry.rs::OPTION_ENTRIES` path `queueing.trigger_permille`; `scoring.rs::queue_candidate` | `u64`, default 300, valid `0..=1000`; candidate p95 queue share must be at least this materiality/eligibility threshold. | public option | [AN-QUEUE-001](analyzer-rationale.md#an-queue-001--queue-eligibility-and-multi-signal-scoring); A01 | preserve current value pending public-surface review; no evidence question here recalibrates the threshold | EVIDENCE-11 |
@@ -192,8 +192,8 @@ reviewed design decision rather than formula-tuning convenience.
 
 ## Deferred 0.4 evidence and compatibility register
 
-The ledger references, but deliberately does not resolve: EVIDENCE-01 percentile selection;
-EVIDENCE-02 typed-related representative/report policy; EVIDENCE-02b same-family representation
+The ledger records EVIDENCE-01 percentile selection as settled. It references, but deliberately
+does not resolve: EVIDENCE-02 typed-related representative/report policy; EVIDENCE-02b same-family representation
 resolution if alternatives remain; EVIDENCE-03 downstream materiality measurement; EVIDENCE-04
 family maturity/support thresholds; EVIDENCE-05 queue magnitude; EVIDENCE-06 blocking magnitude;
 EVIDENCE-07 normalized executor mapping; EVIDENCE-08 downstream magnitude/materiality default;

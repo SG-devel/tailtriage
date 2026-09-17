@@ -99,22 +99,23 @@ numeric calibration remains unknown.
 
 ### AN-PCTL-001 — Deterministic non-interpolated percentiles
 
-- **Rule or default:** Percentiles select the documented ceiling index without
-  interpolation; see
+- **Rule or default:** For nonempty sorted samples, percentiles use nearest-rank
+  index `ceil(n * p / q) - 1`, clamped to `n - 1`, without interpolation; see
   [percentiles and units](../diagnostics.md#percentiles-and-units).
 - **Classification:** Hard contract.
 - **Problem addressed:** Integer samples need one reproducible arithmetic rule;
   interpolation would invent values not present in a capture.
-- **Why this shape:** Present-purpose inference: direct selection keeps report
-  arithmetic simple and deterministic.
+- **Why this shape:** Conventional nearest-rank selection returns an observed
+  value while keeping report arithmetic simple and deterministic.
 - **Tradeoff:** Results move in steps on small series.
-- **Proof owner:** Percentile unit tests in
-  `tailtriage-analyzer/src/scoring.rs` and boundary tests in
+- **Proof owner:** Direct production-helper tests in
+  `tailtriage-analyzer/src/tests.rs`, percentile signal tests in
+  `tailtriage-analyzer/src/scoring.rs`, and boundary tests in
   `tailtriage-analyzer/tests/boundary_thresholds.rs`.
 - **Revision criteria:** Require an explicit arithmetic compatibility decision,
   fixture inventory, and report-output impact analysis.
-- **Provenance:** Present-purpose inference; historical reason for the exact
-  estimator is unknown.
+- **Provenance:** EVIDENCE-01 selected nearest-rank after numeric-envelope and
+  report-compatibility review.
 
 ### AN-PCTL-002 — p95 tail-signal selection
 
