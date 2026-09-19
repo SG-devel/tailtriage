@@ -118,6 +118,7 @@ fn precise_stage(
     StageEvent {
         request_id: request_id.to_owned(),
         stage: stage.to_owned(),
+        relations: tailtriage_core::StageRelations::default(),
         started_at_unix_ms: 10,
         started_at_run_us: start,
         finished_at_unix_ms: 10,
@@ -327,6 +328,7 @@ fn cap_flip_run() -> Run {
         .map(|i| StageEvent {
             request_id: format!("req-{i}"),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: i,
             started_at_run_us: Some(i * 2_000 + 100),
             finished_at_unix_ms: i + 1,
@@ -1235,6 +1237,7 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
     run.stages = vec![StageEvent {
         request_id: "missing-stage-request".to_owned(),
         stage: "db".to_owned(),
+        relations: tailtriage_core::StageRelations::default(),
         started_at_unix_ms: 1,
         started_at_run_us: None,
         finished_at_unix_ms: 2,
@@ -1274,6 +1277,7 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
     run.stages = vec![StageEvent {
         request_id: "req-1".to_owned(),
         stage: "db".to_owned(),
+        relations: tailtriage_core::StageRelations::default(),
         started_at_unix_ms: 1,
         started_at_run_us: None,
         finished_at_unix_ms: 2,
@@ -2114,6 +2118,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         StageEvent {
             request_id: "req-1".to_owned(),
             stage: "stage_a".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -2125,6 +2130,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         StageEvent {
             request_id: "req-2".to_owned(),
             stage: "stage_a".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 2,
             started_at_run_us: None,
             finished_at_unix_ms: 3,
@@ -2136,6 +2142,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         StageEvent {
             request_id: "req-3".to_owned(),
             stage: "stage_a".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 3,
             started_at_run_us: None,
             finished_at_unix_ms: 4,
@@ -2147,6 +2154,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         StageEvent {
             request_id: "req-1".to_owned(),
             stage: "stage_b".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -2158,6 +2166,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         StageEvent {
             request_id: "req-2".to_owned(),
             stage: "stage_b".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 2,
             started_at_run_us: None,
             finished_at_unix_ms: 3,
@@ -2169,6 +2178,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         StageEvent {
             request_id: "req-3".to_owned(),
             stage: "stage_b".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 3,
             started_at_run_us: None,
             finished_at_unix_ms: 4,
@@ -3222,12 +3232,33 @@ fn runtime_warning_emitted_when_insufficient_evidence() {
 
 // TT-TEST: support
 #[test]
+fn typed_stage_relation_metadata_is_analyzer_inert() {
+    let run = test_run();
+    let mut related = run;
+    related
+        .stages
+        .push(StageEvent::new("req-1", "opaque-work", 1, 2, 1, true).with_run_interval(None, None));
+    related.stages.last_mut().unwrap().relations = tailtriage_core::StageRelations::from_relation(
+        tailtriage_core::StageRelation::BlockingPool,
+    );
+    let without_relation = {
+        let mut run = related.clone();
+        run.stages.last_mut().unwrap().relations = tailtriage_core::StageRelations::default();
+        analyze_run(&run, AnalyzeOptions::default()).unwrap()
+    };
+    let with_relation = analyze_run(&related, AnalyzeOptions::default()).unwrap();
+    assert_eq!(with_relation, without_relation);
+}
+
+// TT-TEST: support
+#[test]
 fn downstream_beats_weak_blocking() {
     let mut run = test_run();
     run.stages = vec![
         StageEvent {
             request_id: "req-1".into(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -3239,6 +3270,7 @@ fn downstream_beats_weak_blocking() {
         StageEvent {
             request_id: "req-2".into(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 2,
             started_at_run_us: None,
             finished_at_unix_ms: 3,
@@ -3250,6 +3282,7 @@ fn downstream_beats_weak_blocking() {
         StageEvent {
             request_id: "req-3".into(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 3,
             started_at_run_us: None,
             finished_at_unix_ms: 4,
@@ -3352,6 +3385,7 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "spawn_blocking_path".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -3414,6 +3448,7 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "spawn_blocking_path".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -3612,6 +3647,7 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -3667,6 +3703,7 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -3728,6 +3765,7 @@ fn confidence_caps_do_not_change_score_ordering() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -3939,6 +3977,7 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 10,
@@ -4227,6 +4266,7 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
         run.stages.push(StageEvent {
             request_id: req_id.to_owned(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -4311,6 +4351,7 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
         run.stages.push(StageEvent {
             request_id: req_id.to_owned(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -4481,6 +4522,7 @@ fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
         run.stages.push(StageEvent {
             request_id: format!("req-{id}"),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 100,
             started_at_run_us: None,
             finished_at_unix_ms: 101,
@@ -4875,6 +4917,7 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
         run.stages.push(StageEvent {
             request_id: format!("req-{i}"),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: i,
             started_at_run_us: None,
             finished_at_unix_ms: i + 1,
@@ -4999,6 +5042,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
         run.stages.push(StageEvent {
             request_id: format!("req-{i}"),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: i_u64,
             started_at_run_us: Some(i_u64 * 10_000),
             finished_at_unix_ms: i_u64 + 1,
@@ -5127,6 +5171,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
         run.stages.push(StageEvent {
             request_id: format!("req-{i}"),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: i,
             started_at_run_us: None,
             finished_at_unix_ms: i + 1,
@@ -5191,6 +5236,7 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
         run.stages.push(StageEvent {
             request_id: format!("req-{i}"),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: i_u64,
             started_at_run_us: None,
             finished_at_unix_ms: i_u64 + 1,
@@ -5950,6 +5996,7 @@ fn default_options_compat_blocking_pool_pressure_case() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "spawn_blocking_path".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -5996,6 +6043,7 @@ fn default_options_compat_downstream_stage_dominance_case() {
         .map(|r| StageEvent {
             request_id: r.request_id.clone(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -6085,6 +6133,7 @@ fn default_options_compat_route_breakdowns_case() {
         run.stages.push(StageEvent {
             request_id: req_id.to_owned(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -6145,6 +6194,7 @@ fn default_options_compat_temporal_segments_case() {
         .map(|(i, r)| StageEvent {
             request_id: r.request_id.clone(),
             stage: "db".into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,

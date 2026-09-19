@@ -247,6 +247,10 @@ Core Run integrity contract:
 
 - artifacts require top-level `schema_version`
 - Run JSON schema version 2 is the current Run JSON schema version
+- Schema-v2 stage events may include plural `relations`. Missing or empty arrays mean no
+  relation; `blocking_pool` is the only known 0.4 relation. Unknown strings are semantically
+  inert and are preserved by the supported core deserialize/serialize round trip. Typed relation
+  metadata is not yet consumed by the analyzer.
 - `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged
 - active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization
 - Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version

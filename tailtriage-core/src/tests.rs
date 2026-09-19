@@ -1753,6 +1753,7 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
     crate::StageEvent {
         request_id: request_id.to_string(),
         stage: stage.to_string(),
+        relations: crate::StageRelations::default(),
         started_at_unix_ms: 3,
         started_at_run_us: None,
         finished_at_unix_ms: 4,
@@ -1761,6 +1762,68 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
         success: true,
         completed: true,
     }
+}
+
+// TT-TEST: support
+#[test]
+fn stage_relations_preserve_schema_v2_wire_compatibility() {
+    use crate::{StageEvent, StageRelation, StageRelations};
+
+    let historical: StageEvent = serde_json::from_str(
+        r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
+    )
+    .unwrap();
+    assert!(historical.relations.is_empty());
+    assert!(!historical.has_relation(StageRelation::BlockingPool));
+    let empty: StageEvent = serde_json::from_str(
+        r#"{"request_id":"r","stage":"work","relations":[],"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
+    )
+    .unwrap();
+    assert!(empty.relations.is_empty());
+
+    let ordinary = StageEvent::new("r", "work", 1, 2, 3, true);
+    assert!(ordinary.relations.is_empty());
+    assert!(serde_json::to_value(&ordinary)
+        .unwrap()
+        .get("relations")
+        .is_none());
+
+    let mut known = ordinary.clone();
+    known.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+    assert!(known.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&known).unwrap()["relations"],
+        serde_json::json!(["blocking_pool"])
+    );
+    assert_eq!(
+        serde_json::from_value::<StageEvent>(serde_json::to_value(&known).unwrap()).unwrap(),
+        known
+    );
+}
+
+// TT-TEST: support
+#[test]
+fn stage_relations_preserve_unknowns_and_canonicalize_duplicates() {
+    use crate::{StageEvent, StageRelation};
+
+    let base = r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true"#;
+    let unknown: StageEvent =
+        serde_json::from_str(&format!(r#"{base},"relations":["z_future","a_future"]}}"#)).unwrap();
+    assert!(!unknown.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&unknown).unwrap()["relations"],
+        serde_json::json!(["a_future", "z_future"])
+    );
+
+    let mixed: StageEvent = serde_json::from_str(&format!(
+        r#"{base},"relations":["future_relation","blocking_pool","blocking_pool"]}}"#
+    ))
+    .unwrap();
+    assert!(mixed.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&mixed).unwrap()["relations"],
+        serde_json::json!(["blocking_pool", "future_relation"])
+    );
 }
 
 fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
@@ -2528,6 +2591,7 @@ mod run_validation_contract {
         StageEvent {
             request_id: id.into(),
             stage: "db".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2634,6 +2698,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "dup".into(),
             stage: "db".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2816,6 +2881,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "retained-stage".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2827,6 +2893,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "missing".into(),
             stage: "orphan-stage".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -3202,6 +3269,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "missing".into(),
             stage: "x".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -3213,6 +3281,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "outside".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(0),
             finished_at_unix_ms: 1_001,
@@ -3224,6 +3293,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "legacy".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: None,
             finished_at_unix_ms: 1_001,

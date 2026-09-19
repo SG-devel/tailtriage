@@ -49,8 +49,8 @@ pub use config::{
 };
 pub use events::{
     EffectiveTokioSamplerConfig, InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run,
-    RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, TruncationSummary,
-    UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
+    RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, StageRelation, StageRelations,
+    TruncationSummary, UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
 };
 pub use run_builder::{RunBuilder, RunBuilderError, RunBuilderEventError, RunBuilderOptions};
 pub use sink::{DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
