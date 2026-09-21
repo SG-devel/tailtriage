@@ -247,6 +247,7 @@ Core Run integrity contract:
 
 - artifacts require top-level `schema_version`
 - Run JSON schema version 2 is the current Run JSON schema version
+- Native `StageTimer::relation(StageRelation::BlockingPool)` captures the one known relation on completed and partial stage events. Ordinary stage names do not imply relations. Tokio `blocking_stage(...)` attaches it automatically because that helper owns `spawn_blocking`; generic join, timeout, queue, and lock helpers do not.
 - Schema-v2 stage events may include plural `relations`. Missing or empty arrays mean no
   relation; `blocking_pool` is the only known 0.4 relation. Unknown strings are semantically
   inert and are preserved by the supported core deserialize/serialize round trip. Typed relation

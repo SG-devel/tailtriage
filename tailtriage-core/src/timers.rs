@@ -2,7 +2,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::collector::{lock_state, CollectorPhase};
 use crate::time::IntervalStart;
-use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
+use crate::{InFlightSnapshot, QueueEvent, StageEvent, StageRelation, StageRelations, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
 ///
@@ -79,6 +79,7 @@ enum ArmedTimerRecord<'a> {
         tailtriage: &'a Tailtriage,
         request_id: String,
         stage: String,
+        relation: Option<StageRelation>,
         interval_start: Option<IntervalStart>,
     },
     Queue {
@@ -107,22 +108,25 @@ impl Drop for ArmedTimerRecord<'_> {
                 tailtriage,
                 request_id,
                 stage,
+                relation,
                 interval_start,
             } => {
                 if let Some(start) = interval_start.take() {
                     let finished = tailtriage.run_clock.finish_interval(start);
-                    tailtriage.record_stage_event(
-                        StageEvent::new(
-                            request_id.clone(),
-                            stage.clone(),
-                            finished.started_at_unix_ms,
-                            finished.finished_at_unix_ms,
-                            finished.duration_us,
-                            false,
-                        )
-                        .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us)
-                        .into_partial(),
-                    );
+                    let mut event = StageEvent::new(
+                        request_id.clone(),
+                        stage.clone(),
+                        finished.started_at_unix_ms,
+                        finished.finished_at_unix_ms,
+                        finished.duration_us,
+                        false,
+                    )
+                    .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us)
+                    .into_partial();
+                    if let Some(relation) = relation {
+                        event.relations = StageRelations::from_relation(*relation);
+                    }
+                    tailtriage.record_stage_event(event);
                 }
             }
             Self::Queue {
@@ -158,9 +162,29 @@ pub struct StageTimer<'a> {
     pub(crate) enabled: bool,
     pub(crate) request_id: String,
     pub(crate) stage: String,
+    pub(crate) relation: Option<StageRelation>,
 }
 
 impl StageTimer<'_> {
+    /// Attaches one typed semantic relation to the stage event.
+    ///
+    /// Calling this repeatedly with the same relation is idempotent. Tailtriage
+    /// 0.4 supports at most one known relation per stage.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a future version provides another known relation and a caller
+    /// tries to replace an already selected, distinct relation.
+    #[must_use]
+    pub fn relation(mut self, relation: StageRelation) -> Self {
+        assert!(
+            self.relation.is_none() || self.relation == Some(relation),
+            "a stage timer cannot contain more than one known semantic relation"
+        );
+        self.relation = Some(relation);
+        self
+    }
+
     /// Awaits `fut`, records stage duration, and returns the original output.
     ///
     /// Timing begins on first poll. A future dropped before first poll records
@@ -185,23 +209,26 @@ impl StageTimer<'_> {
             tailtriage: self.tailtriage,
             request_id: self.request_id.clone(),
             stage: self.stage.clone(),
+            relation: self.relation,
             interval_start: Some(self.tailtriage.run_clock.start_interval()),
         };
         let value = fut.await;
         if let Some(interval_start) = guard.disarm() {
             let finished = self.tailtriage.run_clock.finish_interval(interval_start);
             let success = value.is_ok();
-            self.tailtriage.record_stage_event(
-                StageEvent::new(
-                    self.request_id,
-                    self.stage,
-                    finished.started_at_unix_ms,
-                    finished.finished_at_unix_ms,
-                    finished.duration_us,
-                    success,
-                )
-                .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us),
-            );
+            let mut event = StageEvent::new(
+                self.request_id,
+                self.stage,
+                finished.started_at_unix_ms,
+                finished.finished_at_unix_ms,
+                finished.duration_us,
+                success,
+            )
+            .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us);
+            if let Some(relation) = self.relation {
+                event.relations = StageRelations::from_relation(relation);
+            }
+            self.tailtriage.record_stage_event(event);
         }
         value
     }
@@ -255,22 +282,25 @@ impl StageTimer<'_> {
             tailtriage: self.tailtriage,
             request_id: self.request_id.clone(),
             stage: self.stage.clone(),
+            relation: self.relation,
             interval_start: Some(self.tailtriage.run_clock.start_interval()),
         };
         let value = fut.await;
         if let Some(interval_start) = guard.disarm() {
             let finished = self.tailtriage.run_clock.finish_interval(interval_start);
-            self.tailtriage.record_stage_event(
-                StageEvent::new(
-                    self.request_id,
-                    self.stage,
-                    finished.started_at_unix_ms,
-                    finished.finished_at_unix_ms,
-                    finished.duration_us,
-                    true,
-                )
-                .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us),
-            );
+            let mut event = StageEvent::new(
+                self.request_id,
+                self.stage,
+                finished.started_at_unix_ms,
+                finished.finished_at_unix_ms,
+                finished.duration_us,
+                true,
+            )
+            .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us);
+            if let Some(relation) = self.relation {
+                event.relations = StageRelations::from_relation(relation);
+            }
+            self.tailtriage.record_stage_event(event);
         }
         value
     }

@@ -118,6 +118,7 @@ specific reason is present. Older or manually assembled artifacts can omit the r
   metadata/schema input valid; inspect its returned report and dispositions.
 - Schema version 2 is current. Current CLI analysis requires a finalized Run with at least one
   completed request; active snapshots and empty in-process Runs remain useful for inspection.
+- Native stage instrumentation attaches the singular typed relation with `.stage(name).relation(StageRelation::BlockingPool)`; ordinary stage names do not imply relation metadata. Both completed and polled-then-dropped partial stage events retain an attached relation.
 - Schema-v2 stage JSON may carry plural `relations`. Missing and empty arrays mean no relation;
   `blocking_pool` is the only known 0.4 semantic relation. Unknown relation strings are inert but
   preserved across supported core deserialize/serialize round trips. The analyzer does not yet

@@ -13,7 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSnapshot, Tailtriage,
+    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSnapshot,
+    StageRelation, Tailtriage,
 };
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
@@ -206,7 +207,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Records a stage for blocking-pool work using `tokio::task::spawn_blocking`.
     ///
     /// Equivalent low-level form:
-    /// `req.stage(label).await_on(async move { tokio::task::spawn_blocking(f).await })`.
+    /// `req.stage(label).relation(StageRelation::BlockingPool).await_on(async move { tokio::task::spawn_blocking(f).await })`.
     ///
     /// This helper is lazy: it calls `spawn_blocking` only when the returned future is first polled,
     /// normally by `.await`.
@@ -314,7 +315,7 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let timer = self.stage(stage);
+        let timer = self.stage(stage).relation(StageRelation::BlockingPool);
         async move {
             timer
                 .await_on(async move { tokio::task::spawn_blocking(f).await })
@@ -409,7 +410,7 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let timer = self.stage(stage);
+        let timer = self.stage(stage).relation(StageRelation::BlockingPool);
         async move {
             timer
                 .await_on(async move { tokio::task::spawn_blocking(f).await })
@@ -1436,6 +1437,51 @@ mod helper_tests {
         assert!(stage("timeout_nested").success);
         assert!(stage("blocking_ok").success);
         assert!(!stage("blocking_panic").success);
+        assert!(stage("blocking_ok").has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(stage("blocking_panic").has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(!stage("join_ok").has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(!stage("timeout_ok").has_relation(tailtriage_core::StageRelation::BlockingPool));
+    }
+
+    // TT-TEST: support
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocking_relation_is_semantic_for_borrowed_and_owned_handles_only() {
+        let run = Arc::new(run());
+        let borrowed = run.begin_request("/borrowed");
+        borrowed
+            .handle
+            .blocking_stage("opaque-work", || ())
+            .await
+            .expect("blocking task");
+        borrowed
+            .handle
+            .stage("spawn_blocking_resize")
+            .await_value(async {})
+            .await;
+        borrowed.completion.finish_ok();
+
+        let owned = run.begin_owned_request("/owned");
+        owned
+            .handle
+            .blocking_stage("owned-opaque-work", || ())
+            .await
+            .expect("blocking task");
+        owned.completion.finish_ok();
+
+        let snapshot = run.snapshot();
+        let stage = |name: &str| {
+            snapshot
+                .stages
+                .iter()
+                .find(|event| event.stage == name)
+                .unwrap()
+        };
+        assert!(stage("opaque-work").has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(
+            stage("owned-opaque-work").has_relation(tailtriage_core::StageRelation::BlockingPool)
+        );
+        assert!(!stage("spawn_blocking_resize")
+            .has_relation(tailtriage_core::StageRelation::BlockingPool));
     }
 
     // TT-TEST: T02 primary

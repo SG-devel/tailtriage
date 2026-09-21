@@ -61,6 +61,8 @@ async fn capture_checkout() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Controller stage wrappers forward the core singular `.relation(StageRelation::BlockingPool)` annotation for captured requests and remain side-effect-free when inert. Ordinary stage names do not imply relation metadata. Typed relations are captured in Run stage events but are not yet consumed by the analyzer.
+
 Queue and stage wrappers still execute their futures when admission is inert. Such requests retain
 their metadata, record no evidence, and never join a later generation. `is_captured()` reports
 historical admission identity, not whether the original generation is still open. Keep the
