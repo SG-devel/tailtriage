@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 const fn default_completed() -> bool {
     true
@@ -113,8 +113,17 @@ impl<'de> Deserialize<'de> for StageRelations {
         let mut relations = Self::default();
         for value in values {
             if let Some(known) = StageRelation::from_wire_name(&value) {
-                // Repeated known values describe the same one semantic relation.
-                relations.known.get_or_insert(known);
+                match relations.known {
+                    None => relations.known = Some(known),
+                    Some(existing) if existing == known => {
+                        // Repeated known values describe the same one semantic relation.
+                    }
+                    Some(_) => {
+                        return Err(D::Error::custom(
+                            "stage relations contain more than one known semantic relation",
+                        ));
+                    }
+                }
             } else {
                 relations.unknown.insert(value);
             }
