@@ -4,6 +4,12 @@
 
 ### Changed
 
+- Added typed `StageRelation::BlockingPool` metadata and canonical plural stage `relations` to the
+  schema-v2 Run wire model. Missing/empty relations remain empty, unknown future values are inert
+  but round-trip preserved, and the analyzer does not consume this metadata yet. Adding the public
+  `StageEvent::relations` field is a pre-1.0 Rust source break for exhaustive struct literals; use
+  `StageEvent::new(...)` where possible or initialize `StageRelations::default()`.
+
 - Tracing JSONL import now accepts only the stable `tailtriage.tracing-span.v1` wrapper through
   `import_jsonl_reader(...)` and `import_jsonl_path(...)`. `JsonlParseMode`,
   `import_jsonl_reader_with_mode(...)`, and `import_jsonl_path_with_mode(...)` were removed;

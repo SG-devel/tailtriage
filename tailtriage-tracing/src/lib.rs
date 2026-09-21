@@ -367,6 +367,7 @@ where
                         event: StageEvent {
                             request_id,
                             stage,
+                            relations: tailtriage_core::StageRelations::default(),
                             started_at_unix_ms: span.started_at_unix_ms(),
                             started_at_run_us,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
@@ -1422,6 +1423,7 @@ mod tests {
         candidate.stages.push(StageEvent {
             request_id: "excluded".to_owned(),
             stage: "child-stage".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 105,
             started_at_run_us: None,
             finished_at_unix_ms: 110,
@@ -1455,6 +1457,7 @@ mod tests {
         candidate.stages.push(StageEvent {
             request_id: "valid".to_owned(),
             stage: "valid-stage".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 205,
             started_at_run_us: None,
             finished_at_unix_ms: 210,
