@@ -1,6 +1,7 @@
 use tailtriage_core::{
-    CaptureMode, EffectiveCoreConfig, InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata,
-    RuntimeSnapshot, StageEvent, SCHEMA_VERSION,
+    normalize_run_permissive, CaptureMode, EffectiveCoreConfig, InFlightSnapshot, QueueEvent,
+    RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent, StageRelation, StageRelations,
+    SCHEMA_VERSION,
 };
 
 use super::temporal::{
@@ -3233,21 +3234,56 @@ fn runtime_warning_emitted_when_insufficient_evidence() {
 // TT-TEST: support
 #[test]
 fn typed_stage_relation_metadata_is_analyzer_inert() {
-    let run = test_run();
-    let mut related = run;
-    related
+    let mut without_relation = test_run();
+    without_relation.stages = without_relation
+        .requests
+        .iter()
+        .map(|request| {
+            StageEvent::new(
+                request.request_id.clone(),
+                "resize_image",
+                request.started_at_unix_ms,
+                request.finished_at_unix_ms,
+                900,
+                true,
+            )
+            .with_run_interval(None, None)
+        })
+        .collect();
+    let mut related = without_relation.clone();
+    for stage in &mut related.stages {
+        stage.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+    }
+
+    let normalized = normalize_run_permissive(&related);
+    assert_eq!(normalized.run.stages.len(), related.stages.len());
+    assert!(normalized
+        .run
         .stages
-        .push(StageEvent::new("req-1", "opaque-work", 1, 2, 1, true).with_run_interval(None, None));
-    related.stages.last_mut().unwrap().relations = tailtriage_core::StageRelations::from_relation(
-        tailtriage_core::StageRelation::BlockingPool,
-    );
-    let without_relation = {
-        let mut run = related.clone();
-        run.stages.last_mut().unwrap().relations = tailtriage_core::StageRelations::default();
-        analyze_run(&run, AnalyzeOptions::default()).unwrap()
-    };
+        .iter()
+        .all(|stage| stage.has_relation(StageRelation::BlockingPool)));
+
+    let without_relation = analyze_run(&without_relation, AnalyzeOptions::default()).unwrap();
     let with_relation = analyze_run(&related, AnalyzeOptions::default()).unwrap();
     assert_eq!(with_relation, without_relation);
+}
+
+// TT-TEST: support
+#[test]
+fn typed_blocking_pool_relation_is_independent_of_stage_display_name() {
+    for name in [
+        "spawn_blocking_resize",
+        "resize_image",
+        "nonblocking_cache",
+        "unblocking_cleanup",
+        "blocking",
+    ] {
+        let mut stage = StageEvent::new("req-1", name, 1, 2, 1, true);
+        assert!(!stage.has_relation(StageRelation::BlockingPool), "{name}");
+
+        stage.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+        assert!(stage.has_relation(StageRelation::BlockingPool), "{name}");
+    }
 }
 
 // TT-TEST: support
@@ -3410,18 +3446,32 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
 
 // TT-TEST: support
 #[test]
-fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
-    assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "db_query",
-        &AnalyzeOptions::default()
-    ));
-    assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "retry_attempt",
-        &AnalyzeOptions::default()
-    ));
+fn legacy_blocking_correlation_is_case_insensitive_substring_matching() {
+    let options = AnalyzeOptions::default();
+    for (name, expected) in [
+        ("spawn_blocking_resize", true),
+        ("resize_image", false),
+        ("nonblocking_cache", true),
+        ("unblocking_cleanup", true),
+        ("blocking", true),
+        ("SpAwN_BlOcKiNg_ReSiZe", true),
+    ] {
+        assert_eq!(
+            super::scoring::stage_correlates_with_blocking_pool(name, &options),
+            expected,
+            "legacy lexical result for {name}"
+        );
+    }
+
+    let mut custom = options;
+    custom.downstream.blocking_correlated_stage_patterns = vec!["DB_QUERY".to_string()];
     assert!(super::scoring::stage_correlates_with_blocking_pool(
-        "spawn_blocking_path",
-        &AnalyzeOptions::default()
+        "prefix_db_query_suffix",
+        &custom
+    ));
+    assert!(!super::scoring::stage_correlates_with_blocking_pool(
+        "spawn_blocking_resize",
+        &custom
     ));
 }
 
