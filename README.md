@@ -96,6 +96,8 @@ Use the [analyzer guide](docs/analyzer-guide.md) for the practical report-to-nex
 - **Embedded analysis:** add `tailtriage-analyzer` when code needs typed in-process `Report` values.
 - **Tuning:** start with analyzer defaults; tune only after representative evidence justifies it.
 
+Native stage timers can capture typed semantic metadata with singular `.relation(StageRelation::BlockingPool)`. Ordinary stage names never imply a relation. The Tokio `blocking_stage(...)` helper tags the relation automatically because it owns `spawn_blocking`; typed relations are stored in Run stage events but are not yet consumed by the analyzer.
+
 Within one Run, use one unique tailtriage `request_id` for each completed logical request/work item. Queue and stage evidence reuses that ID only for that request. Advanced tracing, retry, and fanout correlation must preserve this uniqueness.
 
 ## Choose a destination

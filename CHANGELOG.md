@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Native stage timers now accept singular `.relation(StageRelation::BlockingPool)` instrumentation, including through controller stage wrappers. Completed and partial native stage events retain the metadata; repeated identical annotation is idempotent. Tokio `blocking_stage(...)` adds the relation automatically for borrowed and owned handles, while labels and generic join, timeout, queue, and lock helpers do not infer it. The analyzer remains unchanged and does not consume typed relations yet.
+
 - Added typed `StageRelation::BlockingPool` metadata and canonical plural stage `relations` to the
   schema-v2 Run wire model. Missing/empty relations remain empty, unknown future values are inert
   but round-trip preserved, and the analyzer does not consume this metadata yet. Adding the public

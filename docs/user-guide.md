@@ -51,6 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `started.handle` records evidence; `started.completion` owns completion. Finish exactly once after measured work. `shutdown()` finalizes and persists the capture but does not invent completion. Keep fallible work in a value until completion and shutdown have occurred, rather than using an early `?` that can skip either step. Do not finalize while spawned request tasks or owned completion tokens remain active.
 
+Native stage timers accept singular `.relation(StageRelation::BlockingPool)` metadata. Ordinary stage labels have no relation semantics; the Tokio `blocking_stage(...)` helper adds `BlockingPool` automatically because it owns the `spawn_blocking` call. Run stage events retain this metadata, but the analyzer does not consume it yet.
+
 Within a Run, each completed logical request/work item needs one unique tailtriage `request_id`; its queue and stage evidence must reuse that ID only for the same logical request.
 
 ## 3) Analyze the finalized Run

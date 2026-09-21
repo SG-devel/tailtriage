@@ -859,6 +859,7 @@ impl RequestHandle<'_> {
             enabled: self.admitted,
             request_id: self.request_id.clone(),
             stage: stage.into(),
+            relation: None,
         }
     }
 
@@ -968,6 +969,7 @@ impl OwnedRequestHandle {
             enabled: self.admitted,
             request_id: self.request_id.clone(),
             stage: stage.into(),
+            relation: None,
         }
     }
 

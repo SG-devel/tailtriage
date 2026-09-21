@@ -3844,8 +3844,8 @@ mod prompt09_partial_events {
     use std::task::{Context, Poll, Waker};
 
     use crate::{
-        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, Tailtriage,
-        TruncationSummary, SCHEMA_VERSION,
+        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, StageRelation,
+        Tailtriage, TruncationSummary, SCHEMA_VERSION,
     };
 
     fn poll_once<F: Future>(future: &mut std::pin::Pin<Box<F>>) -> Poll<F::Output> {
@@ -3977,6 +3977,36 @@ mod prompt09_partial_events {
         assert_eq!(ev.stage, "db");
         assert!(ev.completed);
         assert!(ev.success);
+        assert!(!ev.has_relation(StageRelation::BlockingPool));
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_records_completed_success_and_error() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let ok: Result<(), ()> = futures_executor::block_on(
+            started
+                .handle
+                .stage("decode-ok")
+                .relation(StageRelation::BlockingPool)
+                .relation(StageRelation::BlockingPool)
+                .await_on(ready(Ok(()))),
+        );
+        let error: Result<(), ()> = futures_executor::block_on(
+            started
+                .handle
+                .stage("decode-error")
+                .relation(StageRelation::BlockingPool)
+                .await_on(ready(Err(()))),
+        );
+        assert!(ok.is_ok());
+        assert!(error.is_err());
+        let run = tt.snapshot();
+        assert!(run
+            .stages
+            .iter()
+            .all(|event| { event.has_relation(StageRelation::BlockingPool) && event.completed }));
     }
 
     // TT-TEST: support
@@ -3988,6 +4018,21 @@ mod prompt09_partial_events {
         let ev = &tt.snapshot().stages[0];
         assert!(ev.completed);
         assert!(ev.success);
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_survives_await_value() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        futures_executor::block_on(
+            started
+                .handle
+                .stage("decode")
+                .relation(StageRelation::BlockingPool)
+                .await_value(ready(())),
+        );
+        assert!(tt.snapshot().stages[0].has_relation(StageRelation::BlockingPool));
     }
 
     // TT-TEST: support
@@ -4028,6 +4073,24 @@ mod prompt09_partial_events {
         assert!(!ev.completed);
         assert!(!ev.success);
         assert!(ev.latency_us <= ev.finished_at_run_us.unwrap_or(u64::MAX));
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_survives_partial_drop() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let fut = started
+            .handle
+            .stage("decode")
+            .relation(StageRelation::BlockingPool)
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let run = tt.snapshot();
+        assert!(!run.stages[0].completed);
+        assert!(run.stages[0].has_relation(StageRelation::BlockingPool));
     }
 
     // TT-TEST: K02 primary
