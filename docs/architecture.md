@@ -71,7 +71,7 @@ Consumes run artifacts from disk, validates schema/loader rules, invokes `tailtr
 ### `tailtriage-tracing`
 
 A narrow intake bridge for tracing-shaped completed spans and live `tt.*` span recording.
-It performs tracing-specific parsing and retention, passes candidate evidence through core normalization, keeps private source provenance so retained core dispositions can be joined back to original tracing sources, and can write retained-source JSONL in the stable `tailtriage.tracing-span.v1` wrapper. Completed-span JSONL is an intermediate replay format for retained original source records; Run JSON remains the complete persisted artifact for analysis. It does not implement OpenTelemetry/OTLP or introduce a tracing-specific analyzer path.
+Stage-only source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but semantically inert, request/queue values and names have no relation effect, and the analyzer does not consume typed relations yet. This additive field remains compatible with the v1 wrapper. It performs tracing-specific parsing and retention, passes candidate evidence through core normalization, keeps private source provenance so retained core dispositions can be joined back to original tracing sources, and can write retained-source JSONL in the stable `tailtriage.tracing-span.v1` wrapper. Completed-span JSONL is an intermediate replay format for retained original source records; Run JSON remains the complete persisted artifact for analysis. It does not implement OpenTelemetry/OTLP or introduce a tracing-specific analyzer path.
 
 ## Relationship model
 

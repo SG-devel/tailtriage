@@ -105,7 +105,7 @@ A request candidate follows the tailtriage tracing convention and includes `tt.k
 `tt.request_id`, `tt.route`, and valid source/timing data. Stage and queue evidence reuse the same
 logical request ID. Within one Run, `request_id` identifies one completed tailtriage request or
 work item; it is not automatically a broader external trace ID that may repeat. Optional request
-outcome and child details include `tt.outcome`, `tt.success`, and `tt.depth_at_start`. Exact tracing
+outcome and child details include `tt.outcome`, `tt.success`, `tt.depth_at_start`, and stage-only `tt.relation`. The tracing value `tt.relation = "blocking_pool"` becomes core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, non-string values follow tracing strictness, and names never imply relations. The v1 wrapper remains compatible with this additive source field, while the analyzer does not consume typed relations yet. Exact tracing
 field and `SpanRecord` contracts belong to `tailtriage-tracing` public Rustdoc.
 
 ### Duration derivation and precise validation

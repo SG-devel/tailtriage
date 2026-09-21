@@ -1,5 +1,7 @@
 # Changelog
 
+- Tracing stage intake now maps `tt.relation = "blocking_pool"` into core typed stage relations and preserves unknown string relation values inertly through the existing v1 completed-span wrapper; native and tracing metadata converge while analyzer behavior remains unchanged.
+
 ## [0.4.0] - Unreleased
 
 ### Changed

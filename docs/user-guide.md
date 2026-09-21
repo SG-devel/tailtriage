@@ -127,6 +127,8 @@ tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout -
 tailtriage analyze tailtriage-run.json
 ```
 
+Stage-only tracing source `tt.relation = "blocking_pool"` becomes core Run `relations = ["blocking_pool"]`, matching native typed relation metadata. Unknown strings are preserved but inert, non-string values follow tracing strictness, request/queue values have no relation effect, and names never imply relations. This additive field remains in the stable v1 completed-span wrapper; the analyzer does not consume typed relations yet.
+
 This is not arbitrary tracing-log ingestion. One completed logical work item needs one unique tailtriage request ID; retries, fanout branches, and batch items must not reuse an ambiguous ID. The [`tailtriage-tracing` README](../tailtriage-tracing/README.md) owns fields, wrappers, import policy, session lifecycle, and Tokio coupling.
 
 ### Embedded analysis

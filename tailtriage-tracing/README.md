@@ -79,6 +79,8 @@ let _warnings = imported.warnings();
 # example().unwrap();
 ```
 
+For stage spans, `tt.relation = "blocking_pool"` maps to the core typed blocking-pool relation. Missing values mean no relation; unknown string values are preserved as forward-compatible, semantically inert core wire values; non-string values follow the optional stage-field strict/permissive policy. The key has no semantic effect on request or queue spans, and span or stage names never imply a relation. Core Run JSON uses the distinct canonical shape `"relations": ["blocking_pool"]`. Native and tracing evidence therefore converge on the same core metadata, although the analyzer does not consume typed relations yet.
+
 Only the `tailtriage.tracing-span.v1` wrapper is accepted. Raw `SpanRecord`
 JSON, unversioned compatibility envelopes, ordinary tracing formatter JSON,
 and generic tracing logs are unsupported. This is completed-span intake, not a

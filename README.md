@@ -92,7 +92,7 @@ Use the [analyzer guide](docs/analyzer-guide.md) for the practical report-to-nex
 - **Controller:** repeated bounded arm/disarm windows in a long-lived service; `disable()` is reversible and `shutdown()` is terminal.
 - **Tokio runtime sampling:** add runtime-pressure evidence by explicitly starting `tailtriage::tokio::RuntimeSampler` inside an active Tokio runtime. `CaptureMode` does not start it.
 - **Axum:** enable `axum` for request-boundary middleware; instrument inner queues and stages explicitly.
-- **Tracing:** enable `tracing` for typed/stable JSONL intake, `tracing-live` for live session APIs, or `tracing-tokio` for Tokio-coupled live sessions.
+- **Tracing:** enable `tracing` for typed/stable JSONL intake, `tracing-live` for live session APIs, or `tracing-tokio` for Tokio-coupled live sessions. Stage-only source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, names imply no relation, the wrapper remains v1, and the analyzer does not consume typed relations yet.
 - **Embedded analysis:** add `tailtriage-analyzer` when code needs typed in-process `Report` values.
 - **Tuning:** start with analyzer defaults; tune only after representative evidence justifies it.
 

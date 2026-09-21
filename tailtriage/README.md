@@ -99,7 +99,7 @@ Published crate documentation is generated with all façade features enabled, so
 - `tailtriage::controller`: repeated bounded windows in a long-lived service; disable is reversible and shutdown is terminal.
 - `tailtriage::tokio`: explicitly started runtime-pressure sampling and Tokio helper APIs.
 - `tailtriage::axum`: request-boundary middleware; inner queue/stage instrumentation stays explicit.
-- `tailtriage::tracing`: supported typed/JSONL or live tracing intake for applications with suitable existing correlation.
+- `tailtriage::tracing`: supported typed/JSONL or live tracing intake for applications with suitable existing correlation. Stage-only `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings remain inert and preserved, names imply nothing, the stable wrapper remains v1, and the analyzer does not consume typed relations yet.
 - `tailtriage-analyzer`: typed in-process Report values and renderers.
 - `tailtriage-cli`: saved-artifact analysis and supported tracing import.
 
