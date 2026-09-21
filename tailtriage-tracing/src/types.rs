@@ -107,7 +107,7 @@ impl From<f64> for FieldValue {
 /// | `tt.kind` | Required | Optional |
 /// | --- | --- | --- |
 /// | `request` | string `tt.request_id`, string `tt.route` | non-empty string `tt.outcome`; absent defaults to `ok` with a warning |
-/// | `stage` | string `tt.request_id`, string `tt.stage` | bool or case-insensitive boolean string `tt.success`; absent defaults to `true` with a warning |
+/// | `stage` | string `tt.request_id`, string `tt.stage` | bool or case-insensitive boolean string `tt.success`; string `tt.relation`; absent success defaults to `true` with a warning |
 /// | `queue` | string `tt.request_id`, string `tt.queue` | non-negative integer `tt.depth_at_start` |
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpanRecord {

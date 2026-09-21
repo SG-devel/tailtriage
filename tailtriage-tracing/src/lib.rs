@@ -78,7 +78,8 @@ use tailtriage_core::{
 };
 
 pub use convention::{
-    TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
+    TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_RELATION, TT_REQUEST_ID, TT_ROUTE,
+    TT_STAGE, TT_SUCCESS,
 };
 pub use error::ImportError;
 #[cfg(feature = "jsonl")]
@@ -352,6 +353,14 @@ where
                         OptionalField::Value(success) => success,
                         OptionalField::Invalid => continue,
                     };
+                    let relations = match parse_relation(span, options.is_strict(), &mut warnings)?
+                    {
+                        OptionalField::Missing => tailtriage_core::StageRelations::default(),
+                        OptionalField::Value(value) => {
+                            tailtriage_core::__internal::stage_relations_from_wire_value(value)
+                        }
+                        OptionalField::Invalid => continue,
+                    };
                     let (started_at_run_us, finished_at_run_us) =
                         sanitized_run_relative_offsets(span);
                     if parsed_stages.len() >= capture_limits.max_stages {
@@ -367,7 +376,7 @@ where
                         event: StageEvent {
                             request_id,
                             stage,
-                            relations: tailtriage_core::StageRelations::default(),
+                            relations,
                             started_at_unix_ms: span.started_at_unix_ms(),
                             started_at_run_us,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
@@ -1069,6 +1078,28 @@ fn parse_success(
     }
 }
 
+fn parse_relation(
+    span: &SpanRecord,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<OptionalField<String>, ImportError> {
+    match span.fields().get(TT_RELATION) {
+        Some(FieldValue::String(value)) => Ok(OptionalField::Value(value.clone())),
+        Some(_) => {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "invalid field '{TT_RELATION}' in span '{}': expected string",
+                    span.name()
+                ),
+            )?;
+            Ok(OptionalField::Invalid)
+        }
+        None => Ok(OptionalField::Missing),
+    }
+}
+
 fn parse_depth_at_start(
     span: &SpanRecord,
     strict: bool,
@@ -1225,6 +1256,61 @@ mod tests {
             .with_field(TT_KIND, "queue")
             .with_field(TT_REQUEST_ID, id)
             .with_field(TT_QUEUE, name)
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn stage_relation_conversion_is_typed_forward_compatible_and_kind_scoped() {
+        let imported = run_from_span_records(
+            [
+                req("r1", 100, 200).with_field(TT_RELATION, "blocking_pool"),
+                stage("r1", "opaque", 110, 120).with_field(TT_RELATION, "blocking_pool"),
+                stage("r1", "future", 121, 130).with_field(TT_RELATION, "future_relation"),
+                stage("r1", "spawn_blocking_resize", 131, 140),
+                queue("r1", "q", 141, 150).with_field(TT_RELATION, "blocking_pool"),
+            ],
+            opts(),
+        )
+        .unwrap();
+        let stages = &imported.run().stages;
+        assert!(stages[0].has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(!stages[1].has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(stages[2].relations.is_empty());
+        let json = serde_json::to_value(imported.run()).unwrap();
+        assert_eq!(
+            json["stages"][0]["relations"],
+            serde_json::json!(["blocking_pool"])
+        );
+        assert_eq!(
+            json["stages"][1]["relations"],
+            serde_json::json!(["future_relation"])
+        );
+        assert!(json["stages"][2].get("relations").is_none());
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn non_string_stage_relation_warns_and_skips_or_fails_strictly() {
+        let spans = [
+            req("r1", 100, 200),
+            stage("r1", "bad", 110, 120).with_field(TT_RELATION, true),
+        ];
+        let permissive = run_from_span_records(spans.clone(), opts()).unwrap();
+        assert!(permissive.run().stages.is_empty());
+        assert_eq!(
+            permissive
+                .warnings()
+                .iter()
+                .filter(|warning| warning.message().contains("invalid field 'tt.relation'"))
+                .count(),
+            1
+        );
+        let strict =
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true).run_id("run"))
+                .unwrap_err();
+        assert!(
+            matches!(strict, ImportError::StrictViolation(message) if message.contains("invalid field 'tt.relation'"))
+        );
     }
 
     fn empty_candidate_run() -> Run {

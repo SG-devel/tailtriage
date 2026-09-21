@@ -82,6 +82,17 @@ impl StageRelations {
     pub fn is_empty(&self) -> bool {
         self.known.is_none() && self.unknown.is_empty()
     }
+
+    pub(crate) fn from_wire_value(value: String) -> Self {
+        if let Some(known) = StageRelation::from_wire_name(&value) {
+            Self::from_relation(known)
+        } else {
+            Self {
+                known: None,
+                unknown: BTreeSet::from([value]),
+            }
+        }
+    }
 }
 
 impl From<StageRelation> for StageRelations {

@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Tracing stage intake now maps `tt.relation = "blocking_pool"` into core typed stage relations and preserves unknown string relation values inertly through the existing v1 completed-span wrapper; native and tracing metadata converge while analyzer behavior remains unchanged.
+
 - Native stage timers now accept singular `.relation(StageRelation::BlockingPool)` instrumentation, including through controller stage wrappers. Completed and partial native stage events retain the metadata; repeated identical annotation is idempotent. Tokio `blocking_stage(...)` adds the relation automatically for borrowed and owned handles, while labels and generic join, timeout, queue, and lock helpers do not infer it. The analyzer remains unchanged and does not consume typed relations yet.
 
 - Added typed `StageRelation::BlockingPool` metadata and canonical plural stage `relations` to the

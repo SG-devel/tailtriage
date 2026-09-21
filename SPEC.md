@@ -181,7 +181,8 @@ Users can depend on `tailtriage-tracing` directly for the narrow crate boundary,
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
   `tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run.json>`
-- native direct capture and tracing intake both produce standard `Run` artifacts
+- stage-only tracing source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, non-string values follow tracing strictness, request/queue values and names have no relation effect, and the stable wrapper remains v1
+- native direct capture and tracing intake both produce standard `Run` artifacts with the same typed relation metadata; the analyzer does not consume typed relations yet
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
