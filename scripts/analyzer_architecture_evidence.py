@@ -112,7 +112,7 @@ def load_architecture_manifest(path: Path = REPO / ARCHITECTURE_MANIFEST) -> dic
     if value.get("format") != ARCHITECTURE_FORMAT or not isinstance(value.get("cases"), list):
         raise EvidenceError(f"architecture manifest must use {ARCHITECTURE_FORMAT}")
     ids: set[str] = set()
-    hashes: dict[str, tuple[str, str]] = {}
+    hashes: dict[str, list[str]] = {"visible_sentinel": [], "locked_challenge": []}
     forbidden = {"expected_primary_suspect", "expected_score", "expected_confidence", "expected_ranking", "expected_analyzer_output_hash"}
     base_hashes = {file_sha256(REPO / "tailtriage-analyzer/tests/fixtures" / name) for name in FIXTURES}
     diagnostic = load_manifest()
@@ -135,12 +135,14 @@ def load_architecture_manifest(path: Path = REPO / ARCHITECTURE_MANIFEST) -> dic
             raise EvidenceError(f"wrong architecture artifact SHA-256: {item['id']}")
         if item["suite"] == "locked_challenge" and forbidden.intersection(item):
             raise EvidenceError(f"locked entry contains forbidden expected-output fields: {item['id']}")
-        if item["suite"] == "locked_challenge":
-            if actual in hashes:
-                raise EvidenceError(f"duplicate locked input bytes: {item['id']} and {hashes[actual][0]}")
-            if actual in base_hashes or actual in diagnostic_hashes:
-                raise EvidenceError(f"locked input duplicates existing executable input: {item['id']}")
-        hashes[actual] = (item["id"], item["suite"])
+        hashes[item["suite"]].append(actual)
+    locked_hashes = hashes["locked_challenge"]
+    if len(locked_hashes) != len(set(locked_hashes)):
+        raise EvidenceError("duplicate locked input bytes")
+    if set(locked_hashes).intersection(hashes["visible_sentinel"]):
+        raise EvidenceError("locked input duplicates visible sentinel input")
+    if set(locked_hashes).intersection(base_hashes | diagnostic_hashes):
+        raise EvidenceError("locked input duplicates existing executable input")
     return value
 
 
@@ -502,10 +504,14 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return provenance, results
 
 
-def verify(output_value: str | Path) -> None:
+def verify(output_value: str | Path, expected_suite: str | None = None) -> None:
     output = confined_output(output_value)
-    provenance, baseline = validate_saved(output)
     plan = read_json(output / "plan.json")
+    suite_matches = "suite" not in plan if expected_suite is None else plan.get("suite") == expected_suite
+    if not suite_matches:
+        expected = "base suite" if expected_suite is None else expected_suite
+        raise EvidenceError(f"recorded suite does not match expected {expected}")
+    provenance, baseline = validate_saved(output)
     binary_path = Path(provenance["binary"]["path"])
     if not binary_path.is_absolute():
         binary_path = REPO / binary_path
@@ -655,7 +661,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "run-sentinels":
             record(args.output, args.binary, args.analyzer_config, args.analyzer_set, "visible_sentinel")
         elif args.command == "verify-sentinels":
-            verify(args.output)
+            verify(args.output, "visible_sentinel")
         elif args.command == "check-locked-challenges":
             check_architecture_definitions()
         elif args.command == "run-locked-challenges":
