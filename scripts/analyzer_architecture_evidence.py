@@ -259,11 +259,14 @@ def record(
     config_evidence_path = Path("config/analyzer-config") if config_source is not None else None
     global_config = {
         "config": None if config_source is None else {
-            "source_path": repository_path(config_source),
             "evidence_path": config_evidence_path.as_posix(),
             "sha256": file_sha256(config_source),
         },
         "overrides": list(analyzer_overrides or []),
+    }
+    config_source_provenance = None if config_source is None else {
+        "source_path": repository_path(config_source),
+        "sha256": global_config["config"]["sha256"],
     }
     plan = build_plan(global_analyzer_config=global_config)
     plan_bytes = canonical_bytes(plan)
@@ -324,6 +327,7 @@ def record(
         "binary": {"mode": mode, "path": repository_path(binary), "sha256": binary_hash},
         "plan_sha256": plan_hash,
         "global_analyzer_config": plan["global_analyzer_config"],
+        "analyzer_config_source": config_source_provenance,
         "source_manifest": {"path": MANIFEST.as_posix(), "sha256": file_sha256(manifest_path)},
         "input_inventory": inventory,
         "numeric108": None,
@@ -354,11 +358,16 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if provenance["plan_sha256"] != sha256(plan_bytes):
         raise EvidenceError("recorded plan hash changed")
     config = recorded_config["config"]
+    if config is None and provenance["analyzer_config_source"] is not None:
+        raise EvidenceError("analyzer config source provenance changed")
     if config is not None:
         local_config = output / config["evidence_path"]
         if not local_config.is_file() or file_sha256(local_config) != config["sha256"]:
             raise EvidenceError("saved analyzer config bytes/hash changed")
-        source_config = Path(config["source_path"])
+        source_provenance = provenance["analyzer_config_source"]
+        if source_provenance is None or source_provenance["sha256"] != config["sha256"]:
+            raise EvidenceError("analyzer config source provenance changed")
+        source_config = Path(source_provenance["source_path"])
         if not source_config.is_absolute():
             source_config = REPO / source_config
         if source_config.exists() and (not source_config.is_file() or file_sha256(source_config) != config["sha256"]):
@@ -482,8 +491,8 @@ def compare(left_value: str | Path, right_value: str | Path, output_value: str |
     report = {
         "schema_version": SCHEMA_VERSION,
         "compatible_plan_input_identity": True,
-        "left": {"binary": lp["binary"], "global_analyzer_config": lp["global_analyzer_config"]},
-        "right": {"binary": rp["binary"], "global_analyzer_config": rp["global_analyzer_config"]},
+        "left": {"binary": lp["binary"], "global_analyzer_config": lp["global_analyzer_config"], "analyzer_config_source": lp["analyzer_config_source"]},
+        "right": {"binary": rp["binary"], "global_analyzer_config": rp["global_analyzer_config"], "analyzer_config_source": rp["analyzer_config_source"]},
         "case_count": len(rows),
         "unchanged_case_count": len(rows) - len(changed),
         "changed_case_count": len(changed),

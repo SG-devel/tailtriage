@@ -154,7 +154,7 @@ else:
 
     # TT-TEST: support
     def test_analyzer_configuration_is_ordered_and_analyze_only(self):
-        config = {"config": {"source_path": "settings.toml", "evidence_path": "config/analyzer-config", "sha256": "a" * 64}, "overrides": ["scoring.queue.weight=2", "scoring.queue.weight=3"]}
+        config = {"config": {"evidence_path": "config/analyzer-config", "sha256": "a" * 64}, "overrides": ["scoring.queue.weight=2", "scoring.queue.weight=3"]}
         case = {"artifact_type": "tracing_span_jsonl", "artifact_policy": "strict", "analyzer_overrides": []}
         imported = evidence.command_description("import", case, config)
         analyzed = evidence.command_description("analyze", case, config)
@@ -173,6 +173,7 @@ else:
         evidence.record(output, str(self.fake_binary()), config, ["scoring.queue.weight=3", "scoring.queue.weight=4"])
         provenance = evidence.read_json(output / "provenance.json")
         recorded = provenance["global_analyzer_config"]
+        self.assertEqual(provenance["analyzer_config_source"]["source_path"], evidence.repository_path(config))
         self.assertEqual((output / recorded["config"]["evidence_path"]).read_bytes(), config.read_bytes())
         self.assertEqual(recorded["config"]["sha256"], evidence.file_sha256(config))
         self.assertEqual(recorded["overrides"], ["scoring.queue.weight=3", "scoring.queue.weight=4"])
@@ -205,6 +206,63 @@ else:
         self.assertEqual(report["left"]["global_analyzer_config"]["overrides"], ["scoring.queue.weight=2"])
         self.assertEqual(report["right"]["global_analyzer_config"]["overrides"], ["scoring.queue.weight=3"])
         self.assertNotEqual(evidence.read_json(left / "aggregate.json")["global_analyzer_config"], evidence.read_json(right / "aggregate.json")["global_analyzer_config"])
+
+    # TT-TEST: support
+    def test_config_identity_is_independent_of_source_path(self):
+        binary = self.fake_binary()
+        first_source_dir = Path(tempfile.mkdtemp(prefix="architecture-config-a-"))
+        second_source_dir = Path(tempfile.mkdtemp(prefix="architecture-config-b-"))
+        self.addCleanup(shutil.rmtree, first_source_dir, True)
+        self.addCleanup(shutil.rmtree, second_source_dir, True)
+        first_source = first_source_dir / "settings.toml"
+        second_source = second_source_dir / "settings.toml"
+        config_bytes = b"[queueing]\ntrigger_permille = 450\n"
+        first_source.write_bytes(config_bytes)
+        second_source.write_bytes(config_bytes)
+        first = self.temp / "path-a"
+        second = self.temp / "path-b"
+        overrides = ["queueing.trigger_permille=451", "queueing.trigger_permille=452"]
+        evidence.record(first, str(binary), first_source, overrides)
+        evidence.record(second, str(binary), second_source, overrides)
+
+        first_plan_bytes = (first / "plan.json").read_bytes()
+        second_plan_bytes = (second / "plan.json").read_bytes()
+        self.assertEqual(first_plan_bytes, second_plan_bytes)
+        self.assertEqual(evidence.sha256(first_plan_bytes), evidence.sha256(second_plan_bytes))
+        first_aggregate = evidence.read_json(first / "aggregate.json")
+        second_aggregate = evidence.read_json(second / "aggregate.json")
+        self.assertEqual(first_aggregate["global_analyzer_config"], second_aggregate["global_analyzer_config"])
+        self.assertEqual((first / "aggregate-sha256.txt").read_bytes(), (second / "aggregate-sha256.txt").read_bytes())
+        first_provenance = evidence.read_json(first / "provenance.json")
+        second_provenance = evidence.read_json(second / "provenance.json")
+        self.assertNotEqual(first_provenance["analyzer_config_source"]["source_path"], second_provenance["analyzer_config_source"]["source_path"])
+        report = evidence.compare(first, second, self.temp / "path-comparison")
+        self.assertEqual(report["changed_case_count"], 0)
+        self.assertNotEqual(report["left"]["analyzer_config_source"], report["right"]["analyzer_config_source"])
+
+    # TT-TEST: support
+    def test_config_bytes_and_ordered_overrides_participate_in_identity(self):
+        first = self.temp / "first.toml"
+        second = self.temp / "second.toml"
+        first.write_bytes(b"one")
+        second.write_bytes(b"two")
+        first_identity = {
+            "config": {"evidence_path": "config/analyzer-config", "sha256": evidence.file_sha256(first)},
+            "overrides": ["a=1", "b=2"],
+        }
+        second_identity = {
+            "config": {"evidence_path": "config/analyzer-config", "sha256": evidence.file_sha256(second)},
+            "overrides": ["a=1", "b=2"],
+        }
+        self.assertNotEqual(first_identity, second_identity)
+        self.assertNotEqual(evidence.sha256(evidence.canonical_bytes(evidence.build_plan(global_analyzer_config=first_identity))), evidence.sha256(evidence.canonical_bytes(evidence.build_plan(global_analyzer_config=second_identity))))
+        reordered = {"config": first_identity["config"], "overrides": ["b=2", "a=1"]}
+        changed = {"config": first_identity["config"], "overrides": ["a=1", "b=3"]}
+        self.assertNotEqual(first_identity, reordered)
+        self.assertNotEqual(first_identity, changed)
+        first_plan_hash = evidence.sha256(evidence.canonical_bytes(evidence.build_plan(global_analyzer_config=first_identity)))
+        self.assertNotEqual(first_plan_hash, evidence.sha256(evidence.canonical_bytes(evidence.build_plan(global_analyzer_config=reordered))))
+        self.assertNotEqual(first_plan_hash, evidence.sha256(evidence.canonical_bytes(evidence.build_plan(global_analyzer_config=changed))))
 
     # TT-TEST: support
     def test_record_captures_start_state_before_binary_preparation(self):
