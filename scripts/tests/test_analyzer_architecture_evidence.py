@@ -144,12 +144,91 @@ else:
     # TT-TEST: support
     def test_strict_ambiguous_and_tracing_commands(self):
         case = {"artifact_type": "run_artifact", "artifact_policy": "strict", "analyzer_overrides": []}
-        self.assertNotIn("--allow-ambiguous-artifact", evidence.command_description("analyze", case))
+        config = {"config": None, "overrides": []}
+        self.assertNotIn("--allow-ambiguous-artifact", evidence.command_description("analyze", case, config))
         case["artifact_policy"] = "allow_ambiguous"
-        self.assertIn("--allow-ambiguous-artifact", evidence.command_description("analyze", case))
+        self.assertIn("--allow-ambiguous-artifact", evidence.command_description("analyze", case, config))
         case["artifact_type"] = "tracing_span_jsonl"
-        self.assertEqual(evidence.command_description("import", case)[1:3], ["import", "tracing-spans-jsonl"])
-        self.assertIn("$IMPORTED_RUN", evidence.command_description("analyze", case))
+        self.assertEqual(evidence.command_description("import", case, config)[1:3], ["import", "tracing-spans-jsonl"])
+        self.assertIn("$IMPORTED_RUN", evidence.command_description("analyze", case, config))
+
+    # TT-TEST: support
+    def test_analyzer_configuration_is_ordered_and_analyze_only(self):
+        config = {"config": {"source_path": "settings.toml", "evidence_path": "config/analyzer-config", "sha256": "a" * 64}, "overrides": ["scoring.queue.weight=2", "scoring.queue.weight=3"]}
+        case = {"artifact_type": "tracing_span_jsonl", "artifact_policy": "strict", "analyzer_overrides": []}
+        imported = evidence.command_description("import", case, config)
+        analyzed = evidence.command_description("analyze", case, config)
+        self.assertNotIn("--analyzer-config", imported)
+        self.assertNotIn("--analyzer-set", imported)
+        self.assertEqual(analyzed[-6:], ["--analyzer-config", "$ANALYZER_CONFIG", "--analyzer-set", "scoring.queue.weight=2", "--analyzer-set", "scoring.queue.weight=3"])
+        local_config = self.temp / "evidence/config/analyzer-config"
+        actual = evidence.actual_command(analyzed, Path("/bin/tailtriage"), Path("input"), Path("imported"), local_config)
+        self.assertEqual(actual[actual.index("--analyzer-config") + 1], str(local_config))
+
+    # TT-TEST: support
+    def test_config_evidence_and_override_drift_fail_verification(self):
+        config = self.temp / "settings.toml"
+        config.write_bytes(b"[scoring.queue]\nweight = 2\n")
+        output = self.temp / "configured"
+        evidence.record(output, str(self.fake_binary()), config, ["scoring.queue.weight=3", "scoring.queue.weight=4"])
+        provenance = evidence.read_json(output / "provenance.json")
+        recorded = provenance["global_analyzer_config"]
+        self.assertEqual((output / recorded["config"]["evidence_path"]).read_bytes(), config.read_bytes())
+        self.assertEqual(recorded["config"]["sha256"], evidence.file_sha256(config))
+        self.assertEqual(recorded["overrides"], ["scoring.queue.weight=3", "scoring.queue.weight=4"])
+        (output / recorded["config"]["evidence_path"]).write_bytes(b"changed")
+        with self.assertRaisesRegex(evidence.EvidenceError, "saved analyzer config bytes/hash changed"):
+            evidence.validate_saved(output)
+
+        (output / recorded["config"]["evidence_path"]).write_bytes(b"[scoring.queue]\nweight = 2\n")
+        config.write_bytes(b"[scoring.queue]\nweight = 9\n")
+        with self.assertRaisesRegex(evidence.EvidenceError, "source analyzer config bytes/hash changed"):
+            evidence.validate_saved(output)
+        config.write_bytes(b"[scoring.queue]\nweight = 2\n")
+
+        output = self.temp / "override-drift"
+        evidence.record(output, str(self.fake_binary("other-binary")), config, ["scoring.queue.weight=3", "scoring.queue.weight=4"])
+        plan = evidence.read_json(output / "plan.json")
+        plan["global_analyzer_config"]["overrides"].reverse()
+        (output / "plan.json").write_bytes(evidence.canonical_bytes(plan))
+        with self.assertRaisesRegex(evidence.EvidenceError, "analyzer configuration provenance changed"):
+            evidence.validate_saved(output)
+
+    # TT-TEST: support
+    def test_compare_allows_and_exposes_different_global_configuration(self):
+        binary = self.fake_binary()
+        left, right = self.temp / "left-config", self.temp / "right-config"
+        evidence.record(left, str(binary), analyzer_overrides=["scoring.queue.weight=2"])
+        evidence.record(right, str(binary), analyzer_overrides=["scoring.queue.weight=3"])
+        report = evidence.compare(left, right, self.temp / "config-comparison")
+        self.assertTrue(report["compatible_plan_input_identity"])
+        self.assertEqual(report["left"]["global_analyzer_config"]["overrides"], ["scoring.queue.weight=2"])
+        self.assertEqual(report["right"]["global_analyzer_config"]["overrides"], ["scoring.queue.weight=3"])
+        self.assertNotEqual(evidence.read_json(left / "aggregate.json")["global_analyzer_config"], evidence.read_json(right / "aggregate.json")["global_analyzer_config"])
+
+    # TT-TEST: support
+    def test_record_captures_start_state_before_binary_preparation(self):
+        order = []
+
+        def git_value(*args):
+            order.append(("git", args))
+            return "head\n" if args[0] == "rev-parse" else " M already-dirty\n"
+
+        def prepare(_supplied):
+            order.append(("prepare",))
+            raise evidence.EvidenceError("stop after ordering proof")
+
+        with mock.patch.object(evidence, "git_value", side_effect=git_value), mock.patch.object(evidence, "prepare_binary", side_effect=prepare):
+            with self.assertRaisesRegex(evidence.EvidenceError, "ordering proof"):
+                evidence.record(self.temp / "ordering")
+        self.assertEqual(order, [("git", ("rev-parse", "HEAD")), ("git", ("status", "--short")), ("prepare",)])
+
+    # TT-TEST: support
+    def test_field_differences_distinguishes_missing_keys_from_null(self):
+        self.assertEqual(evidence.field_differences({}, {"field": None}), ["field"])
+        self.assertEqual(evidence.field_differences({}, {"field": 1}), ["field"])
+        self.assertEqual(evidence.field_differences({"field": None}, {"field": None}), [])
+        self.assertEqual(evidence.field_differences({"outer": {}}, {"outer": {"field": None}}), ["outer.field"])
 
     # TT-TEST: support
     def test_numeric108_uses_independent_script_subprocess(self):

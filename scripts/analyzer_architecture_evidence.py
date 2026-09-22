@@ -105,7 +105,10 @@ def load_manifest(path: Path = REPO / MANIFEST) -> dict[str, Any]:
     return value
 
 
-def build_plan(manifest_path: Path = REPO / MANIFEST) -> dict[str, Any]:
+def build_plan(
+    manifest_path: Path = REPO / MANIFEST,
+    global_analyzer_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     cases: list[dict[str, Any]] = []
     for name in FIXTURES:
         rel = Path("tailtriage-analyzer/tests/fixtures") / name
@@ -144,24 +147,30 @@ def build_plan(manifest_path: Path = REPO / MANIFEST) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "runner_version": RUNNER_VERSION,
-        "global_analyzer_config": {"config": None, "overrides": []},
+        "global_analyzer_config": global_analyzer_config or {"config": None, "overrides": []},
         "cases": cases,
     }
 
 
-def command_description(stage: str, case: dict[str, Any]) -> list[str]:
+def command_description(stage: str, case: dict[str, Any], config: dict[str, Any]) -> list[str]:
     if stage == "import":
         return ["$BINARY", "import", "tracing-spans-jsonl", "$INPUT", "--service", "validation-tracing", "--output", "$IMPORTED_RUN"]
     command = ["$BINARY", "analyze", "$IMPORTED_RUN" if case["artifact_type"] == "tracing_span_jsonl" else "$INPUT", "--format", "json"]
     if case["artifact_policy"] == "allow_ambiguous":
         command.append("--allow-ambiguous-artifact")
+    if config["config"] is not None:
+        command += ["--analyzer-config", "$ANALYZER_CONFIG"]
+    for override in config["overrides"]:
+        command += ["--analyzer-set", override]
     for override in case["analyzer_overrides"]:
         command += ["--analyzer-set", override]
     return command
 
 
-def actual_command(description: list[str], binary: Path, source: Path, imported: Path) -> list[str]:
+def actual_command(description: list[str], binary: Path, source: Path, imported: Path, analyzer_config: Path | None) -> list[str]:
     replacements = {"$BINARY": str(binary), "$INPUT": str(source), "$IMPORTED_RUN": str(imported)}
+    if analyzer_config is not None:
+        replacements["$ANALYZER_CONFIG"] = str(analyzer_config)
     return [replacements.get(part, part) for part in description]
 
 
@@ -233,14 +242,38 @@ def record_stage(case_dir: Path, stage: str, description: list[str], argv: list[
     return recorded
 
 
-def record(output_value: str | Path, supplied_binary: str | None = None) -> dict[str, Any]:
+def record(
+    output_value: str | Path,
+    supplied_binary: str | None = None,
+    analyzer_config_value: str | Path | None = None,
+    analyzer_overrides: list[str] | None = None,
+) -> dict[str, Any]:
     output = confined_output(output_value, must_not_exist=True)
+    git_head_at_start = git_value("rev-parse", "HEAD").strip()
+    git_status_at_start = git_value("status", "--short").splitlines()
     binary, mode = prepare_binary(supplied_binary)
     binary_hash = file_sha256(binary)
-    plan = build_plan()
+    config_source = Path(analyzer_config_value).expanduser().resolve() if analyzer_config_value is not None else None
+    if config_source is not None and not config_source.is_file():
+        raise EvidenceError(f"analyzer config does not exist or is not a file: {config_source}")
+    config_evidence_path = Path("config/analyzer-config") if config_source is not None else None
+    global_config = {
+        "config": None if config_source is None else {
+            "source_path": repository_path(config_source),
+            "evidence_path": config_evidence_path.as_posix(),
+            "sha256": file_sha256(config_source),
+        },
+        "overrides": list(analyzer_overrides or []),
+    }
+    plan = build_plan(global_analyzer_config=global_config)
     plan_bytes = canonical_bytes(plan)
     plan_hash = sha256(plan_bytes)
     output.mkdir(parents=True)
+    local_config = None
+    if config_source is not None and config_evidence_path is not None:
+        local_config = output / config_evidence_path
+        local_config.parent.mkdir()
+        shutil.copyfile(config_source, local_config)
     (output / "plan.json").write_bytes(plan_bytes)
     (output / "inputs").mkdir()
     (output / "cases").mkdir()
@@ -257,8 +290,8 @@ def record(output_value: str | Path, supplied_binary: str | None = None) -> dict
         stages = []
         projection: dict[str, Any]
         for stage in case["stages"]:
-            description = command_description(stage, case)
-            recorded = record_stage(case_dir, stage, description, actual_command(description, binary, local_input, imported))
+            description = command_description(stage, case, global_config)
+            recorded = record_stage(case_dir, stage, description, actual_command(description, binary, local_input, imported, local_config))
             stages.append(recorded)
             if recorded["exit_code"] != 0:
                 break
@@ -285,9 +318,9 @@ def record(output_value: str | Path, supplied_binary: str | None = None) -> dict
     provenance = {
         "schema_version": SCHEMA_VERSION,
         "runner_version": RUNNER_VERSION,
-        "git_head": git_value("rev-parse", "HEAD").strip(),
-        "git_status_at_start": git_value("status", "--short").splitlines(),
-        "source_reproducible": not bool(git_value("status", "--short")),
+        "git_head": git_head_at_start,
+        "git_status_at_start": git_status_at_start,
+        "source_reproducible": not bool(git_status_at_start),
         "binary": {"mode": mode, "path": repository_path(binary), "sha256": binary_hash},
         "plan_sha256": plan_hash,
         "global_analyzer_config": plan["global_analyzer_config"],
@@ -311,12 +344,25 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     plan = read_json(output / "plan.json")
     if canonical_bytes(plan) != plan_bytes:
         raise EvidenceError("plan bytes are not canonical")
-    current_plan = canonical_bytes(build_plan())
+    recorded_config = plan["global_analyzer_config"]
+    current_plan = canonical_bytes(build_plan(global_analyzer_config=recorded_config))
     if current_plan != plan_bytes:
         raise EvidenceError("recorded plan or current source inputs changed")
     provenance = read_json(output / "provenance.json")
+    if provenance["global_analyzer_config"] != recorded_config:
+        raise EvidenceError("analyzer configuration provenance changed")
     if provenance["plan_sha256"] != sha256(plan_bytes):
         raise EvidenceError("recorded plan hash changed")
+    config = recorded_config["config"]
+    if config is not None:
+        local_config = output / config["evidence_path"]
+        if not local_config.is_file() or file_sha256(local_config) != config["sha256"]:
+            raise EvidenceError("saved analyzer config bytes/hash changed")
+        source_config = Path(config["source_path"])
+        if not source_config.is_absolute():
+            source_config = REPO / source_config
+        if source_config.exists() and (not source_config.is_file() or file_sha256(source_config) != config["sha256"]):
+            raise EvidenceError("source analyzer config bytes/hash changed")
     manifest = provenance["source_manifest"]
     if manifest["path"] != MANIFEST.as_posix() or file_sha256(REPO / manifest["path"]) != manifest["sha256"]:
         raise EvidenceError("diagnostic source manifest bytes/hash changed")
@@ -347,7 +393,7 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         case_dir = output / "cases" / safe_case_id(case["id"])
         row = read_json(case_dir / "result.json")
         for stage in row["stages"]:
-            if stage["command"] != command_description(stage["stage"], case):
+            if stage["command"] != command_description(stage["stage"], case, recorded_config):
                 raise EvidenceError(f"command definition changed for {case['id']}")
             if file_sha256(output / stage["stdout_path"]) != stage["stdout_sha256"] or file_sha256(output / stage["stderr_path"]) != stage["stderr_sha256"]:
                 raise EvidenceError(f"saved raw process bytes/hash changed for {case['id']}")
@@ -376,7 +422,9 @@ def verify(output_value: str | Path) -> None:
         binary_path = REPO / binary_path
     with tempfile.TemporaryDirectory(prefix="architecture-verify-", dir=TARGET) as td:
         replay = Path(td) / "replay"
-        record(replay, str(binary_path))
+        config = provenance["global_analyzer_config"]
+        saved_config = output / config["config"]["evidence_path"] if config["config"] is not None else None
+        record(replay, str(binary_path), saved_config, config["overrides"])
         _, reproduced = validate_saved(replay)
         baseline_compare = [{k: row[k] for k in ("id", "source_sha256", "imported_run_sha256", "stages", "projection_sha256")} for row in baseline]
         reproduced_compare = [{k: row[k] for k in ("id", "source_sha256", "imported_run_sha256", "stages", "projection_sha256")} for row in reproduced]
@@ -392,7 +440,14 @@ def field_differences(left: Any, right: Any, prefix: str = "") -> list[str]:
         return [prefix or "$type"]
     if isinstance(left, dict):
         keys = sorted(set(left) | set(right))
-        return [item for key in keys for item in field_differences(left.get(key), right.get(key), f"{prefix}.{key}" if prefix else key)]
+        differences = []
+        for key in keys:
+            path = f"{prefix}.{key}" if prefix else key
+            if key not in left or key not in right:
+                differences.append(path)
+            else:
+                differences.extend(field_differences(left[key], right[key], path))
+        return differences
     if isinstance(left, list):
         if len(left) != len(right):
             return [f"{prefix}.length"]
@@ -470,6 +525,8 @@ def parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="record a new real-CLI evidence directory")
     run.add_argument("--output", required=True)
     run.add_argument("--binary", help="exact compatible binary; omit to cargo-build the production CLI")
+    run.add_argument("--analyzer-config", help="analyzer TOML configuration copied into the evidence directory")
+    run.add_argument("--analyzer-set", action="append", default=[], metavar="PATH=VALUE", help="ordered analyzer override passed to every analyze stage; repeatable")
     verify_parser = commands.add_parser("verify", help="verify saved evidence and reproduce it")
     verify_parser.add_argument("--output", required=True)
     comparison = commands.add_parser("compare", help="compare two compatible evidence directories")
@@ -487,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "run":
-            record(args.output, args.binary)
+            record(args.output, args.binary, args.analyzer_config, args.analyzer_set)
         elif args.command == "verify":
             verify(args.output)
         elif args.command == "compare":
