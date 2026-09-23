@@ -197,3 +197,12 @@ reference, not an operational measurement.
   machine- or snapshot-scoped evidence, never an automatic promotion.
 - Only downstream has a committed, drift-owned comparison; other generated comparisons remain
   temporary workflow evidence.
+
+## Analyzer architecture definitions
+
+The versioned manifest in `validation/analyzer-architecture/` owns exact hashes for visible
+architecture sentinels and locked calibration challenges. Sentinels may be executed and inspected,
+but are not coefficient-training truth. Challenge inputs are public for review; analyzer outputs
+stay locked until Prompt 34. Exact-byte checks separate challenges from sentinels, analyzer
+fixtures, and manifest-owned executable diagnostic Runs. Future calibration inputs must not reuse
+locked hashes or bytes. Generated evidence belongs under `target/`, never in fixture lineage.

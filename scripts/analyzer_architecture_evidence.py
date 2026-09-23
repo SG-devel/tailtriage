@@ -22,6 +22,8 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 TARGET = (REPO / "target").resolve()
 MANIFEST = Path("validation/diagnostics/manifest.json")
+ARCHITECTURE_MANIFEST = Path("validation/analyzer-architecture/manifest.json")
+ARCHITECTURE_FORMAT = "tailtriage.analyzer-architecture-suite.v1"
 SCHEMA_VERSION = 1
 RUNNER_VERSION = "1"
 FIXTURES = (
@@ -103,6 +105,81 @@ def load_manifest(path: Path = REPO / MANIFEST) -> dict[str, Any]:
     if value.get("schema_version") != 2 or not isinstance(value.get("cases"), list):
         raise EvidenceError("diagnostic manifest must use schema version 2")
     return value
+
+
+def load_architecture_manifest(path: Path = REPO / ARCHITECTURE_MANIFEST) -> dict[str, Any]:
+    value = read_json(path)
+    if value.get("format") != ARCHITECTURE_FORMAT or not isinstance(value.get("cases"), list):
+        raise EvidenceError(f"architecture manifest must use {ARCHITECTURE_FORMAT}")
+    ids: set[str] = set()
+    hashes: dict[str, list[str]] = {"visible_sentinel": [], "locked_challenge": []}
+    forbidden = {"expected_primary_suspect", "expected_score", "expected_confidence", "expected_ranking", "expected_analyzer_output_hash"}
+    base_hashes = {file_sha256(REPO / "tailtriage-analyzer/tests/fixtures" / name) for name in FIXTURES}
+    diagnostic = load_manifest()
+    diagnostic_hashes = {
+        file_sha256((REPO / MANIFEST).parent / item["artifact"])
+        for item in diagnostic["cases"]
+        if item.get("validation_class") == "analyzer_execution" and item.get("artifact_type") == "run_artifact"
+    }
+    for item in value["cases"]:
+        if item.get("suite") not in {"visible_sentinel", "locked_challenge"}:
+            raise EvidenceError(f"unknown architecture suite: {item.get('suite')}")
+        if item.get("id") in ids:
+            raise EvidenceError(f"duplicate architecture case ID: {item.get('id')}")
+        ids.add(item["id"])
+        artifact = path.parent / item.get("artifact", "")
+        if not artifact.is_file():
+            raise EvidenceError(f"missing architecture artifact: {artifact}")
+        actual = file_sha256(artifact)
+        if actual != item.get("sha256"):
+            raise EvidenceError(f"wrong architecture artifact SHA-256: {item['id']}")
+        if item["suite"] == "locked_challenge" and forbidden.intersection(item):
+            raise EvidenceError(f"locked entry contains forbidden expected-output fields: {item['id']}")
+        hashes[item["suite"]].append(actual)
+    locked_hashes = hashes["locked_challenge"]
+    if len(locked_hashes) != len(set(locked_hashes)):
+        raise EvidenceError("duplicate locked input bytes")
+    if set(locked_hashes).intersection(hashes["visible_sentinel"]):
+        raise EvidenceError("locked input duplicates visible sentinel input")
+    if set(locked_hashes).intersection(base_hashes | diagnostic_hashes):
+        raise EvidenceError("locked input duplicates existing executable input")
+    return value
+
+
+def architecture_cases(suite: str, path: Path = REPO / ARCHITECTURE_MANIFEST) -> list[dict[str, Any]]:
+    manifest = load_architecture_manifest(path)
+    return [item for item in manifest["cases"] if item["suite"] == suite]
+
+
+def definition_fingerprint(suite: str) -> str:
+    rows = [{"id": item["id"], "artifact": item["artifact"], "sha256": item["sha256"]} for item in architecture_cases(suite)]
+    return sha256(canonical_bytes(rows))
+
+
+def build_architecture_plan(suite: str, global_analyzer_config: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "runner_version": RUNNER_VERSION,
+        "suite": suite,
+        "definition_fingerprint": definition_fingerprint(suite),
+        "global_analyzer_config": global_analyzer_config or {"config": None, "overrides": []},
+        "cases": [{
+            "id": f"architecture:{item['id']}", "source_class": suite,
+            "family": item["id"], "source_path": (ARCHITECTURE_MANIFEST.parent / item["artifact"]).as_posix(),
+            "artifact_type": "run_artifact", "stages": ["analyze"], "artifact_policy": "strict",
+            "analyzer_overrides": [], "source_sha256": item["sha256"],
+        } for item in architecture_cases(suite)],
+    }
+
+
+def check_architecture_definitions() -> dict[str, Any]:
+    load_architecture_manifest()
+    result = {}
+    for suite, label in (("visible_sentinel", "visible sentinel"), ("locked_challenge", "locked challenge")):
+        result[suite] = {"case_count": len(architecture_cases(suite)), "fingerprint": definition_fingerprint(suite)}
+        print(f"{label} case count: {result[suite]['case_count']}")
+        print(f"{label} definition fingerprint: {result[suite]['fingerprint']}")
+    return result
 
 
 def build_plan(
@@ -247,6 +324,7 @@ def record(
     supplied_binary: str | None = None,
     analyzer_config_value: str | Path | None = None,
     analyzer_overrides: list[str] | None = None,
+    suite: str | None = None,
 ) -> dict[str, Any]:
     output = confined_output(output_value, must_not_exist=True)
     git_head_at_start = git_value("rev-parse", "HEAD").strip()
@@ -268,7 +346,7 @@ def record(
         "source_path": repository_path(config_source),
         "sha256": global_config["config"]["sha256"],
     }
-    plan = build_plan(global_analyzer_config=global_config)
+    plan = build_plan(global_analyzer_config=global_config) if suite is None else build_architecture_plan(suite, global_config)
     plan_bytes = canonical_bytes(plan)
     plan_hash = sha256(plan_bytes)
     output.mkdir(parents=True)
@@ -317,7 +395,8 @@ def record(
     aggregate_hash = sha256(canonical_bytes(aggregate))
     write_json(output / "aggregate.json", aggregate)
     (output / "aggregate-sha256.txt").write_text(aggregate_hash + "\n", encoding="ascii")
-    manifest_path = REPO / MANIFEST
+    manifest_rel = MANIFEST if suite is None else ARCHITECTURE_MANIFEST
+    manifest_path = REPO / manifest_rel
     provenance = {
         "schema_version": SCHEMA_VERSION,
         "runner_version": RUNNER_VERSION,
@@ -328,7 +407,7 @@ def record(
         "plan_sha256": plan_hash,
         "global_analyzer_config": plan["global_analyzer_config"],
         "analyzer_config_source": config_source_provenance,
-        "source_manifest": {"path": MANIFEST.as_posix(), "sha256": file_sha256(manifest_path)},
+        "source_manifest": {"path": manifest_rel.as_posix(), "sha256": file_sha256(manifest_path)},
         "input_inventory": inventory,
         "numeric108": None,
     }
@@ -349,7 +428,8 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if canonical_bytes(plan) != plan_bytes:
         raise EvidenceError("plan bytes are not canonical")
     recorded_config = plan["global_analyzer_config"]
-    current_plan = canonical_bytes(build_plan(global_analyzer_config=recorded_config))
+    suite = plan.get("suite")
+    current_plan = canonical_bytes(build_plan(global_analyzer_config=recorded_config) if suite is None else build_architecture_plan(suite, recorded_config))
     if current_plan != plan_bytes:
         raise EvidenceError("recorded plan or current source inputs changed")
     provenance = read_json(output / "provenance.json")
@@ -373,8 +453,9 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         if source_config.exists() and (not source_config.is_file() or file_sha256(source_config) != config["sha256"]):
             raise EvidenceError("source analyzer config bytes/hash changed")
     manifest = provenance["source_manifest"]
-    if manifest["path"] != MANIFEST.as_posix() or file_sha256(REPO / manifest["path"]) != manifest["sha256"]:
-        raise EvidenceError("diagnostic source manifest bytes/hash changed")
+    expected_manifest = MANIFEST if suite is None else ARCHITECTURE_MANIFEST
+    if manifest["path"] != expected_manifest.as_posix() or file_sha256(REPO / manifest["path"]) != manifest["sha256"]:
+        raise EvidenceError("source manifest bytes/hash changed")
     inventory = read_json(output / "input-inventory.json")
     expected_files = {item["evidence_path"] for item in inventory}
     actual_files = {path.relative_to(output).as_posix() for path in (output / "inputs").iterdir() if path.is_file()}
@@ -423,8 +504,13 @@ def validate_saved(output: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return provenance, results
 
 
-def verify(output_value: str | Path) -> None:
+def verify(output_value: str | Path, expected_suite: str | None = None) -> None:
     output = confined_output(output_value)
+    plan = read_json(output / "plan.json")
+    suite_matches = "suite" not in plan if expected_suite is None else plan.get("suite") == expected_suite
+    if not suite_matches:
+        expected = "base suite" if expected_suite is None else expected_suite
+        raise EvidenceError(f"recorded suite does not match expected {expected}")
     provenance, baseline = validate_saved(output)
     binary_path = Path(provenance["binary"]["path"])
     if not binary_path.is_absolute():
@@ -433,7 +519,7 @@ def verify(output_value: str | Path) -> None:
         replay = Path(td) / "replay"
         config = provenance["global_analyzer_config"]
         saved_config = output / config["config"]["evidence_path"] if config["config"] is not None else None
-        record(replay, str(binary_path), saved_config, config["overrides"])
+        record(replay, str(binary_path), saved_config, config["overrides"], plan.get("suite"))
         _, reproduced = validate_saved(replay)
         baseline_compare = [{k: row[k] for k in ("id", "source_sha256", "imported_run_sha256", "stages", "projection_sha256")} for row in baseline]
         reproduced_compare = [{k: row[k] for k in ("id", "source_sha256", "imported_run_sha256", "stages", "projection_sha256")} for row in reproduced]
@@ -546,6 +632,18 @@ def parser() -> argparse.ArgumentParser:
     numeric.add_argument("--output", required=True)
     numeric.add_argument("--numeric108-dir", required=True)
     numeric.add_argument("--run", action="store_true", help="run numeric108 before its mandatory independent verify")
+    sentinels = commands.add_parser("run-sentinels", help="record visible architecture sentinel evidence")
+    sentinels.add_argument("--output", required=True)
+    sentinels.add_argument("--binary", help="exact compatible binary; omit to cargo-build the production CLI")
+    sentinels.add_argument("--analyzer-config")
+    sentinels.add_argument("--analyzer-set", action="append", default=[])
+    verify_sentinels = commands.add_parser("verify-sentinels", help="verify visible sentinel evidence")
+    verify_sentinels.add_argument("--output", required=True)
+    commands.add_parser("check-locked-challenges", help="validate definitions without executing the analyzer")
+    locked = commands.add_parser("run-locked-challenges", help="explicit future locked challenge execution")
+    locked.add_argument("--output", required=True)
+    locked.add_argument("--binary")
+    locked.add_argument("--acknowledge-locked-output-inspection", action="store_true")
     return result
 
 
@@ -558,8 +656,18 @@ def main(argv: list[str] | None = None) -> int:
             verify(args.output)
         elif args.command == "compare":
             compare(args.left, args.right, args.output)
-        else:
+        elif args.command == "numeric108":
             numeric108(args.output, args.numeric108_dir, args.run)
+        elif args.command == "run-sentinels":
+            record(args.output, args.binary, args.analyzer_config, args.analyzer_set, "visible_sentinel")
+        elif args.command == "verify-sentinels":
+            verify(args.output, "visible_sentinel")
+        elif args.command == "check-locked-challenges":
+            check_architecture_definitions()
+        elif args.command == "run-locked-challenges":
+            if not args.acknowledge_locked_output_inspection:
+                raise EvidenceError("locked challenge execution requires --acknowledge-locked-output-inspection")
+            record(args.output, args.binary, suite="locked_challenge")
         return 0
     except (EvidenceError, OSError, subprocess.CalledProcessError, KeyError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)

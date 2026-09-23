@@ -120,3 +120,6 @@ This is intentionally a high-level owner map, not a provenance audit.
 
 Detailed source, consumer, generator/refresh command, mutation policy, lineage, and disposition are
 documented in the [fixture and scenario lineage map](FIXTURE_LINEAGE.md).
+
+- [Analyzer architecture suites](../../validation/analyzer-architecture/README.md) — manual/local
+  visible sentinels and the definition-only locked calibration holdout.

@@ -11,6 +11,7 @@ from scripts import analyzer_architecture_evidence as evidence
 
 class ArchitectureEvidenceTests(unittest.TestCase):
     def setUp(self):
+        evidence.TARGET.mkdir(parents=True, exist_ok=True)
         self.temp = Path(tempfile.mkdtemp(prefix="architecture-test-", dir=evidence.TARGET))
 
     def tearDown(self):
@@ -38,6 +39,17 @@ else:
         output = self.temp / name
         evidence.record(output, str(self.fake_binary(name + "-binary")))
         return output
+
+    def copied_architecture_definitions(self, name):
+        root = self.temp / name
+        shutil.copytree(evidence.REPO / evidence.ARCHITECTURE_MANIFEST.parent, root)
+        return root, evidence.read_json(root / "manifest.json")
+
+    def duplicate_locked_artifact(self, root, manifest, source_bytes):
+        locked = next(item for item in manifest["cases"] if item["suite"] == "locked_challenge")
+        (root / locked["artifact"]).write_bytes(source_bytes)
+        locked["sha256"] = evidence.sha256(source_bytes)
+        evidence.write_json(root / "manifest.json", manifest)
 
     # TT-TEST: support
     def test_plan_bytes_and_case_order_are_deterministic(self):
@@ -300,6 +312,149 @@ else:
         self.assertTrue(command[1].endswith("scripts/analyzer_numeric_sensitivity.py"))
         self.assertEqual(command[-1], "verify")
         self.assertEqual(evidence.read_json(self.temp / "link/numeric108-link.json")["verified_aggregate_sha256"], "abc")
+
+    # TT-TEST: support
+    def test_architecture_manifest_inventory_hashes_and_fingerprints(self):
+        manifest = evidence.load_architecture_manifest()
+        self.assertEqual(manifest["format"], evidence.ARCHITECTURE_FORMAT)
+        sentinels = {item["id"] for item in evidence.architecture_cases("visible_sentinel")}
+        locked = {item["id"] for item in evidence.architecture_cases("locked_challenge")}
+        self.assertEqual(sentinels, {"relation-typed-neutral-name", "relation-name-token-only-negative-control", "completed-plus-partial-extension", "locally-limited-ambiguity-peer", "trivial-downstream-fallback", "two-strong-independent-candidates", "weak-unrelated-noise", "same-family-representation-uniqueness", "route-small-n", "temporal-small-n"})
+        self.assertEqual(locked, {"sparse-extreme-queue", "sparse-extreme-executor", "sparse-extreme-downstream", "same-magnitude-queue-sparse", "same-magnitude-queue-mature", "cross-family-queue-vs-executor", "cross-family-blocking-vs-downstream", "independent-ambiguity", "related-group-plus-independent-third", "scoped-nearest-rank-route-temporal"})
+        self.assertEqual(evidence.definition_fingerprint("visible_sentinel"), evidence.definition_fingerprint("visible_sentinel"))
+        self.assertEqual(evidence.definition_fingerprint("locked_challenge"), evidence.definition_fingerprint("locked_challenge"))
+
+    # TT-TEST: support
+    def test_suite_plans_are_explicit_and_disjoint(self):
+        base = {case["source_path"] for case in evidence.build_plan()["cases"]}
+        visible = evidence.build_architecture_plan("visible_sentinel")
+        locked = evidence.build_architecture_plan("locked_challenge")
+        self.assertTrue(all(case["source_class"] == "visible_sentinel" for case in visible["cases"]))
+        self.assertTrue(base.isdisjoint(case["source_path"] for case in visible["cases"] + locked["cases"]))
+
+    # TT-TEST: support
+    def test_definition_check_never_prepares_binary(self):
+        with mock.patch.object(evidence, "prepare_binary") as prepare:
+            result = evidence.check_architecture_definitions()
+        prepare.assert_not_called()
+        self.assertEqual(result["locked_challenge"]["case_count"], 10)
+
+    # TT-TEST: support
+    def test_locked_execution_guard_precedes_output_and_binary(self):
+        output = self.temp / "must-not-exist"
+        with mock.patch.object(evidence, "prepare_binary") as prepare:
+            self.assertEqual(evidence.main(["run-locked-challenges", "--output", str(output)]), 1)
+        prepare.assert_not_called()
+        self.assertFalse(output.exists())
+
+    # TT-TEST: support
+    def test_visible_record_reuses_binary_config_and_provenance(self):
+        config = self.temp / "sentinel.toml"
+        config.write_text("[queueing]\ntrigger_permille = 450\n")
+        output = self.temp / "sentinels"
+        evidence.record(output, str(self.fake_binary()), config, ["queueing.trigger_permille=451"], "visible_sentinel")
+        provenance = evidence.read_json(output / "provenance.json")
+        self.assertEqual(provenance["binary"]["mode"], "supplied")
+        self.assertEqual(provenance["global_analyzer_config"]["overrides"], ["queueing.trigger_permille=451"])
+        self.assertEqual(evidence.read_json(output / "plan.json")["suite"], "visible_sentinel")
+
+    # TT-TEST: support
+    def test_base_verify_accepts_base_evidence(self):
+        output = self.record("base-verify")
+        evidence.verify(output)
+        self.assertEqual(evidence.read_json(output / "verification-success.json")["status"], "verified")
+
+    # TT-TEST: support
+    def test_sentinel_verify_accepts_visible_sentinel_evidence(self):
+        output = self.temp / "sentinel-verify"
+        evidence.record(output, str(self.fake_binary()), suite="visible_sentinel")
+        evidence.verify(output, "visible_sentinel")
+        self.assertEqual(evidence.read_json(output / "verification-success.json")["status"], "verified")
+
+    # TT-TEST: support
+    def test_base_verify_rejects_locked_suite_before_validation_or_replay(self):
+        output = self.temp / "locked-as-base"
+        output.mkdir()
+        evidence.write_json(output / "plan.json", {"suite": "locked_challenge"})
+        with mock.patch.object(evidence, "validate_saved") as validate, mock.patch.object(evidence, "record") as record, mock.patch.object(evidence, "prepare_binary") as prepare:
+            with self.assertRaisesRegex(evidence.EvidenceError, "does not match"):
+                evidence.verify(output)
+        validate.assert_not_called()
+        record.assert_not_called()
+        prepare.assert_not_called()
+
+    # TT-TEST: support
+    def test_sentinel_verify_rejects_locked_suite_before_validation_or_replay(self):
+        output = self.temp / "locked-as-sentinel"
+        output.mkdir()
+        evidence.write_json(output / "plan.json", {"suite": "locked_challenge"})
+        with mock.patch.object(evidence, "validate_saved") as validate, mock.patch.object(evidence, "record") as record, mock.patch.object(evidence, "prepare_binary") as prepare:
+            self.assertEqual(evidence.main(["verify-sentinels", "--output", str(output)]), 1)
+        validate.assert_not_called()
+        record.assert_not_called()
+        prepare.assert_not_called()
+
+    # TT-TEST: support
+    def test_locked_forbidden_fields_are_rejected(self):
+        root, copied = self.copied_architecture_definitions("forbidden-definitions")
+        locked = next(item for item in copied["cases"] if item["suite"] == "locked_challenge")
+        locked["expected_score"] = 1
+        evidence.write_json(root / "manifest.json", copied)
+        with self.assertRaisesRegex(evidence.EvidenceError, "forbidden"):
+            evidence.load_architecture_manifest(root / "manifest.json")
+
+    # TT-TEST: support
+    def test_locked_then_sentinel_duplicate_bytes_are_rejected(self):
+        root, copied = self.copied_architecture_definitions("locked-first")
+        locked = next(item for item in copied["cases"] if item["suite"] == "locked_challenge")
+        sentinel = next(item for item in copied["cases"] if item["suite"] == "visible_sentinel")
+        copied["cases"].remove(locked)
+        copied["cases"].insert(copied["cases"].index(sentinel), locked)
+        self.duplicate_locked_artifact(root, copied, (root / sentinel["artifact"]).read_bytes())
+        with self.assertRaisesRegex(evidence.EvidenceError, "duplicates visible sentinel"):
+            evidence.load_architecture_manifest(root / "manifest.json")
+
+    # TT-TEST: support
+    def test_sentinel_then_locked_duplicate_bytes_are_rejected(self):
+        root, copied = self.copied_architecture_definitions("sentinel-first")
+        sentinel = next(item for item in copied["cases"] if item["suite"] == "visible_sentinel")
+        self.duplicate_locked_artifact(root, copied, (root / sentinel["artifact"]).read_bytes())
+        with self.assertRaisesRegex(evidence.EvidenceError, "duplicates visible sentinel"):
+            evidence.load_architecture_manifest(root / "manifest.json")
+
+    # TT-TEST: support
+    def test_duplicate_locked_bytes_are_rejected(self):
+        root, copied = self.copied_architecture_definitions("locked-duplicate")
+        locked = [item for item in copied["cases"] if item["suite"] == "locked_challenge"]
+        source_bytes = (root / locked[1]["artifact"]).read_bytes()
+        (root / locked[0]["artifact"]).write_bytes(source_bytes)
+        locked[0]["sha256"] = evidence.sha256(source_bytes)
+        evidence.write_json(root / "manifest.json", copied)
+        with self.assertRaisesRegex(evidence.EvidenceError, "duplicate locked input bytes"):
+            evidence.load_architecture_manifest(root / "manifest.json")
+
+    # TT-TEST: support
+    def test_locked_duplicate_of_base_fixture_is_rejected(self):
+        root, copied = self.copied_architecture_definitions("base-duplicate")
+        source = evidence.REPO / "tailtriage-analyzer/tests/fixtures" / evidence.FIXTURES[0]
+        self.duplicate_locked_artifact(root, copied, source.read_bytes())
+        with self.assertRaisesRegex(evidence.EvidenceError, "existing executable input"):
+            evidence.load_architecture_manifest(root / "manifest.json")
+
+    # TT-TEST: support
+    def test_locked_duplicate_of_diagnostic_run_is_rejected(self):
+        root, copied = self.copied_architecture_definitions("diagnostic-duplicate")
+        diagnostic = next(item for item in evidence.load_manifest()["cases"] if item.get("validation_class") == "analyzer_execution" and item.get("artifact_type") == "run_artifact")
+        source = (evidence.REPO / evidence.MANIFEST).parent / diagnostic["artifact"]
+        self.duplicate_locked_artifact(root, copied, source.read_bytes())
+        with self.assertRaisesRegex(evidence.EvidenceError, "existing executable input"):
+            evidence.load_architecture_manifest(root / "manifest.json")
+
+    # TT-TEST: support
+    def test_visible_assertions_do_not_require_exact_scores(self):
+        for item in evidence.architecture_cases("visible_sentinel"):
+            self.assertNotIn("expected_score", item)
+            self.assertIn("analysis_succeeds", item["assertions"])
 
 
 if __name__ == "__main__":

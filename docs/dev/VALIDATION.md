@@ -287,3 +287,13 @@ is selected and qualified. Suspects remain triage leads, not root-cause proof.
 Deterministic exact package-level equivalence uses committed native Run and stable completed-span JSONL fixtures in normal Cargo tests. It compares exact representable completed evidence, retention order/counters, and exact comparable analyzer output against independent expected artifacts. This proves the intake equivalence contract; it is not production diagnostic-accuracy evidence.
 
 Live demo parity exercises real capture paths across multiple scenarios and modes with broader, machine-sensitive semantic checks. It is intentionally not byte-exact and does not require exact ranking equality in every mitigated run. It supports capture-to-re-run triage validation, not causal proof. Run JSON remains the complete artifact because completed-span JSONL excludes Run-only runtime, in-flight, lifecycle, and complete truncation state.
+
+## Analyzer architecture sentinels and locked challenges
+
+`validation/analyzer-architecture/` owns two manual/local definition suites. Visible sentinels are
+inspectable architecture/regression cases, not coefficient-training truth. Locked challenge inputs
+and hashes are reviewable and frozen now, while their analyzer outputs remain unseen until Prompt
+34. After first inspection, definition changes require an explicit audit disposition. Generated
+evidence remains under ignored `target/`; no generated Report is committed. Future calibration
+surfaces must not byte-duplicate locked inputs. Diagnostic manifest/golden ownership and the
+independent numeric108 owner remain unchanged. See the domain README for commands and boundaries.
