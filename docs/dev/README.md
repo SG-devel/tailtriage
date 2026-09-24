@@ -94,6 +94,7 @@ types, parsing, overrides, and validation where applicable.
 | Unified validation | [`scripts/validate_all.py`](../../scripts/validate_all.py) orchestrates named profiles; [VALIDATION.md](VALIDATION.md) classifies the tracks and their CI/manual/release status. Focused scripts remain the owners of their domains. |
 | Focused validation | Diagnostic corpus, repeated-run, mitigation, runtime-cost, and collector-limit entry points are mapped in [VALIDATION.md](VALIDATION.md) and the [`validation/` domain documentation](../../validation/diagnostics/README.md). |
 | Diagnostic snapshot | `scripts/generate_diagnostic_scorecard.py` generates provenance-rich deterministic snapshots locally/manually. Generated outputs remain local unless separately archived; there is no dedicated snapshot workflow. |
+| Analyzer architecture evidence | [`scripts/analyzer_architecture_evidence.py`](../../scripts/analyzer_architecture_evidence.py) is the permanent local/manual real-CLI recorder, verifier, and neutral comparator. Outputs remain below `target/`; analyzer goldens, diagnostic accuracy, and independent numeric108 semantics retain their existing owners. Permanent architecture sentinel and calibration-challenge definitions are intentionally outside this runner. |
 | Package/release preflight | [`scripts/check_release.py`](../../scripts/check_release.py) is a local, check-only preflight. It may validate/package and print inert manual publication commands; it does not publish. |
 | Manual release | [`RELEASING.md`](RELEASING.md) alone owns the step-by-step manual procedure. |
 
@@ -115,6 +116,10 @@ This is intentionally a high-level owner map, not a provenance audit.
 | Runtime-cost outputs | Committed latest summaries live under [`validation/runtime-cost/latest/`](../../validation/runtime-cost/latest); machine/workload/profile-scoped generated operational output is normally under `target/`. | [Runtime-cost domain](../../validation/runtime-cost/README.md) and [user guidance](../runtime-cost.md) |
 | Collector-limit outputs | Committed latest summaries live under [`validation/collector-limits/latest/`](../../validation/collector-limits/latest); generated measurement characterizes retained/truncation/drop evidence and measured onset/resource behavior rather than claiming no drops. | [Collector-limit domain](../../validation/collector-limits/README.md) and [user guidance](../collector-limits.md) |
 | Generated diagnostic scorecards | The generator and manual snapshot workflow own generated scorecards; the current committed reference is [`validation/diagnostics/latest/scorecard.md`](../../validation/diagnostics/latest/scorecard.md). | [Diagnostic corpus snapshots](../../validation/diagnostics/README.md#manual-scorecard-generation) |
+| Generated analyzer architecture evidence | The permanent runner records exact real-CLI process behavior and compares compatible runs without formulas or accuracy judgments. Evidence is local/manual under `target/`, not committed truth or proof of root cause/production calibration. | [Validation ownership](VALIDATION.md#analyzer-architecture-evidence) and [fixture lineage](FIXTURE_LINEAGE.md) |
 
 Detailed source, consumer, generator/refresh command, mutation policy, lineage, and disposition are
 documented in the [fixture and scenario lineage map](FIXTURE_LINEAGE.md).
+
+- [Analyzer architecture suites](../../validation/analyzer-architecture/README.md) — manual/local
+  visible sentinels and the definition-only locked calibration holdout.

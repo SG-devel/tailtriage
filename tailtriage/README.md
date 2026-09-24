@@ -51,6 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Replace the sleeps with a real queue wait and database call, downstream request, or handler/service operation. The handle records evidence; the completion token owns request completion. Finish exactly once after work, then call `shutdown()` to finalize and write `tailtriage-run.json`. Keep a fallible result until completion and shutdown have happened so `?` cannot bypass lifecycle work. Do not finalize while request tasks or completion tokens remain active.
 
+Native stage timers can capture typed metadata with `.relation(StageRelation::BlockingPool)`. Ordinary stage names do not imply relations. The Tokio `blocking_stage(...)` helper attaches `BlockingPool` automatically because it owns `spawn_blocking`. Run stage events retain typed relations, but the analyzer does not consume them yet.
+
 Within a Run, one completed logical request/work item needs one unique tailtriage `request_id`; queue and stage evidence must reuse it only for that request.
 
 The example does not start runtime sampling. The default `tokio` feature makes the `tailtriage::tokio` sampler and Tokio helper APIs available; runtime sampling itself is optional and starts explicitly inside an active Tokio runtime.
@@ -97,7 +99,7 @@ Published crate documentation is generated with all façade features enabled, so
 - `tailtriage::controller`: repeated bounded windows in a long-lived service; disable is reversible and shutdown is terminal.
 - `tailtriage::tokio`: explicitly started runtime-pressure sampling and Tokio helper APIs.
 - `tailtriage::axum`: request-boundary middleware; inner queue/stage instrumentation stays explicit.
-- `tailtriage::tracing`: supported typed/JSONL or live tracing intake for applications with suitable existing correlation.
+- `tailtriage::tracing`: supported typed/JSONL or live tracing intake for applications with suitable existing correlation. Stage-only `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings remain inert and preserved, names imply nothing, the stable wrapper remains v1, and the analyzer does not consume typed relations yet.
 - `tailtriage-analyzer`: typed in-process Report values and renderers.
 - `tailtriage-cli`: saved-artifact analysis and supported tracing import.
 

@@ -181,7 +181,8 @@ Users can depend on `tailtriage-tracing` directly for the narrow crate boundary,
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
   `tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run.json>`
-- native direct capture and tracing intake both produce standard `Run` artifacts
+- stage-only tracing source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, non-string values follow tracing strictness, request/queue values and names have no relation effect, and the stable wrapper remains v1
+- native direct capture and tracing intake both produce standard `Run` artifacts with the same typed relation metadata; the analyzer does not consume typed relations yet
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
@@ -247,6 +248,11 @@ Core Run integrity contract:
 
 - artifacts require top-level `schema_version`
 - Run JSON schema version 2 is the current Run JSON schema version
+- Native `StageTimer::relation(StageRelation::BlockingPool)` captures the one known relation on completed and partial stage events. Ordinary stage names do not imply relations. Tokio `blocking_stage(...)` attaches it automatically because that helper owns `spawn_blocking`; generic join, timeout, queue, and lock helpers do not.
+- Schema-v2 stage events may include plural `relations`. Missing or empty arrays mean no
+  relation; `blocking_pool` is the only known 0.4 relation. Unknown strings are semantically
+  inert and are preserved by the supported core deserialize/serialize round trip. Typed relation
+  metadata is not yet consumed by the analyzer.
 - `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged
 - active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization
 - Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version

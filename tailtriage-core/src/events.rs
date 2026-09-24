@@ -1,4 +1,6 @@
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
 const fn default_completed() -> bool {
     true
@@ -12,6 +14,134 @@ use crate::{CaptureMode, EffectiveCoreConfig};
 
 /// Current schema version for `Run` JSON artifacts.
 pub const SCHEMA_VERSION: u64 = 2;
+
+/// A semantic relationship attached to a stage.
+///
+/// Relations are typed capture metadata. The 0.4 analyzer does not consume
+/// this metadata yet.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StageRelation {
+    /// The stage represents work executed through a blocking pool.
+    BlockingPool,
+}
+
+impl StageRelation {
+    const fn wire_name(self) -> &'static str {
+        match self {
+            Self::BlockingPool => "blocking_pool",
+        }
+    }
+
+    fn from_wire_name(value: &str) -> Option<Self> {
+        match value {
+            "blocking_pool" => Some(Self::BlockingPool),
+            _ => None,
+        }
+    }
+}
+
+/// Canonical set-like storage for a stage's semantic relation metadata.
+///
+/// Tailtriage 0.4 permits at most one known relation. Unknown future wire
+/// values are retained privately for compatible JSON round trips, but are not
+/// exposed as semantic [`StageRelation`] values.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StageRelations {
+    known: Option<StageRelation>,
+    unknown: BTreeSet<String>,
+}
+
+impl StageRelations {
+    /// Creates empty relation metadata.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            known: None,
+            unknown: BTreeSet::new(),
+        }
+    }
+
+    /// Creates metadata containing one known semantic relation.
+    #[must_use]
+    pub fn from_relation(relation: StageRelation) -> Self {
+        Self {
+            known: Some(relation),
+            unknown: BTreeSet::new(),
+        }
+    }
+
+    /// Returns whether the known semantic relation is present.
+    #[must_use]
+    pub fn contains(&self, relation: StageRelation) -> bool {
+        self.known == Some(relation)
+    }
+
+    /// Returns whether no known or preserved unknown wire relations exist.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.known.is_none() && self.unknown.is_empty()
+    }
+
+    pub(crate) fn from_wire_value(value: String) -> Self {
+        if let Some(known) = StageRelation::from_wire_name(&value) {
+            Self::from_relation(known)
+        } else {
+            Self {
+                known: None,
+                unknown: BTreeSet::from([value]),
+            }
+        }
+    }
+}
+
+impl From<StageRelation> for StageRelations {
+    fn from(relation: StageRelation) -> Self {
+        Self::from_relation(relation)
+    }
+}
+
+impl Serialize for StageRelations {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut values = Vec::with_capacity(usize::from(self.known.is_some()) + self.unknown.len());
+        if let Some(known) = self.known {
+            values.push(known.wire_name());
+        }
+        values.extend(self.unknown.iter().map(String::as_str));
+        values.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StageRelations {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let values = Vec::<String>::deserialize(deserializer)?;
+        let mut relations = Self::default();
+        for value in values {
+            if let Some(known) = StageRelation::from_wire_name(&value) {
+                match relations.known {
+                    None => relations.known = Some(known),
+                    Some(existing) if existing == known => {
+                        // Repeated known values describe the same one semantic relation.
+                    }
+                    Some(_) => {
+                        return Err(D::Error::custom(
+                            "stage relations contain more than one known semantic relation",
+                        ));
+                    }
+                }
+            } else {
+                relations.unknown.insert(value);
+            }
+        }
+        Ok(relations)
+    }
+}
 
 /// Logical request outcome categories used by the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,6 +411,12 @@ pub struct StageEvent {
     pub request_id: String,
     /// Stage identifier.
     pub stage: String,
+    /// Typed semantic relation metadata for this stage.
+    ///
+    /// Missing and empty relation arrays mean no relation. Unknown future wire
+    /// values remain semantically inert but are preserved by JSON round trips.
+    #[serde(default, skip_serializing_if = "StageRelations::is_empty")]
+    pub relations: StageRelations,
     /// Stage start timestamp (milliseconds since epoch UTC).
     pub started_at_unix_ms: u64,
     /// Stage start offset from run start, measured with a monotonic clock.
@@ -328,6 +464,7 @@ impl StageEvent {
         Self {
             request_id: request_id.into(),
             stage: stage.into(),
+            relations: StageRelations::default(),
             started_at_unix_ms,
             started_at_run_us: None,
             finished_at_unix_ms,
@@ -336,6 +473,12 @@ impl StageEvent {
             success,
             completed: true,
         }
+    }
+
+    /// Returns whether this stage has the specified known semantic relation.
+    #[must_use]
+    pub fn has_relation(&self, relation: StageRelation) -> bool {
+        self.relations.contains(relation)
     }
 
     /// Adds monotonic run-relative start and finish offsets.

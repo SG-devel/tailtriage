@@ -28,7 +28,7 @@ share a row only when owner, surface, and 0.4 disposition are the same.
 
 | Stable rule | Primary class | Current implementation owner | Current behavior/value | Surface | Durable rationale/proof | 0.4 disposition | Later decision |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Percentile estimator and p95 use | measurement definition | `lib.rs::percentile`, `percentile_sorted_u64`; callers in `analyze_run_internal`, `scoring.rs`, `stage_attribution.rs` | Sorted non-interpolated index `ceil((n-1)*p/q)`, clamped; empty or zero denominator gives `None`. Analyzer tails use p95; reports also use p50/p99. | public behavior/report contract | [AN-PCTL-001/002](analyzer-rationale.md#an-pctl-001--deterministic-non-interpolated-percentiles); A02 | calibrate/verify later | EVIDENCE-01 |
+| Percentile estimator and p95 use | measurement definition | `lib.rs::percentile`, `percentile_sorted_u64`; callers in `analyze_run_internal`, `scoring.rs`, `stage_attribution.rs` | Sorted non-interpolated nearest-rank index `ceil(n*p/q)-1`, clamped; empty or zero denominator gives `None`. Analyzer tails use p95; reports also use p50/p99. | public behavior/report contract | [AN-PCTL-001/002](analyzer-rationale.md#an-pctl-001--deterministic-non-interpolated-percentiles); A02 | selected and settled | EVIDENCE-01 selected |
 | Overlap-safe bounded attribution | measurement definition | `attribution.rs::attributed_elapsed_duration`; `lib.rs::queue_attribution_input`; `stage_attribution.rs::dual_stage_summaries` | Complete run-relative intervals are unioned; if any interval is missing, authoritative durations are saturating-summed; either result is capped at request latency. | public behavior/report contract | [AN-ATTR-001](analyzer-rationale.md#an-attr-001--overlap-safe-bounded-attribution); A02 | preserve unless a concrete defect is found | — |
 | Queue share populations | measurement definition | `lib.rs::request_time_shares` / `RequestTimeShares` | Every nonzero-latency completed request contributes a completed and observed permille share. Completed uses only completed queue events; observed uses completed plus partial events. Service share subtracts completed wait. All shares floor and cap at 1000. | public behavior/report contract | [AN-EVID-001](analyzer-rationale.md#an-evid-001--completed-distributions-and-partial-lower-bounds); A10 | preserve measurement; representation resolution refactors | EVIDENCE-02b |
 | Queue eligibility | tunable policy | `options/registry.rs::OPTION_ENTRIES` path `queueing.trigger_permille`; `scoring.rs::queue_candidate` | `u64`, default 300, valid `0..=1000`; candidate p95 queue share must be at least this materiality/eligibility threshold. | public option | [AN-QUEUE-001](analyzer-rationale.md#an-queue-001--queue-eligibility-and-multi-signal-scoring); A01 | preserve current value pending public-surface review; no evidence question here recalibrates the threshold | EVIDENCE-11 |
@@ -55,8 +55,8 @@ share a row only when owner, surface, and 0.4 disposition are the same.
 | Downstream raw magnitude | internal formula coefficient | `scoring.rs::downstream_stage_candidates`, `score_from_permille` | Base 24 + `min(tail share,1000)/11` + cumulative share/35 + common sample contribution. Stage p95 is evidence, not a score term. | private internal | [AN-DOWN-001](analyzer-rationale.md#an-down-001--distinct-request-minimum-and-contribution-led-score); A02 | calibrate/verify later after materiality is selected | EVIDENCE-03, EVIDENCE-08 |
 | Downstream clean extreme and cap | internal formula coefficient | `scoring.rs::downstream_stage_candidates`, `cap_unless_clean_evidence` | Soft cap 95; bypass requires tail share `>=960`, cumulative share `>=920`, and at least 20 request samples; final clamp 100. | private internal | [AN-SCORE-002](analyzer-rationale.md#an-score-002--soft-caps-and-clean-extreme-exceptions); A02 | calibrate/verify later | EVIDENCE-08, EVIDENCE-09 |
 | Downstream representative selection | architecture semantic | `scoring.rs::downstream_stage_suspect` comparator | Choose score, tail share, cumulative share, completed over lower-bound, then stage name ascending. Completed and lower-bound summaries currently compete in this same selection. | public behavior/report contract | [AN-DOWN-002](analyzer-rationale.md#an-down-002--deterministic-stage-selection); A02/A10 | replace/refactor same-family resolution; related representative policy later | EVIDENCE-02, EVIDENCE-02b |
-| Lexical blocking relation | tunable policy | registry path `downstream.blocking_correlated_stage_patterns`; `scoring.rs::stage_correlates_with_blocking_pool` | `Vec<String>`, default `spawn_blocking`, `blocking_path`, `blocking`; nonempty trimmed entries; case-insensitive substring match. | public option | [AN-DOWN-003](analyzer-rationale.md#an-down-003--blocking-correlated-stage-limit); A02 | replace/refactor with typed, at-most-one-known relation per stage; unknown relations get no custom semantics | EVIDENCE-02; Run/wrapper compatibility later |
-| Blocking-correlation score margin | tunable policy | registry path `downstream.blocking_correlation_score_margin`; `scoring.rs::downstream_stage_suspect` | `u8`, default 2, `<=100`; when lexical match and strong blocking hold, downstream is capped at `blocking_score.saturating_sub(margin)`. | public option | [AN-DOWN-003](analyzer-rationale.md#an-down-003--blocking-correlated-stage-limit); A02 | replace/refactor: relation handling cannot mutate raw magnitudes and resolves before ambiguity | EVIDENCE-02; structured Report compatibility later |
+| Lexical blocking relation | tunable policy | registry path `downstream.blocking_correlated_stage_patterns`; semantic and public/config owners are inventoried in [Legacy relation cutover inventory](#legacy-relation-cutover-inventory) | `Vec<String>`, default `spawn_blocking`, `blocking_path`, `blocking`; nonempty trimmed entries; case-insensitive substring match. | public option | [AN-DOWN-003](analyzer-rationale.md#an-down-003--blocking-correlated-stage-limit); A02 | Prompt 20 removes lexical inference and this option atomically with typed relation grouping and structured related evidence | EVIDENCE-02; Run/wrapper compatibility later |
+| Blocking-correlation score margin | tunable policy | registry path `downstream.blocking_correlation_score_margin`; semantic and public/config owners are inventoried in [Legacy relation cutover inventory](#legacy-relation-cutover-inventory) | `u8`, default 2, `<=100`; when lexical match and strong blocking hold, downstream is capped at `blocking_score.saturating_sub(margin)`. | public option | [AN-DOWN-003](analyzer-rationale.md#an-down-003--blocking-correlated-stage-limit); A02 | Prompt 20 removes the relation score mutation/cap and this option atomically with typed relation resolution | EVIDENCE-02; structured Report compatibility later |
 | Common sample-quality raw-score bonus | internal formula coefficient | `scoring.rs::score_sample_quality`; constants `SAMPLE_QUALITY_*` | Series length 0–7/8–19/20–39/40–99/100+ adds 0/1/3/5/8 to every family formula (queue shares, usable blocking snapshots, normalized or global executor snapshots, stage request samples). | private internal | Analyzer behavior reference; A02. No dedicated rationale entry for the exact ladder; source/test-owned. | replace/refactor: remove the additive ladder; family-relevant support/maturity replaces this architectural misuse of sample count rather than calibrating the ladder | EVIDENCE-04 |
 | Initial confidence anchors | tunable policy | registry paths `confidence.medium_score_threshold`, `confidence.high_score_threshold`; `lib.rs::Confidence::from_score_with_options` | `u8` defaults 65/85, medium must not exceed high and high `<=100`; raw score below/at these boundaries maps Low/Medium/High. | public option | [AN-CONF-001](analyzer-rationale.md#an-conf-001--default-confidence-boundaries); A04 | calibrate/verify later after score geometry is coherent | EVIDENCE-09, EVIDENCE-11 |
 | Report-level request-count quality threshold | tunable policy | registry path `evidence.low_completed_request_threshold`; `evidence.rs::{request_status,evidence_quality,evidence_limitations}`, `confidence.rs::apply_evidence_aware_confidence_caps_scored`, `lib.rs::analysis_warnings` | `usize`, default 20. Below it: request coverage partial, overall quality weak, warning/limitation, and non-fallback confidence at most Medium; zero requests caps Low. | public option | [AN-CONF-002](analyzer-rationale.md#an-conf-002--low-completed-request-threshold); A04/A07 | replace/refactor where used as family support; retain report context, calibrate family maturity separately | EVIDENCE-04, EVIDENCE-11 |
@@ -78,6 +78,65 @@ share a row only when owner, surface, and 0.4 disposition are the same.
 | Scoped analysis cannot replace global diagnosis | architecture semantic | `lib.rs::analyze_run_with_options`; `route.rs`; `temporal.rs`; `slicing.rs::ScopedReportProjection` | Global report is finalized first; route and temporal analyses populate contextual report fields/warnings and never replace its primary or secondary suspects. | public behavior/report contract | [AN-SCOPE-001](analyzer-rationale.md#an-scope-001--global-diagnosis-remains-primary); A08/A09 | preserve | — |
 | Analyzer input-policy boundary | architecture semantic | `lib.rs::{analyze_run,analyze_run_with_options,analyze_run_internal}`; `options/mod.rs::AnalyzeOptions::validate`; `scoring.rs::classify_worker_evidence`; `tailtriage_core::{normalize_run_permissive,summarize_run_validation}` | `AnalyzeOptions` is validated first and invalid options return `AnalyzeConfigError`. Run integrity remains permissive: worker evidence is classified from the original input Run, then the Run is permissively normalized, analysis uses that normalized Run while passing the pre-normalization worker status into scoring, and validation issues become report warnings/limitations rather than generic strict rejection. | public behavior/report contract | Analyzer behavior reference; A11. Source and focused public-API tests own the exact ordering. | preserve | — |
 | Option ingestion and transparency | architecture semantic | `options/{registry.rs,mod.rs,toml.rs,overrides.rs,descriptors.rs}`; `tailtriage-cli/src/analyze_config.rs`; `examples/analyzer-config.toml`; `lib.rs::analyze_run_with_options` | One 30-path registry owns descriptors/overrides; typed/TOML/CLI paths converge on validation. Only sorted non-default values appear under analyzer-config schema version 1. | public behavior/report contract | [AN-CONFIG-001/002/004](analyzer-rationale.md#an-config-001--semantic-groups-and-one-option-registry); A13 | preserve single registry/config transparency; later decide which maturity/materiality controls remain public | EVIDENCE-11 |
+| Structured related evidence | presentation/schema policy | `lib.rs::{Report,RelatedEvidenceGroup,RelatedEvidenceMember,RelatedEvidenceBasis,RelatedEvidenceMeasurement}`; `render.rs::render_text` | EVIDENCE-02 selects S-B: a top-level explicit group owns one typed `StageRelation`, one `DiagnosisKind` representative, and family/stage members with basis, relevant support, and family-specific physical measurements. Ordinary analysis leaves `related_groups` empty and serialization omits it. Report JSON remains versionless because this extension is additive and preserves ordinary bytes. | public behavior/report contract | A12/A13 | Prompt 20 activates typed-relation grouping and R-B representative selection; do not populate before that semantic cutover | EVIDENCE-02 selected; EVIDENCE-02b requires no additional same-family comparison |
+
+## Legacy relation cutover inventory
+
+This inventory records current behavior and the later atomic deletion surface; it does not describe
+typed relation analyzer semantics as implemented.
+
+### Lexical blocking relation
+
+- **Production semantic owners:** `scoring.rs::stage_correlates_with_blocking_pool`,
+  `scoring.rs::apply_current_downstream_relation_policy`, and its
+  `scoring.rs::downstream_stage_suspect` call path. The helper lowercases a stage display name and
+  applies case-insensitive substring matching. The policy uses that result only with independently
+  strong runtime blocking evidence and emits the `looks blocking-correlated` evidence string.
+- **Public option definition, default, and validation:** `options/mod.rs` owns
+  `downstream.blocking_correlated_stage_patterns`, its `spawn_blocking`, `blocking_path`, and
+  `blocking` defaults, and nonempty/trimmed-entry validation.
+- **Registry, descriptor, ingestion, CLI, and transparency owners:** `options/registry.rs` owns the
+  relation-specific registry entry; `options/toml.rs` owns its TOML field and mapping;
+  `options/overrides.rs` owns shared override parsing plus registry/path contract tests;
+  `options/descriptors.rs` exposes the generic registry-backed descriptor view;
+  `tailtriage-cli/src/analyze_config.rs` generically composes TOML and CLI overrides; and
+  `lib.rs::analyze_run_with_options` generically emits sorted non-default analyzer-config entries.
+  Prompt 20 removes only this option path from the generic mechanisms; the descriptor, TOML/CLI
+  composition, override, validation, and report-transparency mechanisms remain.
+- **Documentation and config-example owners:** `docs/diagnostics.md` documents the option and
+  current evidence behavior, `docs/dev/analyzer-rationale.md` owns AN-DOWN-003 rationale, and
+  `examples/analyzer-config.toml` carries the canonical configured default.
+- **Test/proof owners:** `src/tests.rs` locks defaults, validation, descriptors, TOML, transparency,
+  exact lexical matching, and the strong-blocking call path; `src/options/overrides.rs` and
+  `src/options/registry.rs` lock generic registry/override behavior; `tests/analyzer_fixtures.rs`
+  and `tests/boundary_thresholds.rs` protect fixture/golden and mixed-signal behavior.
+- **Fixture/demo consumers:** analyzer mixed blocking/downstream fixtures and their expected reports,
+  plus `demos/blocking_service/fixtures/*-analysis.json`, consume the current diagnosis/evidence.
+  They are consumers, not option or semantic owners; Prompt 20 updates them only if cutover output
+  truthfully changes.
+- **Prompt 20 disposition:** remove lexical relation inference and remove
+  `downstream.blocking_correlated_stage_patterns` atomically with typed relation grouping and
+  structured related evidence.
+
+### Blocking-correlation score margin
+
+- **Production semantic owner:** `scoring.rs::apply_current_downstream_relation_policy`, reached by
+  `scoring.rs::downstream_stage_suspect`, caps the downstream score at
+  `blocking_score.saturating_sub(margin)` when lexical correlation and strong blocking both hold.
+- **Public option definition, default, and validation:** `options/mod.rs` owns
+  `downstream.blocking_correlation_score_margin`, default `2`, and the `<= 100` validation rule.
+- **Registry, descriptor, ingestion, CLI, and transparency owners:** `options/registry.rs` owns the
+  relation-specific entry; `options/toml.rs` owns its TOML field/mapping; the same generic
+  `options/overrides.rs`, `options/descriptors.rs`, `tailtriage-cli/src/analyze_config.rs`, and
+  `lib.rs::analyze_run_with_options` mechanisms carry it. Prompt 20 removes only this path and
+  retains those generic mechanisms unchanged.
+- **Documentation, example, and proof owners:** `docs/diagnostics.md`, AN-DOWN-003 in
+  `docs/dev/analyzer-rationale.md`, and `examples/analyzer-config.toml` describe/configure it;
+  `src/tests.rs` owns default, validation, descriptor/TOML/transparency, strong-blocking, and direct
+  margin-mutation regression coverage, while the integration fixtures/tests listed above preserve
+  report-level behavior.
+- **Prompt 20 disposition:** remove the relation score mutation/cap and remove
+  `downstream.blocking_correlation_score_margin` atomically with typed relation resolution.
 
 ## Analyzer evidence-unit / relevant-support charter
 
@@ -192,15 +251,22 @@ reviewed design decision rather than formula-tuning convenience.
 
 ## Deferred 0.4 evidence and compatibility register
 
-The ledger references, but deliberately does not resolve: EVIDENCE-01 percentile selection;
-EVIDENCE-02 typed-related representative/report policy; EVIDENCE-02b same-family representation
-resolution if alternatives remain; EVIDENCE-03 downstream materiality measurement; EVIDENCE-04
+The ledger records EVIDENCE-01 percentile selection as settled. EVIDENCE-02 selects R-B
+representative policy and the S-B explicit related-group Report shape; only the S-B schema is
+present now, while ordinary analysis leaves it empty until the typed-relation semantic cutover.
+EVIDENCE-02b requires no additional same-family comparison. The ledger references, but does not
+yet implement, EVIDENCE-03's M-A tail-contribution materiality choice and provisional 300-permille
+cutover, EVIDENCE-04
 family maturity/support thresholds; EVIDENCE-05 queue magnitude; EVIDENCE-06 blocking magnitude;
 EVIDENCE-07 normalized executor mapping; EVIDENCE-08 downstream magnitude/materiality default;
 EVIDENCE-09 common confidence/magnitude anchors; EVIDENCE-09b independent-ambiguity participation
 and gap defaults; EVIDENCE-10 legacy executor confidence; EVIDENCE-11 public maturity/materiality
 controls; and EVIDENCE-12 route/temporal thresholds.
 
-Typed-relation `Run`/wrapper compatibility and structured related-evidence `Report` compatibility
-also remain later mechanical decisions. No formula selector, rejected implementation, calibration
-result, schema change, or Python copy of analyzer formulas is established here.
+Typed-relation `Run`/wrapper compatibility remains a later mechanical decision. Structured
+related-evidence Report compatibility uses the existing versionless producer contract: empty
+`related_groups` is omitted, preserving ordinary serialized bytes, while nonempty groups are an
+additive output extension. Adding the public field is a Rust source-compatibility change for
+external `Report` struct literals, which must initialize `related_groups`; repository-owned
+literals do so explicitly. No formula selector, rejected implementation, calibration result, or
+Python copy of analyzer formulas is established here.

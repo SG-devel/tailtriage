@@ -41,6 +41,14 @@ the analyzer's `scoring.rs`/`slicing.rs` unit tests consume the noted inputs. Th
 diagnosis-rule regression oracles, unlike demo teaching output, report-contract data that bypasses
 analysis, or diagnostic analyzer-execution inputs that protect CLI/import boundaries.
 
+The permanent local/manual architecture evidence runner,
+`scripts/analyzer_architecture_evidence.py`, additionally replays these nine Run inputs through the
+real CLI. Its copied inputs and process evidence live only below `target/`; it neither regenerates
+nor supersedes the independently reviewed Report goldens. The same runner records manifest-owned
+`analyzer_execution` behavior without acquiring the manifest's classification or accuracy
+ownership. It contains no analyzer formulas, and future permanent architecture sentinels and
+locked calibration challenges are a separate 0.4 redesign definition boundary.
+
 ## Tracing fixtures and independent equivalence oracles
 
 `tailtriage-tracing/tests/fixtures/equivalence/native_runs.json`, the four scenario JSONL files, and
@@ -124,6 +132,13 @@ qualified snapshot output under `target/validation/diagnostics/`. This local/man
 evidence is not automatically published or durable. Updating the committed note requires manual
 review; normal CI does not overwrite it.
 
+Architecture evidence is another non-owning consumer of manifest-classified executable inputs.
+It records real-CLI import/analyze behavior and exact provenance under `target/`, but it does not
+execute `report_contract` artifacts, encode expected diagnoses, or alter the benchmark's accuracy
+judgments. Its optional numeric108 linkage invokes and verifies the independent
+`scripts/analyzer_numeric_sensitivity.py` output instead of copying that harness's plan or
+projection semantics.
+
 ## Demo analysis and comparison artifacts
 
 The source of truth for each demo is its workload in `demos/<scenario>/src/main.rs` plus shared
@@ -182,3 +197,12 @@ reference, not an operational measurement.
   machine- or snapshot-scoped evidence, never an automatic promotion.
 - Only downstream has a committed, drift-owned comparison; other generated comparisons remain
   temporary workflow evidence.
+
+## Analyzer architecture definitions
+
+The versioned manifest in `validation/analyzer-architecture/` owns exact hashes for visible
+architecture sentinels and locked calibration challenges. Sentinels may be executed and inspected,
+but are not coefficient-training truth. Challenge inputs are public for review; analyzer outputs
+stay locked until Prompt 34. Exact-byte checks separate challenges from sentinels, analyzer
+fixtures, and manifest-owned executable diagnostic Runs. Future calibration inputs must not reuse
+locked hashes or bytes. Generated evidence belongs under `target/`, never in fixture lineage.

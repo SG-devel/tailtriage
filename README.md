@@ -92,9 +92,11 @@ Use the [analyzer guide](docs/analyzer-guide.md) for the practical report-to-nex
 - **Controller:** repeated bounded arm/disarm windows in a long-lived service; `disable()` is reversible and `shutdown()` is terminal.
 - **Tokio runtime sampling:** add runtime-pressure evidence by explicitly starting `tailtriage::tokio::RuntimeSampler` inside an active Tokio runtime. `CaptureMode` does not start it.
 - **Axum:** enable `axum` for request-boundary middleware; instrument inner queues and stages explicitly.
-- **Tracing:** enable `tracing` for typed/stable JSONL intake, `tracing-live` for live session APIs, or `tracing-tokio` for Tokio-coupled live sessions.
+- **Tracing:** enable `tracing` for typed/stable JSONL intake, `tracing-live` for live session APIs, or `tracing-tokio` for Tokio-coupled live sessions. Stage-only source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, names imply no relation, the wrapper remains v1, and the analyzer does not consume typed relations yet.
 - **Embedded analysis:** add `tailtriage-analyzer` when code needs typed in-process `Report` values.
 - **Tuning:** start with analyzer defaults; tune only after representative evidence justifies it.
+
+Native stage timers can capture typed semantic metadata with singular `.relation(StageRelation::BlockingPool)`. Ordinary stage names never imply a relation. The Tokio `blocking_stage(...)` helper tags the relation automatically because it owns `spawn_blocking`; typed relations are stored in Run stage events but are not yet consumed by the analyzer.
 
 Within one Run, use one unique tailtriage `request_id` for each completed logical request/work item. Queue and stage evidence reuses that ID only for that request. Advanced tracing, retry, and fanout correlation must preserve this uniqueness.
 

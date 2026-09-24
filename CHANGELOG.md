@@ -4,6 +4,16 @@
 
 ### Changed
 
+- Tracing stage intake now maps `tt.relation = "blocking_pool"` into core typed stage relations and preserves unknown string relation values inertly through the existing v1 completed-span wrapper; native and tracing metadata converge while analyzer behavior remains unchanged.
+
+- Native stage timers now accept singular `.relation(StageRelation::BlockingPool)` instrumentation, including through controller stage wrappers. Completed and partial native stage events retain the metadata; repeated identical annotation is idempotent. Tokio `blocking_stage(...)` adds the relation automatically for borrowed and owned handles, while labels and generic join, timeout, queue, and lock helpers do not infer it. The analyzer remains unchanged and does not consume typed relations yet.
+
+- Added typed `StageRelation::BlockingPool` metadata and canonical plural stage `relations` to the
+  schema-v2 Run wire model. Missing/empty relations remain empty, unknown future values are inert
+  but round-trip preserved, and the analyzer does not consume this metadata yet. Adding the public
+  `StageEvent::relations` field is a pre-1.0 Rust source break for exhaustive struct literals; use
+  `StageEvent::new(...)` where possible or initialize `StageRelations::default()`.
+
 - Tracing JSONL import now accepts only the stable `tailtriage.tracing-span.v1` wrapper through
   `import_jsonl_reader(...)` and `import_jsonl_path(...)`. `JsonlParseMode`,
   `import_jsonl_reader_with_mode(...)`, and `import_jsonl_path_with_mode(...)` were removed;

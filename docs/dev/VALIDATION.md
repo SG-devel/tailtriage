@@ -47,6 +47,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/validate_invariant_proofs.py` | Mechanical invariant/test linkage consistency | Yes | No |
 | `scripts/generate_diagnostic_scorecard.py` | Deterministic scorecard generation; provenance-rich snapshots are local/manual | Generator smoke in applicable deterministic CI; full snapshot local/manual | No |
 | `scripts/analyzer_numeric_sensitivity.py` | Deterministic synthetic analyzer sensitivity characterization around selected numeric defaults | No, manual/local | Local outputs only under `target/` |
+| `scripts/analyzer_architecture_evidence.py` | Permanent real-CLI analyzer behavior recording, exact replay verification, and neutral comparison across executable/configuration variants | No, manual/local; focused helper tests run with the Python test suite | Local outputs only under `target/` |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/demo_tool.py mitigation-report` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/measure_runtime_cost.py` | Runtime-cost operational validation | Manual/local; bounded smoke runs in CI | No |
@@ -58,6 +59,26 @@ generator, but does not publish provenance-rich scorecards or GitHub artifacts. 
 contracts` job owns documentation, source-policy, and invariant-linkage checks.
 `scripts/generate_diagnostic_scorecard.py` owns local/manual provenance-rich scorecard generation;
 its outputs are local evidence unless a maintainer separately archives them.
+
+### Analyzer architecture evidence
+
+`scripts/analyzer_architecture_evidence.py` is permanent local/manual validation infrastructure.
+Its deterministic plan replays all nine analyzer Run fixtures plus every diagnostic-manifest case
+classified as `analyzer_execution`. It executes the real `tailtriage` binary, retaining exact input
+bytes, binary and input hashes, canonical command descriptions, exit codes, raw stdout/stderr, and
+compact projections of successful public Report JSON. Tracing JSONL cases retain import and
+analyze stages separately. Generated records, verification markers, and comparisons are confined
+to `target/`; they are review evidence, not committed truth.
+
+The runner is a behavior recorder/comparator and contains no analyzer, candidate, scoring,
+confidence, percentile, ambiguity, or calibration formulas. It does not judge corpus accuracy or
+establish root cause or empirical production calibration. Analyzer fixture tests and their
+independent Report goldens retain regression-oracle ownership. The diagnostic manifest and
+`scripts/diagnostic_benchmark.py` retain classification, expectations, and accuracy ownership.
+`scripts/analyzer_numeric_sensitivity.py` remains the independent numeric108 owner; the architecture
+runner can only invoke its public run/verify interface and record its verified aggregate. Permanent
+architecture sentinel and locked calibration-challenge definitions belong to the subsequent 0.4
+redesign work and are intentionally absent from this runner.
 
 Documentation proof is deliberately split by artifact. The `docs contracts` job renders public
 documentation with warnings denied and runs the one workspace all-feature doctest pass for Rustdoc
@@ -266,3 +287,13 @@ is selected and qualified. Suspects remain triage leads, not root-cause proof.
 Deterministic exact package-level equivalence uses committed native Run and stable completed-span JSONL fixtures in normal Cargo tests. It compares exact representable completed evidence, retention order/counters, and exact comparable analyzer output against independent expected artifacts. This proves the intake equivalence contract; it is not production diagnostic-accuracy evidence.
 
 Live demo parity exercises real capture paths across multiple scenarios and modes with broader, machine-sensitive semantic checks. It is intentionally not byte-exact and does not require exact ranking equality in every mitigated run. It supports capture-to-re-run triage validation, not causal proof. Run JSON remains the complete artifact because completed-span JSONL excludes Run-only runtime, in-flight, lifecycle, and complete truncation state.
+
+## Analyzer architecture sentinels and locked challenges
+
+`validation/analyzer-architecture/` owns two manual/local definition suites. Visible sentinels are
+inspectable architecture/regression cases, not coefficient-training truth. Locked challenge inputs
+and hashes are reviewable and frozen now, while their analyzer outputs remain unseen until Prompt
+34. After first inspection, definition changes require an explicit audit disposition. Generated
+evidence remains under ignored `target/`; no generated Report is committed. Future calibration
+surfaces must not byte-duplicate locked inputs. Diagnostic manifest/golden ownership and the
+independent numeric108 owner remain unchanged. See the domain README for commands and boundaries.

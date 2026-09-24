@@ -1,6 +1,6 @@
 {
   "request_count": 6,
-  "p50_latency_us": 10000,
+  "p50_latency_us": 2000,
   "p95_latency_us": 10000,
   "p99_latency_us": 10000,
   "p95_queue_share_permille": 900,

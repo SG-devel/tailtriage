@@ -82,7 +82,14 @@ A `request_id` identifies one logical request/work item within a Run. Completed 
 - `confidence` describes evidence/ranking support, not causal certainty.
 - `evidence` explains the ranking; `next_checks` proposes targeted follow-up checks.
 - `warnings` and `evidence_quality` expose sparse, missing, partial, or truncated evidence limits.
+- `related_groups` is the explicit typed relation, representative, and member-evidence structure.
+  Ordinary analysis currently leaves it empty, and empty groups are omitted from JSON; population
+  begins with the later typed-relation semantic cutover.
 - Route and temporal sections are supporting context and do not override the global primary suspect.
+
+Report JSON remains versionless. The related-group extension is additive, and omission of the
+empty collection preserves ordinary Report JSON bytes. `Report` is a producer-side serialized
+output contract; it does not derive `Deserialize`.
 
 Completed queue/stage distributions use completed evidence. A partial queue/stage observation is only a lower bound from first poll until Drop. Drop does not prove external operation completion, failure, cancellation, or that underlying work stopped. A selected queue/downstream candidate that materially relies on lower-bound evidence cannot exceed Medium confidence under current policy.
 

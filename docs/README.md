@@ -41,6 +41,7 @@ These public trust surfaces state what evidence supports and what it does not su
 
 - [Diagnostic validation](diagnostic-validation.md)
 - [Validation map and non-claims](dev/VALIDATION.md)
+- [Analyzer architecture validation definitions](../validation/analyzer-architecture/README.md)
 - [Runtime-cost measurement](runtime-cost.md)
 - [Collector limits](collector-limits.md)
 - [Security policy](../SECURITY.md)
