@@ -18,7 +18,7 @@ mod slicing;
 mod stage_attribution;
 mod temporal;
 
-use candidate::{completed_candidate, fallback_candidate, FamilyCandidates, SupportedCandidate};
+use candidate::{fallback_candidate, FamilyCandidates, SupportedCandidate};
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
 pub use options::{
     analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
@@ -557,17 +557,18 @@ fn analyze_run_internal(
     }
 
     if let Some(blocking_suspect) = scoring::blocking_pressure_suspect(run, options) {
-        family_candidates.set_blocking(Some(completed_candidate(blocking_suspect)));
+        family_candidates.set_blocking(Some(blocking_suspect));
     }
 
     if let Some(executor_suspect) =
         scoring::executor_pressure_suspect(run, worker_status, inflight_candidate.as_ref(), options)
     {
-        let (executor_suspect, executor_limitation) = executor_suspect;
+        let (executor_suspect, executor_limitation, relevant_support) = executor_suspect;
         family_candidates.set_executor(Some(SupportedCandidate {
             suspect: executor_suspect,
             basis: partial_evidence::EvidenceBasis::Completed,
             executor_limitation,
+            relevant_support,
         }));
     }
 

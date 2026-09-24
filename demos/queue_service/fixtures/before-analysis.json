@@ -1,17 +1,17 @@
 {
   "request_count": 250,
-  "p50_latency_us": 781959,
-  "p95_latency_us": 1468891,
-  "p99_latency_us": 1521094,
+  "p50_latency_us": 785138,
+  "p95_latency_us": 1473829,
+  "p99_latency_us": 1524378,
   "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 268,
+  "p95_service_share_permille": 265,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
     "sample_count": 500,
     "peak_count": 234,
-    "p95_count": 222,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "p95_count": 224,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -603
   },
   "warnings": [
     "Temporal segments show a large p95 latency shift between early and late requests."
@@ -52,42 +52,25 @@
     ],
     "confidence_notes": []
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominance",
-      "score": 33,
-      "confidence": "low",
-      "evidence": [
-        "Stage 'simulated_work' has p95 latency 26942 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 6561521 us (33 permille of request latency).",
-        "Stage 'simulated_work' contributes 17 permille of tail request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'simulated_work'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ],
-      "confidence_notes": []
-    }
-  ],
+  "secondary_suspects": [],
   "route_breakdowns": [],
   "temporal_segments": [
     {
       "name": "early",
       "request_count": 125,
-      "started_at_unix_ms": 1778013228700,
-      "finished_at_unix_ms": 1778013229540,
-      "p50_latency_us": 390496,
-      "p95_latency_us": 732526,
-      "p99_latency_us": 765315,
-      "p95_queue_share_permille": 963,
-      "p95_service_share_permille": 528,
+      "started_at_unix_ms": 1790259907574,
+      "finished_at_unix_ms": 1790259908414,
+      "p50_latency_us": 393791,
+      "p95_latency_us": 738328,
+      "p99_latency_us": 762811,
+      "p95_queue_share_permille": 964,
+      "p95_service_share_permille": 526,
       "evidence_quality": {
         "request_count": 125,
         "queue_event_count": 125,
         "stage_event_count": 125,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 377,
+        "inflight_snapshot_count": 375,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -109,9 +92,9 @@
         "score": 95,
         "confidence": "high",
         "evidence": [
-          "Queue wait at p95 consumes 96.3% of request time.",
-          "Observed queue depth sample up to 113.",
-          "In-flight gauge 'queue_service_inflight' grew by 124 over the run window (p95=225, peak=234)."
+          "Queue wait at p95 consumes 96.4% of request time.",
+          "Observed queue depth sample up to 114.",
+          "In-flight gauge 'queue_service_inflight' latest active episode grew by 124 across 375 samples (p95=227, peak=234, run-relative rate=147661 milli-counts/sec)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -119,24 +102,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 36,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'simulated_work' has p95 latency 26995 us across 125 samples.",
-            "Stage 'simulated_work' cumulative latency is 3276398 us (66 permille of request latency).",
-            "Stage 'simulated_work' contributes 34 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'simulated_work'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]
@@ -144,19 +110,19 @@
     {
       "name": "late",
       "request_count": 125,
-      "started_at_unix_ms": 1778013228758,
-      "finished_at_unix_ms": 1778013230357,
-      "p50_latency_us": 1155986,
-      "p95_latency_us": 1497043,
-      "p99_latency_us": 1542282,
+      "started_at_unix_ms": 1790259907629,
+      "finished_at_unix_ms": 1790259909232,
+      "p50_latency_us": 1155931,
+      "p95_latency_us": 1499321,
+      "p99_latency_us": 1548256,
       "p95_queue_share_permille": 982,
-      "p95_service_share_permille": 32,
+      "p95_service_share_permille": 31,
       "evidence_quality": {
         "request_count": 125,
         "queue_event_count": 125,
         "stage_event_count": 125,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 371,
+        "inflight_snapshot_count": 367,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -187,24 +153,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 33,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'simulated_work' has p95 latency 26766 us across 125 samples.",
-            "Stage 'simulated_work' cumulative latency is 3285123 us (22 permille of request latency).",
-            "Stage 'simulated_work' contributes 17 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'simulated_work'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]

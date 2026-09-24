@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 836662,
-  "p95_latency_us": 1576741,
-  "p99_latency_us": 1635485,
+  "p50_latency_us": 824407,
+  "p95_latency_us": 1561721,
+  "p99_latency_us": 1629032,
   "p95_queue_share_permille": 993,
-  "p95_service_share_permille": 122,
+  "p95_service_share_permille": 103,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
     "peak_count": 201,
-    "p95_count": 190,
+    "p95_count": 191,
     "growth_delta": -1,
-    "growth_per_sec_milli": -550
+    "growth_per_sec_milli": -553
   },
   "warnings": [
     "Temporal segments show a large p95 latency shift between early and late requests."
@@ -44,7 +44,7 @@
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 99.3% of request time.",
-      "Observed queue depth sample up to 199."
+      "Observed queue depth sample up to 200."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -52,36 +52,19 @@
     ],
     "confidence_notes": []
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominance",
-      "score": 32,
-      "confidence": "low",
-      "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 8366 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 1801446 us (9 permille of request latency).",
-        "Stage 'shared_state_critical_section' contributes 5 permille of tail request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ],
-      "confidence_notes": []
-    }
-  ],
+  "secondary_suspects": [],
   "route_breakdowns": [],
   "temporal_segments": [
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1778013339996,
-      "finished_at_unix_ms": 1778013340908,
-      "p50_latency_us": 418964,
-      "p95_latency_us": 789686,
-      "p99_latency_us": 819538,
+      "started_at_unix_ms": 1790259973884,
+      "finished_at_unix_ms": 1790259974790,
+      "p50_latency_us": 412393,
+      "p95_latency_us": 786980,
+      "p99_latency_us": 818339,
       "p95_queue_share_permille": 986,
-      "p95_service_share_permille": 229,
+      "p95_service_share_permille": 220,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
@@ -110,8 +93,8 @@
         "confidence": "high",
         "evidence": [
           "Queue wait at p95 consumes 98.6% of request time.",
-          "Observed queue depth sample up to 99.",
-          "In-flight gauge 'shared_state_lock_inflight' grew by 109 over the run window (p95=193, peak=201)."
+          "Observed queue depth sample up to 100.",
+          "In-flight gauge 'shared_state_lock_inflight' latest active episode grew by 109 across 330 samples (p95=194, peak=201, run-relative rate=120290 milli-counts/sec)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -119,24 +102,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 32,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'shared_state_critical_section' has p95 latency 8990 us across 110 samples.",
-            "Stage 'shared_state_critical_section' cumulative latency is 903900 us (19 permille of request latency).",
-            "Stage 'shared_state_critical_section' contributes 10 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]
@@ -144,11 +110,11 @@
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1778013340080,
-      "finished_at_unix_ms": 1778013341812,
-      "p50_latency_us": 1248142,
-      "p95_latency_us": 1612874,
-      "p99_latency_us": 1643737,
+      "started_at_unix_ms": 1790259973966,
+      "finished_at_unix_ms": 1790259975690,
+      "p50_latency_us": 1234042,
+      "p95_latency_us": 1606690,
+      "p99_latency_us": 1637338,
       "p95_queue_share_permille": 993,
       "p95_service_share_permille": 11,
       "evidence_quality": {
@@ -156,7 +122,7 @@
         "queue_event_count": 110,
         "stage_event_count": 220,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 322,
+        "inflight_snapshot_count": 321,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -179,7 +145,7 @@
         "confidence": "high",
         "evidence": [
           "Queue wait at p95 consumes 99.3% of request time.",
-          "Observed queue depth sample up to 199."
+          "Observed queue depth sample up to 200."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -187,24 +153,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 32,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'shared_state_critical_section' has p95 latency 8343 us across 110 samples.",
-            "Stage 'shared_state_critical_section' cumulative latency is 897546 us (6 permille of request latency).",
-            "Stage 'shared_state_critical_section' contributes 5 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]

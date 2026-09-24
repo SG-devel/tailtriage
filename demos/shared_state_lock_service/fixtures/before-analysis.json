@@ -1,10 +1,10 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2544785,
-  "p95_latency_us": 4824938,
-  "p99_latency_us": 5006867,
+  "p50_latency_us": 2521581,
+  "p95_latency_us": 4809088,
+  "p99_latency_us": 5015260,
   "p95_queue_share_permille": 994,
-  "p95_service_share_permille": 101,
+  "p95_service_share_permille": 91,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
@@ -52,36 +52,19 @@
     ],
     "confidence_notes": []
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominance",
-      "score": 32,
-      "confidence": "low",
-      "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 23425 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5119606 us (9 permille of request latency).",
-        "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ],
-      "confidence_notes": []
-    }
-  ],
+  "secondary_suspects": [],
   "route_breakdowns": [],
   "temporal_segments": [
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1778013334204,
-      "finished_at_unix_ms": 1778013336791,
-      "p50_latency_us": 1284213,
-      "p95_latency_us": 2406943,
-      "p99_latency_us": 2500193,
+      "started_at_unix_ms": 1790259968508,
+      "finished_at_unix_ms": 1790259971096,
+      "p50_latency_us": 1268221,
+      "p95_latency_us": 2407554,
+      "p99_latency_us": 2500519,
       "p95_queue_share_permille": 989,
-      "p95_service_share_permille": 184,
+      "p95_service_share_permille": 182,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
@@ -111,7 +94,7 @@
         "evidence": [
           "Queue wait at p95 consumes 98.9% of request time.",
           "Observed queue depth sample up to 109.",
-          "In-flight gauge 'shared_state_lock_inflight' grew by 108 over the run window (p95=209, peak=217)."
+          "In-flight gauge 'shared_state_lock_inflight' latest active episode grew by 108 across 331 samples (p95=209, peak=217, run-relative rate=41731 milli-counts/sec)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -119,24 +102,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 32,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'shared_state_critical_section' has p95 latency 23410 us across 110 samples.",
-            "Stage 'shared_state_critical_section' cumulative latency is 2553648 us (18 permille of request latency).",
-            "Stage 'shared_state_critical_section' contributes 9 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]
@@ -144,11 +110,11 @@
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1778013334246,
-      "finished_at_unix_ms": 1778013339341,
-      "p50_latency_us": 3818246,
-      "p95_latency_us": 4939164,
-      "p99_latency_us": 5030181,
+      "started_at_unix_ms": 1790259968551,
+      "finished_at_unix_ms": 1790259973652,
+      "p50_latency_us": 3796613,
+      "p95_latency_us": 4947526,
+      "p99_latency_us": 5038632,
       "p95_queue_share_permille": 994,
       "p95_service_share_permille": 9,
       "evidence_quality": {
@@ -156,7 +122,7 @@
         "queue_event_count": 110,
         "stage_event_count": 220,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 330,
+        "inflight_snapshot_count": 329,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -187,24 +153,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 32,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'shared_state_critical_section' has p95 latency 23446 us across 110 samples.",
-            "Stage 'shared_state_critical_section' cumulative latency is 2565958 us (6 permille of request latency).",
-            "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]

@@ -57,7 +57,7 @@
         "Inspect queue admission limits and producer burst patterns.",
         "Compare queue wait distribution before and after increasing worker parallelism."
       ],
-      "score": 77
+      "score": 74
     }
   ],
   "warnings": [
@@ -107,27 +107,10 @@
           "Inspect queue admission limits and producer burst patterns.",
           "Compare queue wait distribution before and after increasing worker parallelism."
         ],
-        "score": 75
+        "score": 74
       },
       "request_count": 12,
-      "secondary_suspects": [
-        {
-          "confidence": "low",
-          "confidence_notes": [],
-          "evidence": [
-            "Stage 'downstream' has p95 latency 10000 us across 12 samples.",
-            "Stage 'downstream' cumulative latency is 120000 us (100 permille of request latency).",
-            "Stage 'downstream' contributes 100 permille of tail request latency."
-          ],
-          "kind": "downstream_stage_dominance",
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'downstream'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "score": 36
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Low completed-request count; diagnosis ranking may be unstable for this run window.",
         "No runtime snapshots captured; executor and blocking-pressure interpretation is limited."
@@ -166,6 +149,7 @@
       "primary_suspect": {
         "confidence": "medium",
         "confidence_notes": [
+          "Family-relevant support is 12 observation(s); provisional maturity caps confidence at medium.",
           "Low completed-request count caps confidence."
         ],
         "evidence": [

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use tailtriage_core::Run;
 
 use crate::{
@@ -6,11 +8,6 @@ use crate::{
     percentile, runtime_metric_series, stage_attribution, AnalyzeOptions, DiagnosisKind,
     InflightCandidate, InflightOrdering, Suspect,
 };
-
-const SAMPLE_QUALITY_HIGH_SAMPLE_COUNT: usize = 100;
-const SAMPLE_QUALITY_MEDIUM_SAMPLE_COUNT: usize = 40;
-const SAMPLE_QUALITY_LOW_SAMPLE_COUNT: usize = 20;
-const SAMPLE_QUALITY_MIN_NONZERO_SAMPLE_COUNT: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum WorkerEvidenceStatus {
@@ -176,7 +173,51 @@ pub(super) fn queue_saturation_suspect(
         completed,
         observed_lower_bound: observed,
     }
-    .select()
+    .select(options)
+}
+
+fn confidence_rank(confidence: crate::Confidence) -> u8 {
+    match confidence {
+        crate::Confidence::Low => 1,
+        crate::Confidence::Medium => 2,
+        crate::Confidence::High => 3,
+    }
+}
+
+fn representation_confidence(
+    score: u8,
+    support: usize,
+    basis: EvidenceBasis,
+    options: &AnalyzeOptions,
+) -> crate::Confidence {
+    let mut confidence = crate::Confidence::from_score_with_options(score, options);
+    confidence = confidence.min(crate::confidence::maturity_cap(support));
+    if basis == EvidenceBasis::ObservedLowerBound {
+        confidence = confidence.min(crate::Confidence::Medium);
+    }
+    confidence
+}
+
+fn representation_order(
+    a: &SupportedCandidate,
+    b: &SupportedCandidate,
+    options: &AnalyzeOptions,
+) -> std::cmp::Ordering {
+    confidence_rank(representation_confidence(
+        a.suspect.score,
+        a.relevant_support,
+        a.basis,
+        options,
+    ))
+    .cmp(&confidence_rank(representation_confidence(
+        b.suspect.score,
+        b.relevant_support,
+        b.basis,
+        options,
+    )))
+    .then_with(|| a.relevant_support.cmp(&b.relevant_support))
+    .then_with(|| a.suspect.score.cmp(&b.suspect.score))
+    .then_with(|| (a.basis == EvidenceBasis::Completed).cmp(&(b.basis == EvidenceBasis::Completed)))
 }
 
 struct QueueRepresentations {
@@ -185,9 +226,9 @@ struct QueueRepresentations {
 }
 
 impl QueueRepresentations {
-    fn select(self) -> Option<SupportedCandidate> {
+    fn select(self, options: &AnalyzeOptions) -> Option<SupportedCandidate> {
         match (self.completed, self.observed_lower_bound) {
-            (Some(c), Some(o)) if o.suspect.score > c.suspect.score => Some(o),
+            (Some(c), Some(o)) if representation_order(&o, &c, options).is_gt() => Some(o),
             (Some(c), _) => Some(c),
             (None, Some(o)) => Some(o),
             (None, None) => None,
@@ -246,13 +287,7 @@ fn queue_magnitude(
         && max_depth >= 12
         && measurement.sample_count >= 20
         && measurement.inflight_growth;
-    let score = cap_unless_clean_evidence(
-        base + depth_bonus
-            + growth_bonus
-            + u64::from(score_sample_quality(measurement.sample_count)),
-        clean_extreme,
-        95,
-    );
+    let score = cap_unless_clean_evidence(base + depth_bonus + growth_bonus, clean_extreme, 95);
     let mut evidence = if measurement.basis == EvidenceBasis::Completed {
         vec![format!(
             "Queue wait at p95 consumes {}.{}% of request time.",
@@ -296,6 +331,7 @@ fn queue_magnitude(
         ),
         basis: measurement.basis,
         executor_limitation: None,
+        relevant_support: measurement.sample_count,
     }
 }
 
@@ -321,7 +357,21 @@ fn queue_measurement(
         },
         p95_share_permille: percentile(queue_shares, 95, 100)?,
         max_depth_at_start: max_or_zero(&depths),
-        sample_count: queue_shares.len(),
+        sample_count: {
+            let completed_requests = run
+                .requests
+                .iter()
+                .filter(|request| request.latency_us > 0)
+                .map(|request| request.request_id.as_str())
+                .collect::<HashSet<_>>();
+            run.queues
+                .iter()
+                .filter(|queue| !completed_only || queue.completed)
+                .filter(|queue| completed_requests.contains(queue.request_id.as_str()))
+                .map(|queue| queue.request_id.as_str())
+                .collect::<HashSet<_>>()
+                .len()
+        },
         completed_p95_share_permille,
         partial_event_count: profile.queues.partial,
         inflight_growth: inflight_trend.is_some_and(InflightCandidate::known_positive_growth),
@@ -391,7 +441,10 @@ pub(super) fn stage_correlates_with_blocking_pool(stage: &str, options: &Analyze
         .any(|p| lower.contains(&p.trim().to_ascii_lowercase()))
 }
 
-pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> Option<Suspect> {
+pub(super) fn blocking_pressure_suspect(
+    run: &Run,
+    options: &AnalyzeOptions,
+) -> Option<SupportedCandidate> {
     let signal = eligible_blocking_measurement(run, options)?;
     let clean_extreme = signal.p95_queue_depth >= 16
         && signal.peak_queue_depth >= 24
@@ -399,28 +452,32 @@ pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> 
     let score = cap_unless_clean_evidence(
         32 + signal.p95_queue_depth.min(24)
             + (signal.peak_queue_depth.min(24) / 2)
-            + (signal.nonzero_share_permille / 80)
-            + u64::from(score_sample_quality(signal.usable_sample_count)),
+            + (signal.nonzero_share_permille / 80),
         clean_extreme,
         94,
     );
-    Some(suspect(
-        DiagnosisKind::BlockingPoolPressure,
-        score,
-        vec![format!(
-            "Blocking queue depth p95 is {}, peak is {}, with {}/{} nonzero samples.",
-            signal.p95_queue_depth,
-            signal.peak_queue_depth,
-            signal.nonzero_sample_count,
-            signal.usable_sample_count
-        )],
-        vec![
-            "Audit blocking sections and move avoidable synchronous work out of hot paths."
-                .to_string(),
-            "Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string(),
-        ],
-        options,
-    ))
+    Some(SupportedCandidate {
+        suspect: suspect(
+            DiagnosisKind::BlockingPoolPressure,
+            score,
+            vec![format!(
+                "Blocking queue depth p95 is {}, peak is {}, with {}/{} nonzero samples.",
+                signal.p95_queue_depth,
+                signal.peak_queue_depth,
+                signal.nonzero_sample_count,
+                signal.usable_sample_count
+            )],
+            vec![
+                "Audit blocking sections and move avoidable synchronous work out of hot paths."
+                    .to_string(),
+                "Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string(),
+            ],
+            options,
+        ),
+        basis: EvidenceBasis::Completed,
+        executor_limitation: None,
+        relevant_support: signal.usable_sample_count,
+    })
 }
 
 #[allow(clippy::too_many_lines)]
@@ -429,7 +486,7 @@ pub(super) fn executor_pressure_suspect(
     worker_status: Option<WorkerEvidenceStatus>,
     inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
-) -> Option<(Suspect, Option<ExecutorConfidenceLimitation>)> {
+) -> Option<(Suspect, Option<ExecutorConfidenceLimitation>, usize)> {
     let measurement = eligible_executor_measurement(run, worker_status?, inflight_trend, options)?;
     let p95_global = measurement.p95_global_queue_depth;
     let growth_bonus = if measurement.inflight_growth { 4 } else { 0 };
@@ -439,8 +496,7 @@ pub(super) fn executor_pressure_suspect(
             34 + (p95_global.min(150) / 4)
                 + (measurement.p95_local_queue_depth.unwrap_or(0).min(60) / 6)
                 + (measurement.p95_alive_tasks.unwrap_or(0).min(400) / 40)
-                + growth_bonus
-                + u64::from(score_sample_quality(measurement.global_sample_count)),
+                + growth_bonus,
             clean_extreme,
             94,
         )
@@ -472,11 +528,7 @@ pub(super) fn executor_pressure_suspect(
                 evidence.push("Runnable queue normalization is a lower bound because missing local queue depths were treated as zero.".to_string());
             }
             (
-                clamp_score(
-                    34 + contribution
-                        + growth_bonus
-                        + u64::from(score_sample_quality(measurement.normalized_sample_count)),
-                ),
+                clamp_score(34 + contribution + growth_bonus),
                 measurement
                     .missing_local_lower_bound
                     .then_some(ExecutorConfidenceLimitation::MissingLocalDepth),
@@ -516,6 +568,10 @@ pub(super) fn executor_pressure_suspect(
             options,
         ),
         limitation,
+        match measurement.worker_status {
+            WorkerEvidenceStatus::Complete { .. } => measurement.normalized_sample_count,
+            _ => measurement.global_sample_count,
+        },
     ))
 }
 
@@ -621,25 +677,45 @@ struct StageCandidate {
 struct DownstreamRepresentations(Vec<StageCandidate>);
 
 impl DownstreamRepresentations {
-    fn select(self) -> Option<StageCandidate> {
+    fn select(self, options: &AnalyzeOptions) -> Option<StageCandidate> {
         self.0.into_iter().max_by(|a, b| {
-            a.score
-                .cmp(&b.score)
-                .then_with(|| {
-                    a.measurement
-                        .tail_share_permille
-                        .cmp(&b.measurement.tail_share_permille)
-                })
-                .then_with(|| {
-                    a.measurement
-                        .cumulative_share_permille
-                        .cmp(&b.measurement.cumulative_share_permille)
-                })
-                .then_with(|| {
-                    (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
-                        .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
-                })
-                .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
+            confidence_rank(representation_confidence(
+                a.score,
+                a.measurement.request_sample_count,
+                a.measurement.basis,
+                options,
+            ))
+            .cmp(&confidence_rank(representation_confidence(
+                b.score,
+                b.measurement.request_sample_count,
+                b.measurement.basis,
+                options,
+            )))
+            .then_with(|| {
+                a.measurement
+                    .request_sample_count
+                    .cmp(&b.measurement.request_sample_count)
+            })
+            .then_with(|| a.score.cmp(&b.score))
+            .then_with(|| {
+                (a.measurement.basis == EvidenceBasis::Completed)
+                    .cmp(&(b.measurement.basis == EvidenceBasis::Completed))
+            })
+            .then_with(|| {
+                a.measurement
+                    .tail_share_permille
+                    .cmp(&b.measurement.tail_share_permille)
+            })
+            .then_with(|| {
+                a.measurement
+                    .cumulative_share_permille
+                    .cmp(&b.measurement.cumulative_share_permille)
+            })
+            .then_with(|| {
+                (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
+                    .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
+            })
+            .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
         })
     }
 }
@@ -668,7 +744,7 @@ fn downstream_stage_candidates(
     let mut cands = Vec::new();
     for measurement in downstream_measurements(run, p95_req) {
         let samples = measurement.request_sample_count;
-        if samples < options.downstream.min_stage_samples {
+        if samples < options.downstream.min_stage_samples || measurement.tail_share_permille < 300 {
             continue;
         }
         let clean_extreme = measurement.tail_share_permille >= 960
@@ -676,8 +752,7 @@ fn downstream_stage_candidates(
             && samples >= 20;
         let score = cap_unless_clean_evidence(
             score_from_permille(24, measurement.tail_share_permille, 11)
-                + (measurement.cumulative_share_permille / 35)
-                + u64::from(score_sample_quality(samples)),
+                + (measurement.cumulative_share_permille / 35),
             clean_extreme,
             95,
         );
@@ -733,14 +808,13 @@ pub(super) fn downstream_stage_suspect(
         cap_unless_clean_evidence(
             32 + signal.p95_queue_depth.min(24)
                 + (signal.peak_queue_depth.min(24) / 2)
-                + (signal.nonzero_share_permille / 80)
-                + u64::from(score_sample_quality(signal.usable_sample_count)),
+                + (signal.nonzero_share_permille / 80),
             clean_extreme,
             94,
         )
     });
-    let best =
-        DownstreamRepresentations(downstream_stage_candidates(run, p95_req, options)).select()?;
+    let best = DownstreamRepresentations(downstream_stage_candidates(run, p95_req, options))
+        .select(options)?;
     let (downstream_score, correlation_evidence) = apply_current_downstream_relation_policy(
         &best.measurement.stage,
         best.score,
@@ -771,6 +845,7 @@ pub(super) fn downstream_stage_suspect(
         ),
         basis: best.measurement.basis,
         executor_limitation: None,
+        relevant_support: best.measurement.request_sample_count,
     })
 }
 
@@ -856,18 +931,6 @@ fn nonzero_sample_count(values: &[u64]) -> usize {
 
 fn max_or_zero(values: &[u64]) -> u64 {
     values.iter().copied().max().unwrap_or(0)
-}
-
-fn score_sample_quality(sample_count: usize) -> u8 {
-    if sample_count >= SAMPLE_QUALITY_HIGH_SAMPLE_COUNT {
-        8
-    } else if sample_count >= SAMPLE_QUALITY_MEDIUM_SAMPLE_COUNT {
-        5
-    } else if sample_count >= SAMPLE_QUALITY_LOW_SAMPLE_COUNT {
-        3
-    } else {
-        u8::from(sample_count >= SAMPLE_QUALITY_MIN_NONZERO_SAMPLE_COUNT)
-    }
 }
 
 fn score_from_permille(base: u64, permille: u64, scale: u64) -> u64 {

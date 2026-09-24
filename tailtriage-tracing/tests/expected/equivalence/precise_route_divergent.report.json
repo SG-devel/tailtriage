@@ -32,7 +32,6 @@
   "primary_suspect": {
     "confidence": "medium",
     "confidence_notes": [
-      "Low completed-request count caps confidence.",
       "Top suspects are close in score; confidence is capped by ambiguity."
     ],
     "evidence": [
@@ -44,13 +43,12 @@
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
     ],
-    "score": 76
+    "score": 75
   },
   "secondary_suspects": [
     {
       "confidence": "medium",
       "confidence_notes": [
-        "Low completed-request count caps confidence.",
         "Top suspects are close in score; confidence is capped by ambiguity."
       ],
       "evidence": [
@@ -64,7 +62,7 @@
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
       ],
-      "score": 75
+      "score": 74
     }
   ],
   "warnings": [
@@ -104,8 +102,9 @@
       "p95_service_share_permille": 950,
       "p99_latency_us": 100000,
       "primary_suspect": {
-        "confidence": "medium",
+        "confidence": "low",
         "confidence_notes": [
+          "Family-relevant support is 4 observation(s); provisional maturity caps confidence at low.",
           "Low completed-request count caps confidence."
         ],
         "evidence": [
@@ -159,8 +158,11 @@
       "p95_service_share_permille": 300,
       "p99_latency_us": 100000,
       "primary_suspect": {
-        "confidence": "medium",
-        "confidence_notes": [],
+        "confidence": "low",
+        "confidence_notes": [
+          "Family-relevant support is 4 observation(s); provisional maturity caps confidence at low.",
+          "Low completed-request count caps confidence."
+        ],
         "evidence": [
           "Queue wait at p95 consumes 70.0% of request time.",
           "Observed queue depth sample up to 5."
@@ -174,24 +176,7 @@
       },
       "request_count": 4,
       "route": "/queued",
-      "secondary_suspects": [
-        {
-          "confidence": "low",
-          "confidence_notes": [],
-          "evidence": [
-            "Stage 'db' has p95 latency 10000 us across 4 samples.",
-            "Stage 'db' cumulative latency is 40000 us (100 permille of request latency).",
-            "Stage 'db' contributes 100 permille of tail request latency."
-          ],
-          "kind": "downstream_stage_dominance",
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'db'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "score": 35
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Low completed-request count; diagnosis ranking may be unstable for this run window.",
         "No runtime snapshots captured; executor and blocking-pressure interpretation is limited.",

@@ -434,3 +434,8 @@ contract beyond behavior explicitly protected by tests.
 - Worker-normalized executor evidence is exact only to retained global/local
   queue inputs and worker counts; missing local depth makes it a lower bound.
 - Even complete retained evidence supports next checks, not root-cause proof.
+
+
+### Support, maturity, and downstream materiality
+
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping is not active, and ordinary reports continue to omit empty `related_groups`.
