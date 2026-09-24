@@ -78,6 +78,7 @@ share a row only when owner, surface, and 0.4 disposition are the same.
 | Scoped analysis cannot replace global diagnosis | architecture semantic | `lib.rs::analyze_run_with_options`; `route.rs`; `temporal.rs`; `slicing.rs::ScopedReportProjection` | Global report is finalized first; route and temporal analyses populate contextual report fields/warnings and never replace its primary or secondary suspects. | public behavior/report contract | [AN-SCOPE-001](analyzer-rationale.md#an-scope-001--global-diagnosis-remains-primary); A08/A09 | preserve | — |
 | Analyzer input-policy boundary | architecture semantic | `lib.rs::{analyze_run,analyze_run_with_options,analyze_run_internal}`; `options/mod.rs::AnalyzeOptions::validate`; `scoring.rs::classify_worker_evidence`; `tailtriage_core::{normalize_run_permissive,summarize_run_validation}` | `AnalyzeOptions` is validated first and invalid options return `AnalyzeConfigError`. Run integrity remains permissive: worker evidence is classified from the original input Run, then the Run is permissively normalized, analysis uses that normalized Run while passing the pre-normalization worker status into scoring, and validation issues become report warnings/limitations rather than generic strict rejection. | public behavior/report contract | Analyzer behavior reference; A11. Source and focused public-API tests own the exact ordering. | preserve | — |
 | Option ingestion and transparency | architecture semantic | `options/{registry.rs,mod.rs,toml.rs,overrides.rs,descriptors.rs}`; `tailtriage-cli/src/analyze_config.rs`; `examples/analyzer-config.toml`; `lib.rs::analyze_run_with_options` | One 30-path registry owns descriptors/overrides; typed/TOML/CLI paths converge on validation. Only sorted non-default values appear under analyzer-config schema version 1. | public behavior/report contract | [AN-CONFIG-001/002/004](analyzer-rationale.md#an-config-001--semantic-groups-and-one-option-registry); A13 | preserve single registry/config transparency; later decide which maturity/materiality controls remain public | EVIDENCE-11 |
+| Structured related evidence | presentation/schema policy | `lib.rs::{Report,RelatedEvidenceGroup,RelatedEvidenceMember,RelatedEvidenceBasis,RelatedEvidenceMeasurement}`; `render.rs::render_text` | EVIDENCE-02 selects S-B: a top-level explicit group owns one typed `StageRelation`, one `DiagnosisKind` representative, and family/stage members with basis, relevant support, and family-specific physical measurements. Ordinary analysis leaves `related_groups` empty and serialization omits it. Report JSON remains versionless because this extension is additive and preserves ordinary bytes. | public behavior/report contract | A12/A13 | Prompt 20 activates typed-relation grouping and R-B representative selection; do not populate before that semantic cutover | EVIDENCE-02 selected; EVIDENCE-02b requires no additional same-family comparison |
 
 ## Legacy relation cutover inventory
 
@@ -250,15 +251,22 @@ reviewed design decision rather than formula-tuning convenience.
 
 ## Deferred 0.4 evidence and compatibility register
 
-The ledger records EVIDENCE-01 percentile selection as settled. It references, but deliberately
-does not resolve: EVIDENCE-02 typed-related representative/report policy; EVIDENCE-02b same-family representation
-resolution if alternatives remain; EVIDENCE-03 downstream materiality measurement; EVIDENCE-04
+The ledger records EVIDENCE-01 percentile selection as settled. EVIDENCE-02 selects R-B
+representative policy and the S-B explicit related-group Report shape; only the S-B schema is
+present now, while ordinary analysis leaves it empty until the typed-relation semantic cutover.
+EVIDENCE-02b requires no additional same-family comparison. The ledger references, but does not
+yet implement, EVIDENCE-03's M-A tail-contribution materiality choice and provisional 300-permille
+cutover, EVIDENCE-04
 family maturity/support thresholds; EVIDENCE-05 queue magnitude; EVIDENCE-06 blocking magnitude;
 EVIDENCE-07 normalized executor mapping; EVIDENCE-08 downstream magnitude/materiality default;
 EVIDENCE-09 common confidence/magnitude anchors; EVIDENCE-09b independent-ambiguity participation
 and gap defaults; EVIDENCE-10 legacy executor confidence; EVIDENCE-11 public maturity/materiality
 controls; and EVIDENCE-12 route/temporal thresholds.
 
-Typed-relation `Run`/wrapper compatibility and structured related-evidence `Report` compatibility
-also remain later mechanical decisions. No formula selector, rejected implementation, calibration
-result, schema change, or Python copy of analyzer formulas is established here.
+Typed-relation `Run`/wrapper compatibility remains a later mechanical decision. Structured
+related-evidence Report compatibility uses the existing versionless producer contract: empty
+`related_groups` is omitted, preserving ordinary serialized bytes, while nonempty groups are an
+additive output extension. Adding the public field is a Rust source-compatibility change for
+external `Report` struct literals, which must initialize `related_groups`; repository-owned
+literals do so explicitly. No formula selector, rejected implementation, calibration result, or
+Python copy of analyzer formulas is established here.
