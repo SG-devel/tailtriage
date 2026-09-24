@@ -742,13 +742,9 @@ fn equivalence_projections_detect_every_contract_field_mutation() {
         projected,
         route_breakdowns,
         |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[1].secondary_suspects =
-            vec![x.route_breakdowns[1].secondary_suspects[0].clone(); 2],
+            vec![x.route_breakdowns[1].primary_suspect.clone(); 2],
         "/1/secondary_suspects",
-        serde_json::to_value(vec![
-            typed.route_breakdowns[1].secondary_suspects[0].clone();
-            2
-        ])
-        .unwrap()
+        serde_json::to_value(vec![typed.route_breakdowns[1].primary_suspect.clone(); 2]).unwrap()
     );
     breakdown_case!(
         typed,
@@ -851,11 +847,10 @@ fn equivalence_projections_detect_every_contract_field_mutation() {
         temporal_base,
         temporal_segments,
         |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].secondary_suspects =
-            vec![x.temporal_segments[0].secondary_suspects[0].clone(); 2],
+            vec![x.temporal_segments[0].primary_suspect.clone(); 2],
         "/0/secondary_suspects",
         serde_json::to_value(vec![
-            temporal.temporal_segments[0].secondary_suspects[0]
-                .clone();
+            temporal.temporal_segments[0].primary_suspect.clone();
             2
         ])
         .unwrap()

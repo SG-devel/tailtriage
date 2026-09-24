@@ -39,7 +39,7 @@
   "primary_suspect": {
     "kind": "downstream_stage_dominance",
     "score": 95,
-    "confidence": "medium",
+    "confidence": "low",
     "evidence": [
       "Stage 'db' has p95 latency 200 us across 3 samples.",
       "Stage 'db' cumulative latency is 570 us (612 permille of request latency).",
@@ -51,6 +51,7 @@
       "Review downstream SLO/error budget and align retry budget/backoff with it."
     ],
     "confidence_notes": [
+      "Family-relevant support is 3 observation(s); provisional maturity caps confidence at low.",
       "Low completed-request count caps confidence."
     ]
   },

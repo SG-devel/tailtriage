@@ -47,7 +47,7 @@
   "primary_suspect": {
     "kind": "application_queue_pressure",
     "score": 78,
-    "confidence": "medium",
+    "confidence": "low",
     "evidence": [
       "Queue wait at p95 consumes 66.6% of request time.",
       "Observed queue depth sample up to 6.",
@@ -57,7 +57,10 @@
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
     ],
-    "confidence_notes": []
+    "confidence_notes": [
+      "Family-relevant support is 3 observation(s); provisional maturity caps confidence at low.",
+      "Low completed-request count caps confidence."
+    ]
   },
   "secondary_suspects": [],
   "route_breakdowns": [],

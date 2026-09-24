@@ -49,7 +49,7 @@
   "primary_suspect": {
     "kind": "application_queue_pressure",
     "score": 95,
-    "confidence": "medium",
+    "confidence": "low",
     "evidence": [
       "Queue wait at p95 consumes 90.0% of request time.",
       "Observed queue depth sample up to 9.",
@@ -60,27 +60,11 @@
       "Compare queue wait distribution before and after increasing worker parallelism."
     ],
     "confidence_notes": [
+      "Family-relevant support is 3 observation(s); provisional maturity caps confidence at low.",
       "Low completed-request count caps confidence."
     ]
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominance",
-      "score": 28,
-      "confidence": "low",
-      "evidence": [
-        "Stage 'db' has p95 latency 1900 us across 3 samples.",
-        "Stage 'db' cumulative latency is 5700 us (158 permille of request latency).",
-        "Stage 'db' contributes 0 permille of tail request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'db'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ],
-      "confidence_notes": []
-    }
-  ],
+  "secondary_suspects": [],
   "route_breakdowns": [
     {
       "route": "/queue",
@@ -116,7 +100,7 @@
       "primary_suspect": {
         "kind": "application_queue_pressure",
         "score": 92,
-        "confidence": "medium",
+        "confidence": "low",
         "evidence": [
           "Queue wait at p95 consumes 90.0% of request time.",
           "Observed queue depth sample up to 9."
@@ -126,6 +110,7 @@
           "Compare queue wait distribution before and after increasing worker parallelism."
         ],
         "confidence_notes": [
+          "Family-relevant support is 3 observation(s); provisional maturity caps confidence at low.",
           "Low completed-request count caps confidence."
         ]
       },
@@ -169,7 +154,7 @@
       "primary_suspect": {
         "kind": "downstream_stage_dominance",
         "score": 95,
-        "confidence": "medium",
+        "confidence": "low",
         "evidence": [
           "Stage 'db' has p95 latency 1900 us across 3 samples.",
           "Stage 'db' cumulative latency is 5700 us (950 permille of request latency).",
@@ -181,6 +166,7 @@
           "Review downstream SLO/error budget and align retry budget/backoff with it."
         ],
         "confidence_notes": [
+          "Family-relevant support is 3 observation(s); provisional maturity caps confidence at low.",
           "Low completed-request count caps confidence."
         ]
       },
