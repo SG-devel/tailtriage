@@ -28,7 +28,7 @@ pub use options::{
 use partial_evidence::PartialEvidenceProfile;
 use tailtriage_core::{
     normalize_run_permissive, summarize_run_validation, InFlightSnapshot, QueueEvent, Run,
-    RuntimeSnapshot,
+    RuntimeSnapshot, StageRelation,
 };
 
 const ROUTE_DIVERGENCE_WARNING: &str =
@@ -193,6 +193,13 @@ pub struct Report {
     pub primary_suspect: Suspect,
     /// Lower-ranked suspects retained for follow-up triage.
     pub secondary_suspects: Vec<Suspect>,
+    /// Explicit groups of typed, related diagnosis evidence.
+    ///
+    /// Empty groups are omitted from Report JSON. Ordinary analysis leaves this empty until typed
+    /// relation grouping is activated; callers may still construct the public structure for
+    /// transport and rendering.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related_groups: Vec<RelatedEvidenceGroup>,
     /// Supporting per-route triage summaries when route-level signal adds value.
     pub route_breakdowns: Vec<RouteBreakdown>,
     /// Supporting early/late temporal triage summaries when within-run shifts add value.
@@ -201,6 +208,84 @@ pub struct Report {
     /// `None` is serialized as absence when canonical defaults were used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analyzer_config: Option<AnalyzerConfigSummary>,
+}
+
+/// An explicit group of diagnosis-family evidence joined by one typed stage relation.
+///
+/// The representative is the single group-level identity; members do not repeat a
+/// representative flag. A group records an evidence relationship, not proof of root cause.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RelatedEvidenceGroup {
+    /// Typed relation that justifies presenting the members together.
+    #[serde(serialize_with = "serialize_stage_relation")]
+    pub relation: StageRelation,
+    /// Diagnosis family selected to represent this group.
+    pub representative: DiagnosisKind,
+    /// Family- or stage-owned evidence that participates in the group.
+    pub members: Vec<RelatedEvidenceMember>,
+}
+
+/// One diagnosis-family evidence member in a [`RelatedEvidenceGroup`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RelatedEvidenceMember {
+    /// Diagnosis family to which this evidence belongs.
+    pub diagnosis: DiagnosisKind,
+    /// Stage identity when the measured evidence belongs to one stage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    /// Whether the measurement uses completed evidence or an observed lower bound.
+    pub evidence_basis: RelatedEvidenceBasis,
+    /// Family-relevant support count for this member.
+    pub relevant_support: usize,
+    /// Physical evidence measured for this member's diagnosis family.
+    pub measurement: RelatedEvidenceMeasurement,
+}
+
+/// Completion basis for a related-evidence member's measured evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelatedEvidenceBasis {
+    /// Evidence from completed observations.
+    Completed,
+    /// Evidence including an incomplete observation and therefore only a lower bound.
+    ObservedLowerBound,
+}
+
+/// Family-specific physical measurement carried by a related-evidence member.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RelatedEvidenceMeasurement {
+    /// Blocking-pool depth evidence from usable runtime snapshots.
+    BlockingPool {
+        /// Runtime snapshots with usable blocking-pool depth fields.
+        usable_snapshots: usize,
+        /// p95 observed blocking-pool queue depth.
+        p95_depth: u64,
+        /// Peak observed blocking-pool queue depth.
+        peak_depth: u64,
+        /// Share of usable snapshots with nonzero depth, in permille (`0..=1000`).
+        nonzero_share_permille: u64,
+    },
+    /// Request-attributed contribution evidence for one downstream stage.
+    DownstreamStage {
+        /// Stage contribution among tail requests, in permille (`0..=1000`).
+        tail_contribution_permille: u64,
+        /// Stage contribution across completed requests, in permille (`0..=1000`).
+        cumulative_contribution_permille: u64,
+    },
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's `serialize_with` field hook requires `&T`.
+fn serialize_stage_relation<S>(relation: &StageRelation, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match relation {
+        StageRelation::BlockingPool => serializer.serialize_str("blocking_pool"),
+        _ => Err(serde::ser::Error::custom(
+            "unsupported stage relation in related evidence",
+        )),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -536,6 +621,7 @@ fn analyze_run_internal(
         evidence_quality,
         primary_suspect,
         secondary_suspects: ranked.collect(),
+        related_groups: Vec::new(),
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
         analyzer_config: None,
