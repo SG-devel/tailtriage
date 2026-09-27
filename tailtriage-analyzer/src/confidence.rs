@@ -45,6 +45,17 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
     evidence_quality: &EvidenceQuality,
     options: &AnalyzeOptions,
 ) {
+    apply_pre_ambiguity_confidence_caps(suspects, run, evidence_quality, options);
+    apply_ambiguity_confidence_cap(suspects, options);
+}
+
+/// Applies all candidate-local limitations, but deliberately not ambiguity.
+pub(super) fn apply_pre_ambiguity_confidence_caps(
+    suspects: &mut [SupportedCandidate],
+    run: &Run,
+    evidence_quality: &EvidenceQuality,
+    options: &AnalyzeOptions,
+) {
     let runtime_snapshots_missing = run.runtime_snapshots.is_empty();
     let runtime_partial_key_fields = !runtime_snapshots_missing
         && (run
@@ -121,7 +132,12 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
             suspect.confidence_notes = notes;
         }
     }
+}
 
+pub(super) fn apply_ambiguity_confidence_cap(
+    suspects: &mut [SupportedCandidate],
+    options: &AnalyzeOptions,
+) {
     let ambiguous_cluster = current_ambiguity_cluster_indices(suspects, options);
     for (index, scored) in suspects.iter_mut().enumerate() {
         if ambiguous_cluster.contains(&index)

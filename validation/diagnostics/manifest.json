@@ -96,9 +96,7 @@
       "expected_signal_statuses": {
         "runtime_snapshots": "partial"
       },
-      "must_include_confidence_notes": [
-        "missing runtime queue-depth fields"
-      ]
+      "must_include_confidence_notes": []
     },
     {
       "id": "blocking_after",
@@ -414,16 +412,16 @@
         "demo",
         "before"
       ],
-      "notes": "Shared lock contention manifests through stage latency dominance.",
+      "notes": "Shared lock contention manifests through stage latency dominance. Prompt 19 materiality excludes the sub-300-permille stage candidate.",
       "expected_primary_kinds": [
         "downstream_stage_dominance",
         "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominance"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
-        "Stage"
+        "Queue"
       ],
       "must_include_next_checks": [],
       "expected_warnings": [
@@ -442,16 +440,16 @@
         "demo",
         "after"
       ],
-      "notes": "After mitigation remaining time is still mostly stage work.",
+      "notes": "After mitigation remaining time is still mostly stage work. Prompt 19 materiality excludes the sub-300-permille stage candidate.",
       "expected_primary_kinds": [
         "downstream_stage_dominance",
         "application_queue_pressure"
       ],
       "required_visible_suspects": [
-        "downstream_stage_dominance"
+        "application_queue_pressure"
       ],
       "must_include_evidence": [
-        "Stage"
+        "Queue"
       ],
       "must_include_next_checks": [],
       "expected_warnings": [

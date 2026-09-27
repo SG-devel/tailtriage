@@ -350,19 +350,39 @@ fn assert_scoped_flip(
     expected_primary_evidence: &[String],
     expected_secondary_evidence: &[String],
 ) {
-    let _ = (
-        expected_primary_score,
-        expected_primary_evidence,
-        expected_secondary_evidence,
-    );
     assert_eq!(primary.kind, DiagnosisKind::ApplicationQueuePressure);
+    assert_eq!(primary.score, 95);
     assert_eq!(primary.confidence, Confidence::Medium);
+    assert_eq!(primary.evidence, expected_secondary_evidence);
+    assert!(primary
+        .confidence_notes
+        .iter()
+        .any(|note| note == super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE));
     assert_eq!(secondary.len(), 1);
     assert_eq!(secondary[0].kind, DiagnosisKind::DownstreamStageDominance);
+    assert_eq!(secondary[0].score, expected_primary_score);
+    assert_eq!(secondary[0].confidence, Confidence::Medium);
+    assert_eq!(secondary[0].evidence, expected_primary_evidence);
 }
 
-fn scoped_evidence(_: u64, _: usize, _: u64, _: u8) -> (Vec<String>, Vec<String>) {
-    (Vec::new(), Vec::new())
+fn scoped_evidence(
+    stage_us: u64,
+    samples: usize,
+    cumulative_us: u64,
+    queue_us: u8,
+) -> (Vec<String>, Vec<String>) {
+    (
+        vec![
+            format!("Stage 'db' has p95 latency {stage_us} us across {samples} samples."),
+            format!("Stage 'db' cumulative latency is {cumulative_us} us (500 permille of request latency)."),
+            "Stage 'db' contributes 500 permille of tail request latency.".to_string(),
+        ],
+        vec![
+            "Completed-only queue wait at p95 is 0.0% of request time.".to_string(),
+            format!("Observed queue-wait lower bound at p95 is {queue_us}.0% of request time and includes {samples} partial queue event(s)."),
+            "Observed queue depth sample up to 20.".to_string(),
+        ],
+    )
 }
 
 // TT-TEST: A06 primary
@@ -701,7 +721,7 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
     assert_scoped_flip(
         &completed.primary_suspect,
         &completed.secondary_suspects,
-        86,
+        83,
         &completed_evidence.0,
         &completed_evidence.1,
     );
@@ -709,7 +729,7 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
     assert_scoped_flip(
         &partial.primary_suspect,
         &partial.secondary_suspects,
-        86,
+        83,
         &partial_evidence.0,
         &partial_evidence.1,
     );
@@ -736,7 +756,7 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
     assert_scoped_flip(
         &early.primary_suspect,
         &early.secondary_suspects,
-        86,
+        83,
         &early_evidence.0,
         &early_evidence.1,
     );
@@ -744,7 +764,7 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
     assert_scoped_flip(
         &late.primary_suspect,
         &late.secondary_suspects,
-        86,
+        83,
         &late_evidence.0,
         &late_evidence.1,
     );
@@ -1854,8 +1874,8 @@ fn historical_executor_arithmetic_boundaries_are_exact() {
 // TT-TEST: support
 #[test]
 fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_cap() {
-    for (samples, expected_score) in [(29, 93), (30, 93)] {
-        let mut run = executor_arithmetic_run(samples, 140, 60, 400);
+    for (samples, expected_score) in [(29, 94), (30, 95)] {
+        let mut run = executor_arithmetic_run(samples, 150, 60, 400);
         run.inflight = vec![
             InFlightSnapshot {
                 at_unix_ms: 1,
@@ -7618,4 +7638,33 @@ fn provisional_maturity_boundaries_are_exact() {
     assert_eq!(super::confidence::maturity_cap(8), Confidence::Medium);
     assert_eq!(super::confidence::maturity_cap(19), Confidence::Medium);
     assert_eq!(super::confidence::maturity_cap(20), Confidence::High);
+}
+
+// TT-TEST: A05 primary
+#[test]
+fn downstream_materiality_boundary_and_fallback_are_exact() {
+    let report_at = |stage_us| {
+        let mut run = test_run();
+        run.requests = (0..20)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect();
+        run.stages = (0..20)
+            .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(stage_us), stage_us))
+            .collect();
+        analyze_run(&run, AnalyzeOptions::default()).expect("valid default options")
+    };
+
+    let below = report_at(299);
+    assert_eq!(
+        below.primary_suspect.kind,
+        DiagnosisKind::InsufficientEvidence
+    );
+    assert_eq!(below.primary_suspect.score, 50);
+    assert!(below.secondary_suspects.is_empty());
+
+    let boundary = report_at(300);
+    assert_eq!(
+        boundary.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominance
+    );
 }

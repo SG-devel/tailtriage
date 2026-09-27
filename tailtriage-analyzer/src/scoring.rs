@@ -173,7 +173,7 @@ pub(super) fn queue_saturation_suspect(
         completed,
         observed_lower_bound: observed,
     }
-    .select(options)
+    .select(run, options)
 }
 
 fn confidence_rank(confidence: crate::Confidence) -> u8 {
@@ -184,40 +184,27 @@ fn confidence_rank(confidence: crate::Confidence) -> u8 {
     }
 }
 
-fn representation_confidence(
-    score: u8,
-    support: usize,
-    basis: EvidenceBasis,
-    options: &AnalyzeOptions,
-) -> crate::Confidence {
-    let mut confidence = crate::Confidence::from_score_with_options(score, options);
-    confidence = confidence.min(crate::confidence::maturity_cap(support));
-    if basis == EvidenceBasis::ObservedLowerBound {
-        confidence = confidence.min(crate::Confidence::Medium);
-    }
-    confidence
+fn representation_order(a: &SupportedCandidate, b: &SupportedCandidate) -> std::cmp::Ordering {
+    confidence_rank(a.suspect.confidence)
+        .cmp(&confidence_rank(b.suspect.confidence))
+        .then_with(|| a.relevant_support.cmp(&b.relevant_support))
+        .then_with(|| a.suspect.score.cmp(&b.suspect.score))
+        .then_with(|| {
+            (a.basis == EvidenceBasis::Completed).cmp(&(b.basis == EvidenceBasis::Completed))
+        })
 }
 
-fn representation_order(
-    a: &SupportedCandidate,
-    b: &SupportedCandidate,
+fn prepare_pre_ambiguity(
+    candidates: &mut [SupportedCandidate],
+    run: &Run,
     options: &AnalyzeOptions,
-) -> std::cmp::Ordering {
-    confidence_rank(representation_confidence(
-        a.suspect.score,
-        a.relevant_support,
-        a.basis,
-        options,
-    ))
-    .cmp(&confidence_rank(representation_confidence(
-        b.suspect.score,
-        b.relevant_support,
-        b.basis,
-        options,
-    )))
-    .then_with(|| a.relevant_support.cmp(&b.relevant_support))
-    .then_with(|| a.suspect.score.cmp(&b.suspect.score))
-    .then_with(|| (a.basis == EvidenceBasis::Completed).cmp(&(b.basis == EvidenceBasis::Completed)))
+) {
+    for candidate in candidates.iter_mut() {
+        candidate.suspect.confidence =
+            crate::Confidence::from_score_with_options(candidate.suspect.score, options);
+    }
+    let quality = crate::evidence::evidence_quality(run, options);
+    crate::confidence::apply_pre_ambiguity_confidence_caps(candidates, run, &quality, options);
 }
 
 struct QueueRepresentations {
@@ -226,13 +213,13 @@ struct QueueRepresentations {
 }
 
 impl QueueRepresentations {
-    fn select(self, options: &AnalyzeOptions) -> Option<SupportedCandidate> {
-        match (self.completed, self.observed_lower_bound) {
-            (Some(c), Some(o)) if representation_order(&o, &c, options).is_gt() => Some(o),
-            (Some(c), _) => Some(c),
-            (None, Some(o)) => Some(o),
-            (None, None) => None,
-        }
+    fn select(self, run: &Run, options: &AnalyzeOptions) -> Option<SupportedCandidate> {
+        let mut candidates = [self.completed, self.observed_lower_bound]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        prepare_pre_ambiguity(&mut candidates, run, options);
+        candidates.into_iter().max_by(representation_order)
     }
 }
 
@@ -677,46 +664,66 @@ struct StageCandidate {
 struct DownstreamRepresentations(Vec<StageCandidate>);
 
 impl DownstreamRepresentations {
-    fn select(self, options: &AnalyzeOptions) -> Option<StageCandidate> {
-        self.0.into_iter().max_by(|a, b| {
-            confidence_rank(representation_confidence(
-                a.score,
-                a.measurement.request_sample_count,
-                a.measurement.basis,
-                options,
-            ))
-            .cmp(&confidence_rank(representation_confidence(
-                b.score,
-                b.measurement.request_sample_count,
-                b.measurement.basis,
-                options,
-            )))
-            .then_with(|| {
-                a.measurement
-                    .request_sample_count
-                    .cmp(&b.measurement.request_sample_count)
+    fn select(self, run: &Run, options: &AnalyzeOptions) -> Option<StageCandidate> {
+        let mut candidates = self
+            .0
+            .into_iter()
+            .map(|stage| {
+                let supported = SupportedCandidate {
+                    suspect: suspect(
+                        DiagnosisKind::DownstreamStageDominance,
+                        stage.score,
+                        Vec::new(),
+                        Vec::new(),
+                        options,
+                    ),
+                    basis: stage.measurement.basis,
+                    executor_limitation: None,
+                    relevant_support: stage.measurement.request_sample_count,
+                };
+                (stage, supported)
             })
-            .then_with(|| a.score.cmp(&b.score))
-            .then_with(|| {
-                (a.measurement.basis == EvidenceBasis::Completed)
-                    .cmp(&(b.measurement.basis == EvidenceBasis::Completed))
+            .collect::<Vec<_>>();
+        let mut supported = candidates
+            .iter()
+            .map(|(_, candidate)| candidate.clone())
+            .collect::<Vec<_>>();
+        prepare_pre_ambiguity(&mut supported, run, options);
+        for ((_, candidate), prepared) in candidates.iter_mut().zip(supported) {
+            *candidate = prepared;
+        }
+        candidates
+            .into_iter()
+            .max_by(|(a, ac), (b, bc)| {
+                confidence_rank(ac.suspect.confidence)
+                    .cmp(&confidence_rank(bc.suspect.confidence))
+                    .then_with(|| {
+                        a.measurement
+                            .request_sample_count
+                            .cmp(&b.measurement.request_sample_count)
+                    })
+                    .then_with(|| a.score.cmp(&b.score))
+                    .then_with(|| {
+                        (a.measurement.basis == EvidenceBasis::Completed)
+                            .cmp(&(b.measurement.basis == EvidenceBasis::Completed))
+                    })
+                    .then_with(|| {
+                        a.measurement
+                            .tail_share_permille
+                            .cmp(&b.measurement.tail_share_permille)
+                    })
+                    .then_with(|| {
+                        a.measurement
+                            .cumulative_share_permille
+                            .cmp(&b.measurement.cumulative_share_permille)
+                    })
+                    .then_with(|| {
+                        (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
+                            .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
+                    })
+                    .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
             })
-            .then_with(|| {
-                a.measurement
-                    .tail_share_permille
-                    .cmp(&b.measurement.tail_share_permille)
-            })
-            .then_with(|| {
-                a.measurement
-                    .cumulative_share_permille
-                    .cmp(&b.measurement.cumulative_share_permille)
-            })
-            .then_with(|| {
-                (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
-                    .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
-            })
-            .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
-        })
+            .map(|(stage, _)| stage)
     }
 }
 
@@ -814,7 +821,7 @@ pub(super) fn downstream_stage_suspect(
         )
     });
     let best = DownstreamRepresentations(downstream_stage_candidates(run, p95_req, options))
-        .select(options)?;
+        .select(run, options)?;
     let (downstream_score, correlation_evidence) = apply_current_downstream_relation_policy(
         &best.measurement.stage,
         best.score,

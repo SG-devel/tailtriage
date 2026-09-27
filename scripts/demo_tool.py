@@ -228,7 +228,9 @@ LIVE_SCENARIO_POLICIES: dict[str, dict[str, Any]] = {
     "blocking": {"targeted": "blocking_pool_pressure", "checks": ["baseline_targeted", "p95_improves", "blocking_depth_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"blocking_pool_pressure", "downstream_stage_dominance"}},
     "executor": {"targeted": "executor_pressure", "checks": ["baseline_targeted", "executor_present", "no_blocking_evidence", "p95_improves", "targeted_score_nonworsening"]},
     "downstream": {"targeted": "downstream_stage_dominance", "checks": ["baseline_targeted", "p95_improves", "targeted_score_nonworsening"], "after_high_confidence": {"downstream_stage_dominance"}},
-    "mixed": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "baseline_downstream_secondary", "primary_rank_or_score_shifts"]},
+    # Stage visibility is independently owned by the analyzer's 300-permille
+    # materiality boundary; mixed owns queue targeting and mitigation movement.
+    "mixed": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "primary_rank_or_score_shifts"]},
     "cold-start": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "primary_score_increase_explainable"]},
     "db-pool": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_pressure", "downstream_stage_dominance"}},
     "shared-lock": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "primary_score_nonworsening"]},

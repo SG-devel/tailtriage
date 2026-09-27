@@ -78,18 +78,12 @@ Observed lower-bound queue candidates include completed and partial queue
 events. Observed lower-bound stage summaries likewise include both kinds.
 Public queue/service distributions remain completed-only.
 
-### Shared sample-quality contribution
+### Family-relevant support
 
-All score formulas use integer arithmetic and floor division. The common
-sample contribution is:
-
-| Series length | Contribution |
-| --- | ---: |
-| `0..=7` | 0 |
-| `8..=19` | 1 |
-| `20..=39` | 3 |
-| `40..=99` | 5 |
-| `100+` | 8 |
+Support never adds raw magnitude. It is tracked separately: distinct contributing
+request IDs for queue evidence, present blocking-depth snapshots for blocking,
+usable normalized snapshots (or present global-depth snapshots in the legacy
+executor path), and distinct stage request samples for downstream evidence.
 
 ## Candidate eligibility and scoring
 
@@ -103,17 +97,16 @@ candidates. A candidate is eligible when its p95 share is at least
 `queueing.trigger_permille` (default 300). Let `Q` be that p95 share, `D` the
 maximum retained `depth_at_start` among the candidate's queue events, `G=5`
 when the selected in-flight episode has at least two samples and positive net
-growth (otherwise 0), and `S` the shared contribution:
+growth (otherwise 0):
 
 ```text
 score = 22 + floor(min(Q, 1000) / 14)
-           + floor(min(D, 40) * 2 / 3) + G + S
+           + floor(min(D, 40) * 2 / 3) + G
 ```
 
 The score is soft-capped at 95. The cap is removed when `Q >= 985`, `D >= 12`,
 there are at least 20 share samples, and positive in-flight growth is known.
-When both bases qualify, the higher score is selected; a tie keeps completed
-evidence. Evidence states the p95 share, maximum sampled depth, positive growth,
+When both bases qualify, all non-ambiguity limitations apply first. Selection then prefers higher pre-ambiguity confidence, greater family-relevant support, higher raw magnitude, and completed evidence, in that order. Evidence states the p95 share, maximum sampled depth, positive growth,
 and whether the selected value is a lower bound. Next checks target admission,
 producer bursts, and a controlled parallelism comparison. Selecting the
 lower-bound candidate caps confidence at Medium.
@@ -121,13 +114,12 @@ lower-bound candidate caps confidence at Medium.
 ### Blocking-pool pressure
 
 The evidence series is present `blocking_queue_depth` values. Let `P` be p95,
-`K` peak, `N` nonzero samples, `T` total samples, `Z=floor(N*1000/T)`, and `S`
-the shared contribution. The candidate is eligible if a percentile exists and
+`K` peak, `N` nonzero samples, `T` total samples, `Z=floor(N*1000/T)`. Present values are tracked separately as family-relevant support. The candidate is eligible if a percentile exists and
 either `P > 0` or `N >= blocking.min_nonzero_samples_for_signal` (default 2).
 
 ```text
 score = 32 + min(P, 24) + floor(min(K, 24) / 2)
-           + floor(Z / 80) + S
+           + floor(Z / 80)
 ```
 
 The score is soft-capped at 94 unless `P >= 16`, `K >= 24`, and `Z >= 900`.
@@ -181,11 +173,10 @@ Eligibility is normalized p95 `R` at least
 | `8000+` | 55 |
 
 ```text
-score = 34 + normalized_queue_contribution(R) + G + S
+score = 34 + normalized_queue_contribution(R) + G
 ```
 
-Here `G=4` for known positive in-flight growth and otherwise 0; `S` uses the
-number of normalized snapshots. There is no soft cap. `alive_tasks` and the
+Here `G=4` for known positive in-flight growth and otherwise 0. The number of usable normalized snapshots is tracked separately as family-relevant support. There is no soft cap. `alive_tasks` and the
 separate global/local p95 values can appear as descriptive evidence, but do not
 add independent normalized contributions.
 
@@ -194,13 +185,12 @@ add independent normalized contributions.
 Eligibility is global queue p95 `P` at least
 `executor.min_global_queue_p95_for_signal` (default 1). Let `L` be p95 of all
 present local depths (or zero), `A` p95 of present `alive_tasks` (or zero),
-`G=4` for known positive in-flight growth, and `S` the sample-quality
-contribution for the global series:
+`G=4` for known positive in-flight growth. Present global-depth snapshots are tracked separately as family-relevant support:
 
 ```text
 score = 34 + floor(min(P, 150) / 4)
            + floor(min(L, 60) / 6)
-           + floor(min(A, 400) / 40) + G + S
+           + floor(min(A, 400) / 40) + G
 ```
 
 The score is soft-capped at 94 unless `P >= 140` and there are at least 30
@@ -214,11 +204,10 @@ target long non-yielding polls, fanout, and stage isolation.
 
 Each completed or observed-lower-bound stage summary is eligible when its
 distinct-request count is at least `downstream.min_stage_samples` (default 3).
-Let `T` be tail-request share permille, `C` cumulative share permille, and `S`
-the shared contribution for distinct request samples:
+Let `T` be tail-request share permille and `C` cumulative share permille. Distinct request samples are tracked separately as family-relevant support:
 
 ```text
-score = 24 + floor(min(T, 1000) / 11) + floor(C / 35) + S
+score = 24 + floor(min(T, 1000) / 11) + floor(C / 35)
 ```
 
 The score is soft-capped at 95 unless `T >= 960`, `C >= 920`, and there are at

@@ -75,7 +75,8 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Eligible candidates sort by final confidence, then raw
   score, then stable kind order; `insufficient_evidence` remains after eligible
-  diagnoses. Raw-score ambiguity is computed before evidence caps; see
+  diagnoses. All non-ambiguity evidence caps precede same-family resolution;
+  raw-score ambiguity follows it; see
   [confidence, ambiguity, and final ordering](../diagnostics.md#confidence-ambiguity-and-final-ordering).
 - **Classification:** Hard contract.
 - **Problem addressed:** Weakly supported high scores must not outrank better
@@ -210,7 +211,7 @@ numeric calibration remains unknown.
 ### AN-QUEUE-001 — Queue eligibility and multi-signal scoring
 
 - **Rule or default:** Queue p95 share controls eligibility; queue share,
-  retained start depth, positive in-flight growth, and sample quality contribute
+  retained start depth and positive in-flight growth contribute
   to score; see
   [application queue pressure](../diagnostics.md#application-queue-pressure).
 - **Classification:** Calibrated heuristic.
@@ -255,8 +256,7 @@ numeric calibration remains unknown.
 ### AN-BLOCK-001 — Persistent blocking eligibility
 
 - **Rule or default:** Blocking is eligible when p95 is nonzero or enough
-  retained samples are nonzero; p95, peak, nonzero share, and sample quality
-  drive score; see
+  retained samples are nonzero; p95, peak, and nonzero share drive score; see
   [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** A sparse percentile can be zero even when blocking
