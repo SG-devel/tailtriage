@@ -94,3 +94,8 @@ output contract; it does not derive `Deserialize`.
 Completed queue/stage distributions use completed evidence. A partial queue/stage observation is only a lower bound from first poll until Drop. Drop does not prove external operation completion, failure, cancellation, or that underlying work stopped. A selected queue/downstream candidate that materially relies on lower-bound evidence cannot exceed Medium confidence under current policy.
 
 Use the output to choose one next check and compare a follow-up capture. Do not treat a suspect or mitigation movement as proof of root cause.
+
+
+### Support, maturity, and downstream materiality
+
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping is not active, and ordinary reports continue to omit empty `related_groups`.

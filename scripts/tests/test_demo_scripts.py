@@ -62,6 +62,18 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(expected, set(demo_tool.LIVE_SCENARIO_POLICIES))
         self.assertEqual(expected, set(demo_tool.SCENARIOS))
 
+    # TT-TEST: support
+    def test_mixed_policy_keeps_queue_and_movement_but_retires_downstream_secondary(self) -> None:
+        policy = demo_tool.LIVE_SCENARIO_POLICIES["mixed"]
+        self.assertEqual(policy["targeted"], "application_queue_pressure")
+        self.assertEqual(policy["checks"], ["baseline_targeted", "primary_rank_or_score_shifts"])
+        self.assertNotIn("baseline_downstream_secondary", policy["checks"])
+
+        before = self._report("application_queue_pressure", score=90, secondary=[])
+        moved = self._report("application_queue_pressure", score=80, secondary=[])
+        self.assertTrue(demo_tool.evaluate_live_scenario("mixed", before, moved)["policy_passed"])
+        self.assertIn("primary_rank_or_score_shifts", demo_tool.evaluate_live_scenario("mixed", before, before)["failed_expectations"])
+
     # TT-TEST: D02 secondary
     def test_unknown_live_policy_fails_clearly(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported live-demo scenario: typo"):

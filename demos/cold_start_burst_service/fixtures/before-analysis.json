@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 993621,
-  "p95_latency_us": 1192219,
-  "p99_latency_us": 1209178,
+  "p50_latency_us": 1038565,
+  "p95_latency_us": 1235604,
+  "p99_latency_us": 1252195,
   "p95_queue_share_permille": 993,
-  "p95_service_share_permille": 335,
+  "p95_service_share_permille": 340,
   "inflight_trend": {
     "gauge": "cold_start_burst_inflight",
     "sample_count": 440,
     "peak_count": 220,
     "p95_count": 209,
-    "growth_delta": 1,
-    "growth_per_sec_milli": 815
+    "growth_delta": -1,
+    "growth_per_sec_milli": -784
   },
   "warnings": [],
   "evidence_quality": {
@@ -38,12 +38,11 @@
   },
   "primary_suspect": {
     "kind": "application_queue_pressure",
-    "score": 100,
+    "score": 95,
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 99.3% of request time.",
-      "Observed queue depth sample up to 216.",
-      "In-flight gauge 'cold_start_burst_inflight' grew by 1 over the run window (p95=209, peak=220)."
+      "Observed queue depth sample up to 216."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -51,42 +50,25 @@
     ],
     "confidence_notes": []
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominance",
-      "score": 32,
-      "confidence": "low",
-      "evidence": [
-        "Stage 'cold_start_stage' has p95 latency 63649 us across 220 samples.",
-        "Stage 'cold_start_stage' cumulative latency is 4884449 us (24 permille of request latency).",
-        "Stage 'cold_start_stage' contributes 6 permille of tail request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'cold_start_stage'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ],
-      "confidence_notes": []
-    }
-  ],
+  "secondary_suspects": [],
   "route_breakdowns": [],
   "temporal_segments": [
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1778013322933,
-      "finished_at_unix_ms": 1778013323942,
-      "p50_latency_us": 884250,
-      "p95_latency_us": 985285,
-      "p99_latency_us": 993664,
+      "started_at_unix_ms": 1790259964044,
+      "finished_at_unix_ms": 1790259965092,
+      "p50_latency_us": 931838,
+      "p95_latency_us": 1030237,
+      "p99_latency_us": 1038535,
       "p95_queue_share_permille": 992,
-      "p95_service_share_permille": 504,
+      "p95_service_share_permille": 498,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
         "stage_event_count": 110,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 333,
+        "inflight_snapshot_count": 330,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -109,8 +91,8 @@
         "confidence": "high",
         "evidence": [
           "Queue wait at p95 consumes 99.2% of request time.",
-          "Observed queue depth sample up to 109.",
-          "In-flight gauge 'cold_start_burst_inflight' grew by 106 over the run window (p95=212, peak=220)."
+          "Observed queue depth sample up to 106.",
+          "In-flight gauge 'cold_start_burst_inflight' latest active episode grew by 109 across 330 samples (p95=212, peak=220, run-relative rate=104003 milli-counts/sec)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -118,24 +100,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 33,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'cold_start_stage' has p95 latency 63685 us across 110 samples.",
-            "Stage 'cold_start_stage' cumulative latency is 3979102 us (51 permille of request latency).",
-            "Stage 'cold_start_stage' contributes 8 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'cold_start_stage'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]
@@ -143,19 +108,19 @@
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1778013322942,
-      "finished_at_unix_ms": 1778013324159,
-      "p50_latency_us": 1103586,
-      "p95_latency_us": 1200762,
-      "p99_latency_us": 1209206,
+      "started_at_unix_ms": 1790259964054,
+      "finished_at_unix_ms": 1790259965319,
+      "p50_latency_us": 1150159,
+      "p95_latency_us": 1251056,
+      "p99_latency_us": 1259378,
       "p95_queue_share_permille": 993,
-      "p95_service_share_permille": 8,
+      "p95_service_share_permille": 7,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
         "stage_event_count": 110,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 343,
+        "inflight_snapshot_count": 331,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -186,24 +151,7 @@
         ],
         "confidence_notes": []
       },
-      "secondary_suspects": [
-        {
-          "kind": "downstream_stage_dominance",
-          "score": 32,
-          "confidence": "low",
-          "evidence": [
-            "Stage 'cold_start_stage' has p95 latency 8656 us across 110 samples.",
-            "Stage 'cold_start_stage' cumulative latency is 905347 us (7 permille of request latency).",
-            "Stage 'cold_start_stage' contributes 7 permille of tail request latency."
-          ],
-          "next_checks": [
-            "Inspect downstream dependency behind stage 'cold_start_stage'.",
-            "Collect downstream service timings and retry behavior during tail windows.",
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-          ],
-          "confidence_notes": []
-        }
-      ],
+      "secondary_suspects": [],
       "warnings": [
         "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
       ]

@@ -75,7 +75,8 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Eligible candidates sort by final confidence, then raw
   score, then stable kind order; `insufficient_evidence` remains after eligible
-  diagnoses. Raw-score ambiguity is computed before evidence caps; see
+  diagnoses. All non-ambiguity evidence caps precede same-family resolution;
+  raw-score ambiguity follows it; see
   [confidence, ambiguity, and final ordering](../diagnostics.md#confidence-ambiguity-and-final-ordering).
 - **Classification:** Hard contract.
 - **Problem addressed:** Weakly supported high scores must not outrank better
@@ -87,8 +88,9 @@ numeric calibration remains unknown.
   last so it cannot displace an eligible diagnosis candidate.
 - **Tradeoff:** A lower raw score may become primary, and the fixed kind order
   introduces a deliberate final tie bias in exchange for stable output.
-- **Proof owner:** `final_ranking_uses_confidence_then_score_then_stable_kind`
-  and ambiguity/fallback tests in `tailtriage-analyzer/src/tests.rs`; canonical
+- **Proof owner:** `final_confidence_ranking_selects_primary_before_raw_score`
+  and `ambiguity_cluster_membership_uses_raw_scores_only` in
+  `tailtriage-analyzer/src/tests.rs`; canonical
   JSON golden tests in `tailtriage-analyzer/tests/analyzer_fixtures.rs`.
 - **Revision criteria:** Require a demonstrated misleading ordering class,
   focused counterexamples, a report compatibility assessment, and replacement
@@ -210,7 +212,7 @@ numeric calibration remains unknown.
 ### AN-QUEUE-001 — Queue eligibility and multi-signal scoring
 
 - **Rule or default:** Queue p95 share controls eligibility; queue share,
-  retained start depth, positive in-flight growth, and sample quality contribute
+  retained start depth and positive in-flight growth contribute
   to score; see
   [application queue pressure](../diagnostics.md#application-queue-pressure).
 - **Classification:** Calibrated heuristic.
@@ -255,8 +257,7 @@ numeric calibration remains unknown.
 ### AN-BLOCK-001 — Persistent blocking eligibility
 
 - **Rule or default:** Blocking is eligible when p95 is nonzero or enough
-  retained samples are nonzero; p95, peak, nonzero share, and sample quality
-  drive score; see
+  retained samples are nonzero; p95, peak, and nonzero share drive score; see
   [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** A sparse percentile can be zero even when blocking
@@ -911,3 +912,8 @@ holistic review, not rationales or proposed behavior:
 These candidates do not justify changing exact heuristics merely because their
 historical calibration is unknown. Revision still requires the evidence named
 in the relevant entries.
+
+
+### Support, maturity, and downstream materiality
+
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping is not active, and ordinary reports continue to omit empty `related_groups`.

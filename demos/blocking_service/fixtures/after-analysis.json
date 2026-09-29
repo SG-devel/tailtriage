@@ -1,17 +1,17 @@
 {
   "request_count": 250,
-  "p50_latency_us": 57963,
-  "p95_latency_us": 93880,
-  "p99_latency_us": 97263,
-  "p95_queue_share_permille": 62,
-  "p95_service_share_permille": 993,
+  "p50_latency_us": 54465,
+  "p95_latency_us": 89924,
+  "p99_latency_us": 93952,
+  "p95_queue_share_permille": 59,
+  "p95_service_share_permille": 991,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
-    "peak_count": 53,
-    "p95_count": 49,
+    "peak_count": 51,
+    "p95_count": 48,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2044
+    "growth_per_sec_milli": -2047
   },
   "warnings": [
     "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.",
@@ -44,8 +44,8 @@
     "score": 100,
     "confidence": "high",
     "evidence": [
-      "Stage 'spawn_blocking_path' has p95 latency 92679 us across 250 samples.",
-      "Stage 'spawn_blocking_path' cumulative latency is 13945146 us (980 permille of request latency).",
+      "Stage 'spawn_blocking_path' has p95 latency 88803 us across 250 samples.",
+      "Stage 'spawn_blocking_path' cumulative latency is 13204741 us (978 permille of request latency).",
       "Stage 'spawn_blocking_path' contributes 987 permille of tail request latency."
     ],
     "next_checks": [
@@ -58,10 +58,10 @@
   "secondary_suspects": [
     {
       "kind": "blocking_pool_pressure",
-      "score": 82,
+      "score": 74,
       "confidence": "medium",
       "evidence": [
-        "Blocking queue depth p95 is 47, peak is 51, with 98/200 nonzero samples."
+        "Blocking queue depth p95 is 44, peak is 50, with 97/200 nonzero samples."
       ],
       "next_checks": [
         "Audit blocking sections and move avoidable synchronous work out of hot paths.",
@@ -75,19 +75,19 @@
     {
       "name": "early",
       "request_count": 125,
-      "started_at_unix_ms": 1778013259248,
-      "finished_at_unix_ms": 1778013259498,
-      "p50_latency_us": 36466,
-      "p95_latency_us": 55036,
-      "p99_latency_us": 57928,
-      "p95_queue_share_permille": 68,
-      "p95_service_share_permille": 995,
+      "started_at_unix_ms": 1790259914745,
+      "finished_at_unix_ms": 1790259914995,
+      "p50_latency_us": 34536,
+      "p95_latency_us": 52026,
+      "p99_latency_us": 54465,
+      "p95_queue_share_permille": 67,
+      "p95_service_share_permille": 984,
       "evidence_quality": {
         "request_count": 125,
         "queue_event_count": 125,
         "stage_event_count": 125,
-        "runtime_snapshot_count": 50,
-        "inflight_snapshot_count": 286,
+        "runtime_snapshot_count": 51,
+        "inflight_snapshot_count": 284,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -106,29 +106,28 @@
       },
       "primary_suspect": {
         "kind": "blocking_pool_pressure",
-        "score": 85,
+        "score": 80,
         "confidence": "medium",
         "evidence": [
-          "Blocking queue depth p95 is 34, peak is 36, with 50/50 nonzero samples."
+          "Blocking queue depth p95 is 32, peak is 34, with 50/51 nonzero samples."
         ],
         "next_checks": [
           "Audit blocking sections and move avoidable synchronous work out of hot paths.",
           "Inspect spawn_blocking callsites for long-running CPU or I/O work."
         ],
         "confidence_notes": [
-          "Runtime snapshots are partial; missing runtime queue-depth fields limit executor/blocking confidence.",
           "Top suspects are close in score; confidence is capped by ambiguity."
         ]
       },
       "secondary_suspects": [
         {
           "kind": "downstream_stage_dominance",
-          "score": 83,
+          "score": 78,
           "confidence": "medium",
           "evidence": [
-            "Stage 'spawn_blocking_path' has p95 latency 53993 us across 125 samples.",
-            "Stage 'spawn_blocking_path' cumulative latency is 4403296 us (970 permille of request latency).",
-            "Stage 'spawn_blocking_path' contributes 989 permille of tail request latency.",
+            "Stage 'spawn_blocking_path' has p95 latency 50845 us across 125 samples.",
+            "Stage 'spawn_blocking_path' cumulative latency is 4200034 us (966 permille of request latency).",
+            "Stage 'spawn_blocking_path' contributes 977 permille of tail request latency.",
             "Stage 'spawn_blocking_path' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
           ],
           "next_checks": [
@@ -151,19 +150,19 @@
     {
       "name": "late",
       "request_count": 125,
-      "started_at_unix_ms": 1778013259443,
-      "finished_at_unix_ms": 1778013259737,
-      "p50_latency_us": 77417,
-      "p95_latency_us": 96882,
-      "p99_latency_us": 99153,
+      "started_at_unix_ms": 1790259914943,
+      "finished_at_unix_ms": 1790259915233,
+      "p50_latency_us": 71544,
+      "p95_latency_us": 92120,
+      "p99_latency_us": 94909,
       "p95_queue_share_permille": 21,
-      "p95_service_share_permille": 992,
+      "p95_service_share_permille": 993,
       "evidence_quality": {
         "request_count": 125,
         "queue_event_count": 125,
         "stage_event_count": 125,
-        "runtime_snapshot_count": 59,
-        "inflight_snapshot_count": 280,
+        "runtime_snapshot_count": 58,
+        "inflight_snapshot_count": 278,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -182,28 +181,27 @@
       },
       "primary_suspect": {
         "kind": "blocking_pool_pressure",
-        "score": 85,
+        "score": 80,
         "confidence": "medium",
         "evidence": [
-          "Blocking queue depth p95 is 50, peak is 51, with 59/59 nonzero samples."
+          "Blocking queue depth p95 is 49, peak is 50, with 58/58 nonzero samples."
         ],
         "next_checks": [
           "Audit blocking sections and move avoidable synchronous work out of hot paths.",
           "Inspect spawn_blocking callsites for long-running CPU or I/O work."
         ],
         "confidence_notes": [
-          "Runtime snapshots are partial; missing runtime queue-depth fields limit executor/blocking confidence.",
           "Top suspects are close in score; confidence is capped by ambiguity."
         ]
       },
       "secondary_suspects": [
         {
           "kind": "downstream_stage_dominance",
-          "score": 83,
+          "score": 78,
           "confidence": "medium",
           "evidence": [
-            "Stage 'spawn_blocking_path' has p95 latency 95706 us across 125 samples.",
-            "Stage 'spawn_blocking_path' cumulative latency is 9541850 us (985 permille of request latency).",
+            "Stage 'spawn_blocking_path' has p95 latency 91022 us across 125 samples.",
+            "Stage 'spawn_blocking_path' cumulative latency is 9004707 us (984 permille of request latency).",
             "Stage 'spawn_blocking_path' contributes 987 permille of tail request latency.",
             "Stage 'spawn_blocking_path' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
           ],
