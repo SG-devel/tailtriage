@@ -742,14 +742,61 @@ impl DownstreamRepresentations {
                             .cumulative_share_permille
                             .cmp(&b.measurement.cumulative_share_permille)
                     })
-                    .then_with(|| {
-                        (b.measurement.basis == EvidenceBasis::ObservedLowerBound)
-                            .cmp(&(a.measurement.basis == EvidenceBasis::ObservedLowerBound))
-                    })
                     .then_with(|| b.measurement.stage.cmp(&a.measurement.stage))
             })
             .map(|(stage, _)| stage)
     }
+}
+
+#[cfg(test)]
+pub(super) type DownstreamRepresentationForTest =
+    (EvidenceBasis, &'static str, usize, u64, u64, u8);
+
+#[cfg(test)]
+pub(super) fn select_downstream_representation_for_test(
+    representations: &[DownstreamRepresentationForTest],
+    run: &Run,
+    options: &AnalyzeOptions,
+) -> Option<DownstreamRepresentationForTest> {
+    DownstreamRepresentations(
+        representations
+            .iter()
+            .map(
+                |&(basis, stage, support, tail, cumulative, score)| StageCandidate {
+                    measurement: DownstreamMeasurement {
+                        basis,
+                        stage: stage.to_string(),
+                        request_sample_count: support,
+                        p95_attributed_latency_us: 0,
+                        cumulative_attributed_latency_us: 0,
+                        cumulative_share_permille: cumulative,
+                        tail_share_permille: tail,
+                        partial_event_count: usize::from(
+                            basis == EvidenceBasis::ObservedLowerBound,
+                        ),
+                    },
+                    score,
+                },
+            )
+            .collect(),
+    )
+    .select(run, options)
+    .map(|selected| {
+        let stage = representations
+            .iter()
+            .find_map(|candidate| {
+                (candidate.1 == selected.measurement.stage).then_some(candidate.1)
+            })
+            .expect("selected stage came from the supplied test representations");
+        (
+            selected.measurement.basis,
+            stage,
+            selected.measurement.request_sample_count,
+            selected.measurement.tail_share_permille,
+            selected.measurement.cumulative_share_permille,
+            selected.score,
+        )
+    })
 }
 
 fn downstream_measurements(run: &Run, p95_req: u64) -> Vec<DownstreamMeasurement> {

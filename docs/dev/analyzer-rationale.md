@@ -88,8 +88,9 @@ numeric calibration remains unknown.
   last so it cannot displace an eligible diagnosis candidate.
 - **Tradeoff:** A lower raw score may become primary, and the fixed kind order
   introduces a deliberate final tie bias in exchange for stable output.
-- **Proof owner:** `final_ranking_uses_confidence_then_score_then_stable_kind`
-  and ambiguity/fallback tests in `tailtriage-analyzer/src/tests.rs`; canonical
+- **Proof owner:** `final_confidence_ranking_selects_primary_before_raw_score`
+  and `ambiguity_cluster_membership_uses_raw_scores_only` in
+  `tailtriage-analyzer/src/tests.rs`; canonical
   JSON golden tests in `tailtriage-analyzer/tests/analyzer_fixtures.rs`.
 - **Revision criteria:** Require a demonstrated misleading ordering class,
   focused counterexamples, a report compatibility assessment, and replacement

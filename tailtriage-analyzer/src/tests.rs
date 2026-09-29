@@ -7961,6 +7961,156 @@ fn queue_representation_resolution_uses_pre_ambiguity_limitations_and_stable_tie
     assert_eq!(tie.basis, super::partial_evidence::EvidenceBasis::Completed);
 }
 
+// TT-TEST: A10 primary
+#[test]
+fn downstream_representation_resolution_uses_pre_ambiguity_confidence_and_support() {
+    use super::partial_evidence::EvidenceBasis::{Completed, ObservedLowerBound};
+
+    let run = partial_policy_run(false, false);
+    let select = |representations: &[super::scoring::DownstreamRepresentationForTest]| {
+        super::scoring::select_downstream_representation_for_test(
+            representations,
+            &run,
+            &AnalyzeOptions::default(),
+        )
+        .expect("a downstream representation should be selected")
+    };
+
+    assert_eq!(
+        select(&[
+            (Completed, "completed", 20, 500, 500, 90),
+            (ObservedLowerBound, "partial", 30, 900, 900, 99),
+        ])
+        .0,
+        Completed,
+        "the partial-evidence limitation must precede selection, so raw magnitude alone cannot displace completed evidence"
+    );
+    assert_eq!(
+        select(&[
+            (Completed, "completed", 8, 500, 500, 70),
+            (ObservedLowerBound, "partial", 19, 500, 500, 70),
+        ])
+        .0,
+        ObservedLowerBound,
+        "within equal pre-ambiguity confidence, legitimately greater support wins"
+    );
+    assert_eq!(
+        select(&[
+            (Completed, "completed", 20, 500, 500, 70),
+            (ObservedLowerBound, "partial", 20, 500, 500, 70),
+        ])
+        .0,
+        Completed,
+        "an otherwise exact representation tie prefers completed evidence"
+    );
+}
+
+// TT-TEST: A10 primary
+#[test]
+fn downstream_representation_residual_order_is_tail_then_cumulative_then_stage() {
+    use super::partial_evidence::EvidenceBasis::Completed;
+
+    let run = partial_policy_run(false, false);
+    let select = |representations: &[super::scoring::DownstreamRepresentationForTest]| {
+        super::scoring::select_downstream_representation_for_test(
+            representations,
+            &run,
+            &AnalyzeOptions::default(),
+        )
+        .expect("a downstream representation should be selected")
+    };
+
+    assert_eq!(
+        select(&[
+            (Completed, "lower_tail", 20, 600, 900, 70),
+            (Completed, "higher_tail", 20, 700, 100, 70),
+        ])
+        .1,
+        "higher_tail"
+    );
+    assert_eq!(
+        select(&[
+            (Completed, "lower_cumulative", 20, 700, 600, 70),
+            (Completed, "higher_cumulative", 20, 700, 800, 70),
+        ])
+        .1,
+        "higher_cumulative"
+    );
+    assert_eq!(
+        select(&[
+            (Completed, "stage_b", 20, 700, 800, 70),
+            (Completed, "stage_a", 20, 700, 800, 70),
+        ])
+        .1,
+        "stage_a"
+    );
+}
+
+// TT-TEST: A10 primary
+// TT-TEST: A06 secondary
+#[test]
+fn downstream_same_family_resolution_precedes_cross_family_ambiguity() {
+    let mut run = partial_policy_run(false, false);
+    let partial = run
+        .stages
+        .iter()
+        .cloned()
+        .map(|mut stage| {
+            stage.completed = false;
+            stage.success = false;
+            stage
+        })
+        .collect::<Vec<_>>();
+    run.stages.extend(partial);
+
+    let candidates = super::scoring::downstream_stage_candidates_for_test(
+        &run,
+        1_000,
+        &AnalyzeOptions::default(),
+    );
+    assert_eq!(candidates.len(), 2, "both representations are eligible");
+    assert!(candidates
+        .iter()
+        .any(|candidate| candidate.0 == super::partial_evidence::EvidenceBasis::Completed));
+    assert!(candidates.iter().any(|candidate| {
+        candidate.0 == super::partial_evidence::EvidenceBasis::ObservedLowerBound
+    }));
+
+    run.queues.clear();
+    let downstream_only = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    assert_eq!(downstream_only.secondary_suspects.len(), 0);
+    assert!(downstream_only
+        .primary_suspect
+        .confidence_notes
+        .iter()
+        .all(|note| !note.contains("ambiguity")));
+
+    run.queues = (0..45)
+        .map(|i| {
+            let mut queue = precise_queue(&format!("r{i}"), 0, 900, 900);
+            queue.depth_at_start = Some(20);
+            queue
+        })
+        .collect();
+    let cross_family = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    let surviving = std::iter::once(&cross_family.primary_suspect)
+        .chain(cross_family.secondary_suspects.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        surviving
+            .iter()
+            .filter(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominance)
+            .count(),
+        1,
+        "only the selected downstream representation reaches cross-family work"
+    );
+    assert_eq!(cross_family.secondary_suspects.len(), 1);
+    assert!(surviving.iter().all(|suspect| suspect
+        .confidence_notes
+        .iter()
+        .any(|note| note.contains("ambiguity"))));
+}
+
 // TT-TEST: A04 primary
 #[test]
 fn runtime_partial_note_is_emitted_only_when_it_lowers_confidence() {
