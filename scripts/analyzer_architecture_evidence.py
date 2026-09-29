@@ -25,7 +25,7 @@ MANIFEST = Path("validation/diagnostics/manifest.json")
 ARCHITECTURE_MANIFEST = Path("validation/analyzer-architecture/manifest.json")
 ARCHITECTURE_FORMAT = "tailtriage.analyzer-architecture-suite.v1"
 SCHEMA_VERSION = 1
-RUNNER_VERSION = "1"
+RUNNER_VERSION = "2"
 FIXTURES = (
     "queue_saturation.json",
     "blocking_pressure.json",
@@ -49,6 +49,7 @@ PROJECTION_KEYS = (
     "evidence_quality",
     "primary_suspect",
     "secondary_suspects",
+    "related_groups",
     "route_breakdowns",
     "temporal_segments",
 )

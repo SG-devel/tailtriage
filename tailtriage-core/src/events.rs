@@ -17,8 +17,8 @@ pub const SCHEMA_VERSION: u64 = 2;
 
 /// A semantic relationship attached to a stage.
 ///
-/// Relations are typed capture metadata. The 0.4 analyzer does not consume
-/// this metadata yet.
+/// Relations are typed capture metadata consumed by the analyzer when independently eligible
+/// blocking-pool and downstream evidence can be presented as one related interpretation.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StageRelation {

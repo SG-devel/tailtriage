@@ -477,28 +477,6 @@ numeric calibration remains unknown.
 - **Provenance:** Present-purpose inference; the exact tie sequence has unknown
   historical provenance.
 
-### AN-DOWN-003 — Blocking-correlated stage limit
-
-- **Rule or default:** A stage matching configured blocking patterns stays below
-  independently strong blocking-pool evidence by the configured score margin;
-  see [AN-BLOCK-002](#an-block-002--strong-blocking-calibration) and
-  [downstream-stage dominance](../diagnostics.md#downstream-stage-dominance).
-- **Classification:** Conservative policy.
-- **Problem addressed:** A wrapper-like stage should not outrank strong runtime
-  evidence that it mirrors.
-- **Why this shape:** Present-purpose inference: pattern correlation preserves
-  blocking as the actionable family only when it is independently corroborated.
-- **Tradeoff:** Name matching can correlate unrelated stages or miss renamed
-  wrappers, and the margin can constrain a genuinely dominant stage.
-- **Proof owner:** Blocking-pattern, strong-evidence, and score-margin tests in
-  `tailtriage-analyzer/src/tests.rs`.
-- **Revision criteria:** Require relationship evidence beyond naming or focused
-  false-correlation cases, plus ranking and margin calibration analysis.
-- **Provenance:** Present-purpose inference for correlation; exact patterns and
-  margin have unknown provenance.
-
-## Confidence and evidence policy
-
 ### AN-CONF-001 — Default confidence boundaries
 
 - **Rule or default:** Raw score maps to Low/Medium/High at the configured
@@ -916,4 +894,4 @@ in the relevant entries.
 
 ### Support, maturity, and downstream materiality
 
-Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping is not active, and ordinary reports continue to omit empty `related_groups`.
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping uses only captured metadata, preserves raw magnitude, and omits empty `related_groups`. Ambiguity considers independent candidates with at least Medium pre-ambiguity confidence.

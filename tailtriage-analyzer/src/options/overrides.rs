@@ -64,8 +64,6 @@ mod tests {
         "executor.min_global_queue_p95_for_signal",
         "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
         "downstream.min_stage_samples",
-        "downstream.blocking_correlated_stage_patterns",
-        "downstream.blocking_correlation_score_margin",
         "confidence.medium_score_threshold",
         "confidence.high_score_threshold",
         "confidence.ambiguity_min_score",
@@ -143,18 +141,6 @@ mod tests {
             cli: "5",
             toml: "5",
             summary: "5",
-        },
-        Case {
-            path: "downstream.blocking_correlated_stage_patterns",
-            cli: "db, cache",
-            toml: "[\"db\", \"cache\"]",
-            summary: "db,cache",
-        },
-        Case {
-            path: "downstream.blocking_correlation_score_margin",
-            cli: "3",
-            toml: "3",
-            summary: "3",
         },
         Case {
             path: "confidence.medium_score_threshold",
@@ -285,7 +271,7 @@ mod tests {
             .map(crate::AnalyzeOptionDescriptor::path)
             .collect();
         let unique: HashSet<_> = paths.iter().copied().collect();
-        assert_eq!(paths.len(), 30);
+        assert_eq!(paths.len(), 28);
         assert_eq!(paths.len(), unique.len());
         assert_eq!(paths, EXPECTED_PATHS);
     }
@@ -303,7 +289,7 @@ mod tests {
     // TT-TEST: Q01 secondary
     #[test]
     fn every_registered_path_accepts_equivalent_cli_and_toml_value() {
-        assert_eq!(CASES.len(), 29);
+        assert_eq!(CASES.len(), 27);
         for case in CASES {
             let mut cli = AnalyzeOptions::default();
             cli.apply_override(&format!("{}={}", case.path, case.cli))
@@ -379,19 +365,6 @@ mod tests {
         }
     }
 
-    // TT-TEST: support
-    #[test]
-    fn toml_string_list_preserves_commas_inside_items() {
-        let options = AnalyzeOptions::from_toml_str(
-            "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns = ['db,primary', 'cache']\n",
-        )
-        .expect("valid typed TOML list");
-        assert_eq!(
-            options.downstream.blocking_correlated_stage_patterns,
-            vec!["db,primary", "cache"]
-        );
-    }
-
     // TT-TEST: A13 secondary
     #[test]
     fn descriptor_defaults_and_value_types_remain_public_contract() {
@@ -413,12 +386,6 @@ mod tests {
                 "u64",
             ),
             ("downstream.min_stage_samples", "3", "usize"),
-            (
-                "downstream.blocking_correlated_stage_patterns",
-                "[\"spawn_blocking\", \"blocking_path\", \"blocking\"]",
-                "Vec<String>",
-            ),
-            ("downstream.blocking_correlation_score_margin", "2", "u8"),
             ("confidence.medium_score_threshold", "65", "u8"),
             ("confidence.high_score_threshold", "85", "u8"),
             ("confidence.ambiguity_min_score", "60", "u8"),
@@ -535,35 +502,6 @@ mod tests {
                 value,
                 expected: "'true' or 'false'",
             } if value == "yes"
-        ));
-    }
-
-    // TT-TEST: support
-    #[test]
-    fn comma_separated_cli_lists_trim_entries() {
-        let mut options = AnalyzeOptions::default();
-        options
-            .apply_override("downstream.blocking_correlated_stage_patterns=db, cache ,worker")
-            .expect("valid list");
-        assert_eq!(
-            options.downstream.blocking_correlated_stage_patterns,
-            vec!["db", "cache", "worker"]
-        );
-    }
-
-    // TT-TEST: support
-    #[test]
-    fn empty_cli_list_entries_are_rejected() {
-        let err = AnalyzeOptions::default()
-            .apply_override("downstream.blocking_correlated_stage_patterns=db,,cache")
-            .expect_err("empty list entry must fail");
-        assert!(matches!(
-            err,
-            AnalyzeConfigError::InvalidOverrideValue {
-                path: "downstream.blocking_correlated_stage_patterns",
-                value,
-                expected: "comma-separated non-empty entries (Vec<String>)",
-            } if value == "db,,cache"
         ));
     }
 

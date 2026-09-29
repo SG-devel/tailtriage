@@ -42,8 +42,6 @@ struct ExecutorOptionsToml {
 #[serde(deny_unknown_fields)]
 struct DownstreamOptionsToml {
     min_stage_samples: Option<usize>,
-    blocking_correlated_stage_patterns: Option<Vec<String>>,
-    blocking_correlation_score_margin: Option<u8>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -184,18 +182,6 @@ fn collect_updates(config: &AnalyzerTomlConfig, updates: &mut Vec<(&'static str,
             updates,
             "downstream.min_stage_samples",
             p.min_stage_samples.map(OptionValue::Usize),
-        );
-        push_update(
-            updates,
-            "downstream.blocking_correlated_stage_patterns",
-            p.blocking_correlated_stage_patterns
-                .clone()
-                .map(OptionValue::StringList),
-        );
-        push_update(
-            updates,
-            "downstream.blocking_correlation_score_margin",
-            p.blocking_correlation_score_margin.map(OptionValue::U8),
         );
     }
     if let Some(p) = &config.confidence {

@@ -12,6 +12,7 @@ mod evidence;
 mod options;
 mod partial_evidence;
 mod ratio;
+mod relation;
 mod route;
 mod scoring;
 mod slicing;
@@ -195,9 +196,8 @@ pub struct Report {
     pub secondary_suspects: Vec<Suspect>,
     /// Explicit groups of typed, related diagnosis evidence.
     ///
-    /// Empty groups are omitted from Report JSON. Ordinary analysis leaves this empty until typed
-    /// relation grouping is activated; callers may still construct the public structure for
-    /// transport and rendering.
+    /// Empty groups are omitted from Report JSON. A group is emitted only when typed relation
+    /// metadata connects independently eligible evidence; it does not prove root cause.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub related_groups: Vec<RelatedEvidenceGroup>,
     /// Supporting per-route triage summaries when route-level signal adds value.
@@ -569,6 +569,8 @@ fn analyze_run_internal(
             basis: partial_evidence::EvidenceBasis::Completed,
             executor_limitation,
             relevant_support,
+            blocking_measurement: None,
+            downstream_measurement: None,
         }));
     }
 
@@ -597,7 +599,8 @@ fn analyze_run_internal(
     }
 
     let evidence_quality = evidence::evidence_quality(run, options);
-    let ranked_suspects = finalize_scored_suspects(suspects, run, &evidence_quality, options);
+    let (ranked_suspects, related_groups) =
+        finalize_scored_suspects(suspects, run, &evidence_quality, options);
     let warnings = analysis_warnings(run, &ranked_suspects, options);
 
     let mut ranked = ranked_suspects.into_iter();
@@ -622,7 +625,7 @@ fn analyze_run_internal(
         evidence_quality,
         primary_suspect,
         secondary_suspects: ranked.collect(),
-        related_groups: Vec::new(),
+        related_groups,
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
         analyzer_config: None,
@@ -634,19 +637,19 @@ fn finalize_scored_suspects(
     run: &Run,
     evidence_quality: &EvidenceQuality,
     options: &AnalyzeOptions,
-) -> Vec<Suspect> {
+) -> (Vec<Suspect>, Vec<RelatedEvidenceGroup>) {
     for scored in &mut suspects {
         scored.suspect.confidence =
             Confidence::from_score_with_options(scored.suspect.score, options);
     }
-    confidence::apply_evidence_aware_confidence_caps_scored(
-        &mut suspects,
-        run,
-        evidence_quality,
-        options,
-    );
+    confidence::apply_pre_ambiguity_confidence_caps(&mut suspects, run, evidence_quality, options);
+    let related_groups = relation::resolve_blocking_pool_group(&mut suspects, run, options);
+    confidence::apply_ambiguity_confidence_cap(&mut suspects, options);
     suspects.sort_by(final_suspect_order);
-    suspects.into_iter().map(|s| s.suspect).collect()
+    (
+        suspects.into_iter().map(|s| s.suspect).collect(),
+        related_groups,
+    )
 }
 
 fn final_suspect_order(a: &SupportedCandidate, b: &SupportedCandidate) -> std::cmp::Ordering {
@@ -682,15 +685,16 @@ const fn diagnosis_kind_rank(kind: &DiagnosisKind) -> u8 {
 }
 
 fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<String> {
-    let mut ranked = suspects
+    let _ = options;
+    if suspects
         .iter()
-        .filter(|s| s.kind != DiagnosisKind::InsufficientEvidence)
-        .collect::<Vec<_>>();
-    ranked.sort_by_key(|s| std::cmp::Reverse(s.score));
-    if ranked.len() >= 2
-        && ranked[0].score >= options.confidence.ambiguity_min_score
-        && ranked[1].score >= options.confidence.ambiguity_min_score
-        && ranked[0].score.abs_diff(ranked[1].score) <= options.confidence.ambiguity_score_gap
+        .filter(|suspect| {
+            suspect.confidence_notes.iter().any(|note| {
+                note == "Top suspects are close in score; confidence is capped by ambiguity."
+            })
+        })
+        .count()
+        >= 2
     {
         Some("Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string())
     } else {
