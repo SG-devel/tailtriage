@@ -223,6 +223,31 @@ impl QueueRepresentations {
     }
 }
 
+#[cfg(test)]
+pub(super) fn select_queue_representation_for_test(
+    completed: Option<SupportedCandidate>,
+    observed_lower_bound: Option<SupportedCandidate>,
+    run: &Run,
+    options: &AnalyzeOptions,
+) -> Option<SupportedCandidate> {
+    QueueRepresentations {
+        completed,
+        observed_lower_bound,
+    }
+    .select(run, options)
+}
+
+#[cfg(test)]
+pub(super) fn blocking_measurement_for_test(run: &Run) -> Option<(usize, u64, u64)> {
+    blocking_measurement(run).map(|measurement| {
+        (
+            measurement.usable_sample_count,
+            measurement.p95_queue_depth,
+            measurement.peak_queue_depth,
+        )
+    })
+}
+
 fn queue_candidate(
     run: &Run,
     queue_shares: &[u64],

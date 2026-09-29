@@ -7640,7 +7640,7 @@ fn provisional_maturity_boundaries_are_exact() {
     assert_eq!(super::confidence::maturity_cap(20), Confidence::High);
 }
 
-// TT-TEST: A05 primary
+// TT-TEST: A01 primary
 #[test]
 fn downstream_materiality_boundary_and_fallback_are_exact() {
     let report_at = |stage_us| {
@@ -7667,4 +7667,328 @@ fn downstream_materiality_boundary_and_fallback_are_exact() {
         boundary.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominance
     );
+}
+
+// TT-TEST: A02 primary
+#[test]
+fn relevant_support_units_are_family_specific_and_distinct_from_event_counts() {
+    let mut run = test_run();
+    run.requests = vec![
+        precise_request("q1", 1_000),
+        precise_request("q2", 1_000),
+        precise_request("none", 1_000),
+    ];
+    run.queues = vec![
+        precise_queue("q1", 0, 400, 400),
+        precise_queue("q1", 400, 800, 400),
+        precise_queue("q2", 0, 400, 400),
+    ];
+    let completed = super::scoring::queue_candidate_for_test(
+        &run,
+        &[800, 400, 0],
+        true,
+        Some(800),
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        completed.relevant_support, 2,
+        "distinct contributing requests, not three events or all requests"
+    );
+    run.queues.push({
+        let mut q = precise_queue("none", 0, 500, 500);
+        q.completed = false;
+        q
+    });
+    let observed = super::scoring::queue_candidate_for_test(
+        &run,
+        &[800, 400, 500],
+        false,
+        Some(800),
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        observed.relevant_support, 3,
+        "partial-only queue evidence contributes to observed support"
+    );
+
+    run.runtime_snapshots = vec![
+        runtime_snapshot(Some(4), Some(2), Some(0)),
+        runtime_snapshot(Some(4), Some(2), Some(7)),
+        runtime_snapshot(None, None, None),
+    ];
+    assert_eq!(
+        super::scoring::blocking_measurement_for_test(&run)
+            .unwrap()
+            .0,
+        2,
+        "present zero counts; missing does not"
+    );
+    let normalized = super::scoring::executor_pressure_suspect(
+        &run,
+        Some(super::scoring::WorkerEvidenceStatus::Complete {
+            worker_count: 2,
+            local_complete: true,
+        }),
+        None,
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(normalized.2, 2);
+    let legacy = super::scoring::executor_pressure_suspect(
+        &run,
+        Some(super::scoring::WorkerEvidenceStatus::HistoricalAbsent),
+        None,
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(legacy.2, 2);
+
+    run.stages = vec![
+        precise_stage("q1", "db", Some(0), Some(300), 300),
+        precise_stage("q1", "db", Some(300), Some(600), 300),
+        precise_stage("q2", "db", Some(0), Some(600), 600),
+    ];
+    let mut options = AnalyzeOptions::default();
+    options.downstream.min_stage_samples = 2;
+    assert_eq!(
+        super::scoring::downstream_stage_suspect(&run, &options)
+            .unwrap()
+            .relevant_support,
+        2
+    );
+}
+
+// TT-TEST: A02 primary
+#[test]
+fn support_does_not_add_raw_magnitude_on_any_scoring_path() {
+    fn run_with(count: usize) -> Run {
+        let mut run = test_run();
+        run.requests = (0..count)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect();
+        run.queues = (0..count)
+            .map(|i| precise_queue(&format!("r{i}"), 0, 500, 500))
+            .collect();
+        run.stages = (0..count)
+            .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(500), 500))
+            .collect();
+        run
+    }
+    let options = AnalyzeOptions::default();
+    let (small, large) = (run_with(3), run_with(19));
+    let queue_score = |run: &Run| {
+        super::scoring::queue_candidate_for_test(
+            run,
+            &vec![500; run.requests.len()],
+            true,
+            Some(500),
+            &options,
+        )
+        .unwrap()
+        .suspect
+        .score
+    };
+    assert_eq!(queue_score(&small), queue_score(&large));
+    let downstream_score = |run: &Run| {
+        super::scoring::downstream_stage_suspect(run, &options)
+            .unwrap()
+            .suspect
+            .score
+    };
+    assert_eq!(downstream_score(&small), downstream_score(&large));
+
+    let runtime_run = |count: usize, workers: Option<u32>| {
+        let mut run = run_with(20);
+        run.runtime_snapshots = (0..count)
+            .map(|_| {
+                let mut s = runtime_snapshot(Some(8), Some(4), Some(5));
+                s.worker_count = workers;
+                s
+            })
+            .collect();
+        run
+    };
+    let b3 = runtime_run(3, None);
+    let b19 = runtime_run(19, None);
+    assert_eq!(
+        super::scoring::blocking_pressure_suspect(&b3, &options)
+            .unwrap()
+            .suspect
+            .score,
+        super::scoring::blocking_pressure_suspect(&b19, &options)
+            .unwrap()
+            .suspect
+            .score
+    );
+    let score = |run: &Run, status| {
+        super::scoring::executor_pressure_suspect(run, Some(status), None, &options)
+            .unwrap()
+            .0
+            .score
+    };
+    assert_eq!(
+        score(&b3, super::scoring::WorkerEvidenceStatus::HistoricalAbsent),
+        score(&b19, super::scoring::WorkerEvidenceStatus::HistoricalAbsent)
+    );
+    let n3 = runtime_run(3, Some(4));
+    let n19 = runtime_run(19, Some(4));
+    assert_eq!(
+        score(
+            &n3,
+            super::scoring::WorkerEvidenceStatus::Complete {
+                worker_count: 4,
+                local_complete: true
+            }
+        ),
+        score(
+            &n19,
+            super::scoring::WorkerEvidenceStatus::Complete {
+                worker_count: 4,
+                local_complete: true
+            }
+        )
+    );
+}
+
+// TT-TEST: A04 primary
+#[test]
+fn maturity_caps_real_candidates_and_only_emits_a_material_note() {
+    let report = |count| {
+        let mut run = test_run();
+        run.requests = (0..count)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect();
+        run.queues = (0..count)
+            .map(|i| {
+                let mut q = precise_queue(&format!("r{i}"), 0, 900, 900);
+                q.depth_at_start = Some(20);
+                q
+            })
+            .collect();
+        analyze_run(&run, AnalyzeOptions::default()).unwrap()
+    };
+    let sparse = report(7);
+    assert_eq!(sparse.primary_suspect.confidence, Confidence::Low);
+    assert!(sparse
+        .primary_suspect
+        .confidence_notes
+        .iter()
+        .any(|n| n.contains("provisional maturity")));
+    let mature = report(20);
+    assert_eq!(mature.primary_suspect.confidence, Confidence::High);
+    assert!(!mature
+        .primary_suspect
+        .confidence_notes
+        .iter()
+        .any(|n| n.contains("provisional maturity")));
+}
+
+// TT-TEST: A10 primary
+#[test]
+fn queue_representation_resolution_uses_pre_ambiguity_limitations_and_stable_ties() {
+    let mut run = test_run();
+    run.requests = (0..20).map(sample_request).collect();
+    run.queues = (0..20)
+        .map(|i| precise_queue(&format!("req-{i}"), 0, 500, 500))
+        .collect();
+    let candidate = |score, support, basis| {
+        let mut c = literal_scored(
+            DiagnosisKind::ApplicationQueuePressure,
+            score,
+            Confidence::High,
+        );
+        c.relevant_support = support;
+        c.basis = basis;
+        c
+    };
+    let selected = super::scoring::select_queue_representation_for_test(
+        Some(candidate(
+            90,
+            20,
+            super::partial_evidence::EvidenceBasis::Completed,
+        )),
+        Some(candidate(
+            99,
+            30,
+            super::partial_evidence::EvidenceBasis::ObservedLowerBound,
+        )),
+        &run,
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        selected.basis,
+        super::partial_evidence::EvidenceBasis::Completed,
+        "the partial limitation must apply before selection"
+    );
+    let lower = super::scoring::select_queue_representation_for_test(
+        Some(candidate(
+            70,
+            8,
+            super::partial_evidence::EvidenceBasis::Completed,
+        )),
+        Some(candidate(
+            70,
+            19,
+            super::partial_evidence::EvidenceBasis::ObservedLowerBound,
+        )),
+        &run,
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        lower.basis,
+        super::partial_evidence::EvidenceBasis::ObservedLowerBound,
+        "legitimately greater support wins within the same capped confidence"
+    );
+    let tie = super::scoring::select_queue_representation_for_test(
+        Some(candidate(
+            70,
+            20,
+            super::partial_evidence::EvidenceBasis::Completed,
+        )),
+        Some(candidate(
+            70,
+            20,
+            super::partial_evidence::EvidenceBasis::ObservedLowerBound,
+        )),
+        &run,
+        &AnalyzeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(tie.basis, super::partial_evidence::EvidenceBasis::Completed);
+}
+
+// TT-TEST: A04 primary
+#[test]
+fn runtime_partial_note_is_emitted_only_when_it_lowers_confidence() {
+    let mut run = test_run();
+    run.requests = (0..20).map(sample_request).collect();
+    run.runtime_snapshots = (0..20)
+        .map(|_| runtime_snapshot(Some(5), Some(2), None))
+        .collect();
+    let quality = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    for (score, expected_note) in [(90, true), (70, false)] {
+        let mut candidates = vec![literal_scored(
+            DiagnosisKind::BlockingPoolPressure,
+            score,
+            Confidence::from_score_with_options(score, &AnalyzeOptions::default()),
+        )];
+        super::confidence::apply_pre_ambiguity_confidence_caps(
+            &mut candidates,
+            &run,
+            &quality,
+            &AnalyzeOptions::default(),
+        );
+        assert_eq!(
+            candidates[0]
+                .suspect
+                .confidence_notes
+                .iter()
+                .any(|n| n.contains("Runtime snapshots are partial")),
+            expected_note
+        );
+    }
 }

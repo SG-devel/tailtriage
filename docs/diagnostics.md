@@ -212,9 +212,10 @@ score = 24 + floor(min(T, 1000) / 11) + floor(C / 35)
 
 The score is soft-capped at 95 unless `T >= 960`, `C >= 920`, and there are at
 least 20 samples. Stage p95 is supporting evidence; `T`, `C`, and coverage drive
-the score. Candidate selection is deterministic: score, then tail share, then
-cumulative share, then completed evidence over lower-bound evidence, then stage
-name ascending.
+the score. All non-ambiguity limitations apply before representation selection.
+Selection is deterministic: pre-ambiguity confidence, family-relevant support,
+raw score, completed evidence over lower-bound evidence, tail share, cumulative
+share, then stage name ascending.
 
 If the selected stage name case-insensitively contains a configured
 `downstream.blocking_correlated_stage_patterns` entry and runtime blocking
@@ -229,12 +230,16 @@ stage path caps confidence at Medium.
 
 The pipeline order is contractual:
 
-1. compute each candidate's raw score;
-2. assign initial Low/Medium/High confidence using
+1. compute each candidate's raw physical magnitude;
+2. assign base Low/Medium/High confidence using
    `confidence.medium_score_threshold` and `confidence.high_score_threshold`;
-3. find ambiguity membership from raw scores;
-4. apply evidence-aware confidence caps;
-5. sort the visible candidates.
+3. apply provisional maturity and every non-ambiguity candidate/evidence
+   limitation;
+4. resolve representations so only one candidate per real family remains;
+5. apply the current lexical blocking/downstream relation behavior;
+6. find current ambiguity membership from the remaining raw scores, using the
+   unchanged A06 thresholds;
+7. sort by final confidence, raw score, and stable ties.
 
 An ambiguity cluster exists when the highest raw score is at least
 `confidence.ambiguity_min_score` and at least two candidates also meet that
