@@ -1872,8 +1872,8 @@ fn historical_executor_arithmetic_boundaries_are_exact() {
 
 // TT-TEST: support
 #[test]
-fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_cap() {
-    for (samples, expected_score) in [(29, 94), (30, 95)] {
+fn historical_clean_extreme_is_support_invariant_and_absence_has_no_worker_cap() {
+    for samples in [1, 29, 30, 64] {
         let mut run = executor_arithmetic_run(samples, 150, 60, 400);
         run.inflight = vec![
             InFlightSnapshot {
@@ -1892,8 +1892,8 @@ fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_ca
         let report =
             analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         let suspect = executor_suspect(&report);
-        assert_eq!(suspect.score, expected_score, "samples={samples}");
-        assert_eq!(suspect.confidence, Confidence::High);
+        assert_eq!(suspect.score, 95, "samples={samples}");
+        assert_eq!(suspect.confidence, super::confidence::maturity_cap(samples));
         assert!(suspect
             .confidence_notes
             .iter()
@@ -7895,6 +7895,187 @@ fn support_does_not_add_raw_magnitude_on_any_scoring_path() {
             }
         )
     );
+}
+
+// TT-TEST: A02 primary
+#[test]
+fn clean_extreme_magnitude_is_invariant_across_former_support_cliffs() {
+    let extreme_run = |count: usize| {
+        let mut run = test_run();
+        run.requests = (0..count)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect();
+        run.queues = (0..count)
+            .map(|i| {
+                let mut queue = precise_queue(&format!("r{i}"), 0, 990, 990);
+                queue.depth_at_start = Some(12);
+                queue
+            })
+            .collect();
+        run.stages = (0..count)
+            .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(980), 980))
+            .collect();
+        run.inflight = vec![
+            inflight("requests", 1, Some(0), 1),
+            inflight("requests", 2, Some(1_000_000), 3),
+        ];
+        run
+    };
+    let real_score = |report: &Report, kind: DiagnosisKind| {
+        std::iter::once(&report.primary_suspect)
+            .chain(report.secondary_suspects.iter())
+            .find(|suspect| suspect.kind == kind)
+            .unwrap()
+            .score
+    };
+    for (below, above, kind) in [
+        (19, 20, DiagnosisKind::ApplicationQueuePressure),
+        (19, 20, DiagnosisKind::DownstreamStageDominance),
+    ] {
+        let left = analyze_run(&extreme_run(below), AnalyzeOptions::default()).unwrap();
+        let right = analyze_run(&extreme_run(above), AnalyzeOptions::default()).unwrap();
+        assert_eq!(real_score(&left, kind.clone()), real_score(&right, kind));
+    }
+
+    let legacy_extreme = |count: usize| {
+        let mut run = test_run();
+        run.requests = (0..20).map(sample_request).collect();
+        run.runtime_snapshots = (0..count)
+            .map(|_| runtime_snapshot(Some(140), Some(30), Some(200)))
+            .collect();
+        run
+    };
+    let legacy_score = |run: &Run| {
+        super::scoring::executor_pressure_suspect(
+            run,
+            Some(super::scoring::WorkerEvidenceStatus::HistoricalAbsent),
+            None,
+            &AnalyzeOptions::default(),
+        )
+        .unwrap()
+        .0
+        .score
+    };
+    assert_eq!(
+        legacy_score(&legacy_extreme(29)),
+        legacy_score(&legacy_extreme(30))
+    );
+}
+
+// TT-TEST: A02 primary
+#[test]
+fn family_magnitude_is_monotone_bounded_and_normalized_executor_is_scale_invariant() {
+    let options = AnalyzeOptions::default();
+    let mut prior = 0;
+    for share in [300, 500, 700, 985, 1_000] {
+        let mut run = test_run();
+        run.requests = (0..20).map(sample_request).collect();
+        run.queues = (0..20)
+            .map(|i| {
+                let mut q = precise_queue(&format!("req-{i}"), 0, share, share);
+                q.depth_at_start = Some(20);
+                q
+            })
+            .collect();
+        let candidate = super::scoring::queue_candidate_for_test(
+            &run,
+            &[share; 20],
+            true,
+            Some(share),
+            &options,
+        )
+        .unwrap();
+        assert!((prior..=100).contains(&candidate.suspect.score));
+        prior = candidate.suspect.score;
+    }
+
+    let mut prior = 0;
+    for depths in [[1, 1], [4, 8], [16, 24], [24, 40]] {
+        let mut run = test_run();
+        run.runtime_snapshots = (0..20)
+            .map(|i| runtime_snapshot(Some(1), Some(1), Some(depths[i % 2])))
+            .collect();
+        let score = super::scoring::blocking_pressure_suspect(&run, &options)
+            .unwrap()
+            .suspect
+            .score;
+        assert!((prior..=100).contains(&score));
+        prior = score;
+    }
+
+    let normalized_score = |workers, global, local| {
+        let mut run = test_run();
+        run.runtime_snapshots = (0..20)
+            .map(|_| {
+                let mut snapshot = runtime_snapshot(Some(global), Some(local), Some(0));
+                snapshot.worker_count = Some(workers);
+                snapshot
+            })
+            .collect();
+        super::scoring::executor_pressure_suspect(
+            &run,
+            Some(super::scoring::WorkerEvidenceStatus::Complete {
+                worker_count: workers,
+                local_complete: true,
+            }),
+            None,
+            &options,
+        )
+        .unwrap()
+        .0
+        .score
+    };
+    for (a, b) in [((2, 1, 1), (8, 4, 4)), ((2, 8, 8), (4, 16, 16))] {
+        let left = normalized_score(a.0, a.1, a.2);
+        let right = normalized_score(b.0, b.1, b.2);
+        assert_eq!(left, right);
+        assert!(left <= 100);
+    }
+
+    let downstream = |latency| {
+        let mut run = test_run();
+        run.requests = (0..20)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect();
+        run.stages = (0..20)
+            .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(latency), latency))
+            .collect();
+        super::scoring::downstream_stage_suspect(&run, &options)
+            .unwrap()
+            .suspect
+            .score
+    };
+    let scores = [300, 500, 700, 960, 1_000].map(downstream);
+    assert!(scores.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert!(scores.into_iter().all(|score| score <= 100));
+}
+
+// TT-TEST: A04 primary
+// TT-TEST: A02 secondary
+#[test]
+fn relevant_support_can_only_raise_maturity_without_changing_magnitude() {
+    let mut last_confidence = Confidence::Low;
+    let mut expected_score = None;
+    for support in 1..=32 {
+        let mut run = test_run();
+        run.requests = (0..support)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect();
+        run.queues = (0..support)
+            .map(|i| precise_queue(&format!("r{i}"), 0, 700, 700))
+            .collect();
+        let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+        let suspect = &report.primary_suspect;
+        assert_eq!(suspect.kind, DiagnosisKind::ApplicationQueuePressure);
+        assert_eq!(*expected_score.get_or_insert(suspect.score), suspect.score);
+        let rank = |confidence| match confidence {
+            Confidence::Low => 0,
+            Confidence::Medium => 1,
+            Confidence::High => 2,
+        };
+        assert!(rank(suspect.confidence) >= rank(last_confidence));
+        last_confidence = suspect.confidence;
+    }
 }
 
 // TT-TEST: A04 primary

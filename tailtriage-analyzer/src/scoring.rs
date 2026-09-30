@@ -296,10 +296,8 @@ fn queue_magnitude(
     let growth_bonus = if measurement.inflight_growth { 5 } else { 0 };
     let depth_bonus = (max_depth.min(40) * 2) / 3;
     let base = score_from_permille(22, p95_queue_share_permille, 14);
-    let clean_extreme = p95_queue_share_permille >= 985
-        && max_depth >= 12
-        && measurement.sample_count >= 20
-        && measurement.inflight_growth;
+    let clean_extreme =
+        p95_queue_share_permille >= 985 && max_depth >= 12 && measurement.inflight_growth;
     let score = cap_unless_clean_evidence(base + depth_bonus + growth_bonus, clean_extreme, 95);
     let mut evidence = if measurement.basis == EvidenceBasis::Completed {
         vec![format!(
@@ -492,7 +490,7 @@ pub(super) fn executor_pressure_suspect(
     let p95_global = measurement.p95_global_queue_depth;
     let growth_bonus = if measurement.inflight_growth { 4 } else { 0 };
     let legacy_score = || {
-        let clean_extreme = p95_global >= 140 && measurement.global_sample_count >= 30;
+        let clean_extreme = p95_global >= 140;
         cap_unless_clean_evidence(
             34 + (p95_global.min(150) / 4)
                 + (measurement.p95_local_queue_depth.unwrap_or(0).min(60) / 6)
@@ -817,9 +815,8 @@ fn downstream_stage_candidates(
         if samples < options.downstream.min_stage_samples || measurement.tail_share_permille < 300 {
             continue;
         }
-        let clean_extreme = measurement.tail_share_permille >= 960
-            && measurement.cumulative_share_permille >= 920
-            && samples >= 20;
+        let clean_extreme =
+            measurement.tail_share_permille >= 960 && measurement.cumulative_share_permille >= 920;
         let score = cap_unless_clean_evidence(
             score_from_permille(24, measurement.tail_share_permille, 11)
                 + (measurement.cumulative_share_permille / 35),
