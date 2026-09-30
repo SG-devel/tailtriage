@@ -59,7 +59,7 @@ corresponding pressure.
 ## Tokio await helpers
 
 Import `TokioRequestHandleExt` to instrument common Tokio waits. In this example, semaphore
-acquisition is queue evidence and timeout-wrapped work is stage evidence. The returned permit stays
+acquisition is queue evidence and timeout-wrapped work is stage evidence. `blocking_stage(...)` automatically attaches `StageRelation::BlockingPool` because it owns the `spawn_blocking` call; `join_task(...)`, timeout, queue/lock helpers, and ordinary stage names do not infer relations. Typed metadata is captured in Run stage events but is not yet consumed by the analyzer. The returned permit stays
 alive around the protected work, although only acquisition wait is measured:
 
 ```rust,no_run

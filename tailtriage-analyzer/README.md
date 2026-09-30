@@ -82,8 +82,18 @@ A `request_id` identifies one logical request/work item within a Run. Completed 
 - `confidence` describes evidence/ranking support, not causal certainty.
 - `evidence` explains the ranking; `next_checks` proposes targeted follow-up checks.
 - `warnings` and `evidence_quality` expose sparse, missing, partial, or truncated evidence limits.
+- `related_groups` explicitly presents typed relation, representative, and member-owned evidence. It is emitted only when independently eligible blocking and downstream evidence are connected; empty groups are omitted from JSON. Grouping is explanatory structure, not proof of root cause.
 - Route and temporal sections are supporting context and do not override the global primary suspect.
+
+Report JSON remains versionless. The related-group extension is additive, and omission of the
+empty collection preserves ordinary Report JSON bytes. `Report` is a producer-side serialized
+output contract; it does not derive `Deserialize`.
 
 Completed queue/stage distributions use completed evidence. A partial queue/stage observation is only a lower bound from first poll until Drop. Drop does not prove external operation completion, failure, cancellation, or that underlying work stopped. A selected queue/downstream candidate that materially relies on lower-bound evidence cannot exceed Medium confidence under current policy.
 
 Use the output to choose one next check and compare a follow-up capture. Do not treat a suspect or mitigation movement as proof of root cause.
+
+
+### Support, maturity, and downstream materiality
+
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed `BlockingPool` metadata is the only blocking/downstream relation source. Grouping does not change raw magnitude or create missing evidence, and empty `related_groups` remain omitted.

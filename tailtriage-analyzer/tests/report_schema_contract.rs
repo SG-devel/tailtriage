@@ -1,8 +1,11 @@
 use std::path::Path;
 
 use serde_json::Value;
-use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
-use tailtriage_core::Run;
+use tailtriage_analyzer::{
+    analyze_run, render_json, AnalyzeOptions, DiagnosisKind, RelatedEvidenceBasis,
+    RelatedEvidenceGroup, RelatedEvidenceMeasurement, RelatedEvidenceMember,
+};
+use tailtriage_core::{Run, StageRelation};
 
 fn load_fixture(name: &str) -> Run {
     let path = Path::new("tests/fixtures").join(name);
@@ -57,6 +60,11 @@ fn documented_report_keys_exist_in_json_output() {
         json_path_exists(&json, &["temporal_segments"]).is_some_and(Value::is_array),
         "temporal_segments should be an array"
     );
+    assert_eq!(report.related_groups, Vec::new());
+    assert!(
+        json.get("related_groups").is_none(),
+        "ordinary reports must preserve the versionless JSON shape"
+    );
 
     let evidence = json_path_exists(&json, &["primary_suspect", "evidence"])
         .and_then(Value::as_array)
@@ -65,5 +73,79 @@ fn documented_report_keys_exist_in_json_output() {
     assert!(
         evidence.iter().all(Value::is_string),
         "primary_suspect.evidence should contain strings"
+    );
+}
+
+// TT-TEST: A13 primary
+#[test]
+fn nonempty_related_group_has_the_selected_explicit_schema() {
+    let mut report = analyze_run(
+        &load_fixture("queue_saturation.json"),
+        AnalyzeOptions::default(),
+    )
+    .expect("analyzer options should be valid");
+    report.related_groups = vec![RelatedEvidenceGroup {
+        relation: StageRelation::BlockingPool,
+        representative: DiagnosisKind::BlockingPoolPressure,
+        members: vec![
+            RelatedEvidenceMember {
+                diagnosis: DiagnosisKind::BlockingPoolPressure,
+                stage: None,
+                evidence_basis: RelatedEvidenceBasis::Completed,
+                relevant_support: 40,
+                measurement: RelatedEvidenceMeasurement::BlockingPool {
+                    usable_snapshots: 40,
+                    p95_depth: 12,
+                    peak_depth: 20,
+                    nonzero_share_permille: 700,
+                },
+            },
+            RelatedEvidenceMember {
+                diagnosis: DiagnosisKind::DownstreamStageDominance,
+                stage: Some("blocking_lookup".to_owned()),
+                evidence_basis: RelatedEvidenceBasis::ObservedLowerBound,
+                relevant_support: 7,
+                measurement: RelatedEvidenceMeasurement::DownstreamStage {
+                    tail_contribution_permille: 650,
+                    cumulative_contribution_permille: 420,
+                },
+            },
+        ],
+    }];
+
+    let value: Value =
+        serde_json::from_str(&render_json(&report).expect("report should serialize"))
+            .expect("report JSON should parse");
+    assert_eq!(
+        value["related_groups"],
+        serde_json::json!([{
+            "relation": "blocking_pool",
+            "representative": "blocking_pool_pressure",
+            "members": [
+                {
+                    "diagnosis": "blocking_pool_pressure",
+                    "evidence_basis": "completed",
+                    "relevant_support": 40,
+                    "measurement": {
+                        "kind": "blocking_pool",
+                        "usable_snapshots": 40,
+                        "p95_depth": 12,
+                        "peak_depth": 20,
+                        "nonzero_share_permille": 700
+                    }
+                },
+                {
+                    "diagnosis": "downstream_stage_dominance",
+                    "stage": "blocking_lookup",
+                    "evidence_basis": "observed_lower_bound",
+                    "relevant_support": 7,
+                    "measurement": {
+                        "kind": "downstream_stage",
+                        "tail_contribution_permille": 650,
+                        "cumulative_contribution_permille": 420
+                    }
+                }
+            ]
+        }])
     );
 }

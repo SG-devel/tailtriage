@@ -8,6 +8,8 @@ pub const TT_REQUEST_ID: &str = "tt.request_id";
 pub const TT_ROUTE: &str = "tt.route";
 /// Field key for a stage name.
 pub const TT_STAGE: &str = "tt.stage";
+/// Field key for a stage semantic relation.
+pub const TT_RELATION: &str = "tt.relation";
 /// Field key for a queue name.
 pub const TT_QUEUE: &str = "tt.queue";
 /// Field key for queue depth observed at queue start.
@@ -28,6 +30,7 @@ mod tests {
         assert_eq!(TT_REQUEST_ID, "tt.request_id");
         assert_eq!(TT_ROUTE, "tt.route");
         assert_eq!(TT_STAGE, "tt.stage");
+        assert_eq!(TT_RELATION, "tt.relation");
         assert_eq!(TT_QUEUE, "tt.queue");
         assert_eq!(TT_DEPTH_AT_START, "tt.depth_at_start");
         assert_eq!(TT_OUTCOME, "tt.outcome");

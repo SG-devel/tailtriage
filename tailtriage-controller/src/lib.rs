@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;
+pub use tailtriage_core::StageRelation;
 use tailtriage_core::{
     BuildError, CaptureLimitsOverride, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion,
     OwnedRequestHandle, QueueTimer, RequestOptions, RunEndReason, StageTimer, Tailtriage,
@@ -1705,6 +1706,17 @@ impl ControllerStageTimer<'_> {
     fn inert() -> Self {
         Self {
             kind: ControllerStageTimerKind::Inert,
+        }
+    }
+    /// Attaches one typed semantic relation to captured stage evidence.
+    ///
+    /// Inert controller timers remain inert. Repeating the same relation is
+    /// idempotent; the core timer rejects a future distinct known relation.
+    #[must_use]
+    pub fn relation(self, relation: StageRelation) -> Self {
+        match self.kind {
+            ControllerStageTimerKind::Captured(timer) => Self::captured(timer.relation(relation)),
+            ControllerStageTimerKind::Inert => Self::inert(),
         }
     }
     /// Awaits `fut`, recording stage duration for active requests only.
@@ -3618,6 +3630,7 @@ mod tests {
         assert_eq!(queued, 4);
         let staged = request
             .stage("stage-disabled")
+            .relation(super::StageRelation::BlockingPool)
             .await_on(async { Err::<(), _>("stage-error") })
             .await;
         assert_eq!(staged, Err("stage-error"));
@@ -3681,6 +3694,7 @@ mod tests {
         let result: Result<(), ()> = started
             .handle
             .stage("query")
+            .relation(super::StageRelation::BlockingPool)
             .await_on(async { Ok(()) })
             .await;
         assert_eq!(result, Ok(()));
@@ -3698,6 +3712,8 @@ mod tests {
         assert_eq!(run.queues.len(), 1);
         assert_eq!(run.queues[0].depth_at_start, Some(3));
         assert_eq!(run.stages.len(), 2);
+        assert!(run.stages[0].has_relation(super::StageRelation::BlockingPool));
+        assert!(!run.stages[1].has_relation(super::StageRelation::BlockingPool));
         assert_eq!(run.inflight.len(), 2);
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }

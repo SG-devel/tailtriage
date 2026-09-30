@@ -16,9 +16,9 @@ pub use tailtriage_core::{
     RunEndReason, RunEventDisposition, RunEventDispositionKind, RunJsonDecodeError, RunMetadata,
     RunSection, RunSink, RunValidationError, RunValidationIssue, RunValidationIssueCode,
     RunValidationLocation, RunValidationReport, RunValidationSeverity, RuntimeSnapshot,
-    ShutdownError, SinkError, StageEvent, StageTimer, StartedRequest, Tailtriage,
-    TailtriageBuilder, TruncationSummary, UnfinishedRequestSample, UnfinishedRequests,
-    RUN_RELATIVE_DURATION_TOLERANCE_US, SCHEMA_VERSION,
+    ShutdownError, SinkError, StageEvent, StageRelation, StageRelations, StageTimer,
+    StartedRequest, Tailtriage, TailtriageBuilder, TruncationSummary, UnfinishedRequestSample,
+    UnfinishedRequests, RUN_RELATIVE_DURATION_TOLERANCE_US, SCHEMA_VERSION,
 };
 
 #[cfg(feature = "axum")]

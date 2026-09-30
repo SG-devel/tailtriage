@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 35370423,
-  "p95_latency_us": 35434132,
-  "p99_latency_us": 35444472,
+  "p50_latency_us": 34238335,
+  "p95_latency_us": 34277086,
+  "p99_latency_us": 34281551,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -10,15 +10,15 @@
     "sample_count": 480,
     "peak_count": 240,
     "p95_count": 228,
-    "growth_delta": 9,
-    "growth_per_sec_milli": 253
+    "growth_delta": -2,
+    "growth_per_sec_milli": -58
   },
   "warnings": [],
   "evidence_quality": {
     "request_count": 240,
     "queue_event_count": 0,
     "stage_event_count": 0,
-    "runtime_snapshot_count": 7947,
+    "runtime_snapshot_count": 14108,
     "inflight_snapshot_count": 480,
     "requests": "present",
     "queues": "missing",
@@ -38,12 +38,13 @@
   },
   "primary_suspect": {
     "kind": "executor_pressure",
-    "score": 100,
+    "score": 91,
     "confidence": "high",
     "evidence": [
       "Runtime global queue depth p95 is 1920, suggesting scheduler contention.",
-      "Runtime local queue depth p95 is 40960.",
-      "Runtime alive_tasks p95 is 1920."
+      "Runtime local queue depth p95 is 41000.",
+      "Runtime alive_tasks p95 is 1920.",
+      "Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",

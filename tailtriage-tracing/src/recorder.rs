@@ -4449,13 +4449,18 @@ mod tests {
                 .with_field("tt.request_id", "req-1")
                 .with_field("tt.route", "/checkout")
                 .with_field("custom.source", "kept"),
+            SpanRecord::new("opaque-work", 1_700_000_000_010, 1_700_000_000_020)
+                .with_field(TT_KIND, "stage")
+                .with_field("tt.request_id", "req-1")
+                .with_field("tt.stage", "opaque-work")
+                .with_field("tt.relation", "blocking_pool"),
         ];
 
         write_completed_span_jsonl_from_retained_sources(&sources, &spans_path).unwrap();
         let imported = crate::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
 
         let retained = imported.retained_sources();
-        assert_eq!(retained.len(), 1);
+        assert_eq!(retained.len(), 2);
         let span = &retained[0];
         assert_eq!(span.id(), Some("span-id"));
         assert_eq!(span.parent_id(), Some("parent-id"));
@@ -4481,6 +4486,11 @@ mod tests {
             span.fields().get("custom.source"),
             Some(&FieldValue::String("kept".to_owned()))
         );
+        assert_eq!(
+            retained[1].fields().get("tt.relation"),
+            Some(&FieldValue::String("blocking_pool".to_owned()))
+        );
+        assert!(imported.run().stages[0].has_relation(tailtriage_core::StageRelation::BlockingPool));
     }
 
     // TT-TEST: support

@@ -83,30 +83,12 @@ pub struct BlockingOptions {
     /// Minimum count of non-zero blocking-queue samples needed for a blocking signal.
     /// Default: `2`. The semantic validator permits zero.
     pub min_nonzero_samples_for_signal: usize,
-    /// Blocking queue-depth p95 count used for stronger blocking-pressure evidence.
-    /// Default: `12`. The semantic validator permits zero.
-    pub strong_p95_threshold: u64,
-    /// Blocking queue-depth peak count used for stronger blocking-pressure evidence.
-    /// Default: `20`. The semantic validator permits zero.
-    pub strong_peak_threshold: u64,
-    /// Minimum share of non-zero blocking samples for stronger blocking-pressure evidence.
-    ///
-    /// Unit: permille. Default: `700`. Valid range: `0..=1000`; larger values fail
-    /// [`AnalyzeOptions::validate`] with [`AnalyzeConfigError::InvalidConfigValue`].
-    pub strong_nonzero_share_permille: u64,
-    /// Minimum blocking-sample count before strong blocking heuristics can trigger.
-    /// Default: `30`. The semantic validator permits zero.
-    pub strong_min_samples: usize,
 }
 
 impl Default for BlockingOptions {
     fn default() -> Self {
         Self {
             min_nonzero_samples_for_signal: 2,
-            strong_p95_threshold: 12,
-            strong_peak_threshold: 20,
-            strong_nonzero_share_permille: 700,
-            strong_min_samples: 30,
         }
     }
 }
@@ -134,36 +116,19 @@ impl Default for ExecutorOptions {
     }
 }
 
-/// Downstream-stage suspect thresholds and blocking-correlation heuristics.
+/// Downstream-stage suspect thresholds.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DownstreamOptions {
     /// Minimum distinct completed-request count with retained stage evidence for eligibility.
     /// Default: `3`. The semantic validator permits zero.
     pub min_stage_samples: usize,
-    /// Stage-name substrings used to detect evidence that may correlate with blocking work.
-    ///
-    /// Default: `"spawn_blocking"`, `"blocking_path"`, and `"blocking"`. The list must be
-    /// non-empty and every entry must be non-empty after trimming; otherwise validation returns
-    /// [`AnalyzeConfigError::InvalidConfigValue`].
-    pub blocking_correlated_stage_patterns: Vec<String>,
-    /// Score-point margin required before favoring downstream over a blocking-correlated reading.
-    ///
-    /// Default: `2`. Valid range: `0..=100`; this is an analyzer score margin, not a
-    /// probability or percentage. Larger values fail [`AnalyzeOptions::validate`].
-    pub blocking_correlation_score_margin: u8,
 }
 
 impl Default for DownstreamOptions {
     fn default() -> Self {
         Self {
             min_stage_samples: 3,
-            blocking_correlated_stage_patterns: vec![
-                "spawn_blocking".to_owned(),
-                "blocking_path".to_owned(),
-                "blocking".to_owned(),
-            ],
-            blocking_correlation_score_margin: 2,
         }
     }
 }
@@ -319,12 +284,6 @@ impl AnalyzeOptions {
         if self.queueing.trigger_permille > 1000 {
             return invalid("queueing.trigger_permille", "must be <= 1000".into());
         }
-        if self.blocking.strong_nonzero_share_permille > 1000 {
-            return invalid(
-                "blocking.strong_nonzero_share_permille",
-                "must be <= 1000".into(),
-            );
-        }
         if self.confidence.medium_score_threshold > self.confidence.high_score_threshold {
             return invalid(
                 "confidence.medium_score_threshold",
@@ -339,12 +298,6 @@ impl AnalyzeOptions {
         }
         if self.confidence.ambiguity_score_gap > 100 {
             return invalid("confidence.ambiguity_score_gap", "must be <= 100".into());
-        }
-        if self.downstream.blocking_correlation_score_margin > 100 {
-            return invalid(
-                "downstream.blocking_correlation_score_margin",
-                "must be <= 100".into(),
-            );
         }
         if self.route.breakdown_limit == 0 {
             return invalid("route.breakdown_limit", "must be > 0".into());
@@ -397,27 +350,6 @@ impl AnalyzeOptions {
             return invalid(
                 "temporal.p95_shift_ratio_numerator",
                 "must be >= temporal.p95_shift_ratio_denominator".into(),
-            );
-        }
-        if self
-            .downstream
-            .blocking_correlated_stage_patterns
-            .is_empty()
-        {
-            return invalid(
-                "downstream.blocking_correlated_stage_patterns",
-                "must not be empty".into(),
-            );
-        }
-        if self
-            .downstream
-            .blocking_correlated_stage_patterns
-            .iter()
-            .any(|p| p.trim().is_empty())
-        {
-            return invalid(
-                "downstream.blocking_correlated_stage_patterns",
-                "entries must be non-empty after trim".into(),
             );
         }
         Ok(())

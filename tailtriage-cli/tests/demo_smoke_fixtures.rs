@@ -54,12 +54,19 @@ fn queue_demo_fixture_reports_application_queue_pressure() {
 
 // TT-TEST: F05 secondary
 #[test]
-fn blocking_demo_fixture_reports_blocking_pool_pressure() {
+fn blocking_demo_fixture_retains_blocking_in_typed_related_group() {
     let fixture = "demos/blocking_service/fixtures/before-analysis.json";
     let report = load_demo_analysis(fixture);
 
-    assert_primary_kind_in_allowed_set(&report, &["blocking_pool_pressure"], fixture);
+    assert_primary_kind_in_allowed_set(&report, &["downstream_stage_dominance"], fixture);
     assert_primary_score_floor(&report, 70, fixture);
+    let group = &report["related_groups"][0];
+    assert_eq!(group["relation"], "blocking_pool");
+    assert!(group["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|member| member["diagnosis"] == "blocking_pool_pressure"));
 }
 
 // TT-TEST: F05 secondary

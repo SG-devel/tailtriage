@@ -152,6 +152,7 @@ fn deterministic_native_run() -> Run {
         run.stages.push(StageEvent {
             request_id: id.to_owned(),
             stage: "db".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: req_start + 85,
             started_at_run_us: None,
             finished_at_unix_ms: req_start + 85 + (db_us / 1000),
@@ -163,6 +164,7 @@ fn deterministic_native_run() -> Run {
         run.stages.push(StageEvent {
             request_id: id.to_owned(),
             stage: "cache".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: req_start + 93,
             started_at_run_us: None,
             finished_at_unix_ms: req_start + 93 + (cache_us / 1000),

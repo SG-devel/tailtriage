@@ -49,8 +49,8 @@ pub use config::{
 };
 pub use events::{
     EffectiveTokioSamplerConfig, InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run,
-    RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, TruncationSummary,
-    UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
+    RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, StageRelation, StageRelations,
+    TruncationSummary, UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
 };
 pub use run_builder::{RunBuilder, RunBuilderError, RunBuilderEventError, RunBuilderOptions};
 pub use sink::{DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
@@ -73,7 +73,17 @@ pub use validation::{
 /// Ordinary core implementation details must remain private or `pub(crate)`.
 #[doc(hidden)]
 pub mod __internal {
-    use crate::{EffectiveTokioSamplerConfig, RunEndReason, Tailtriage};
+    use crate::{EffectiveTokioSamplerConfig, RunEndReason, StageRelations, Tailtriage};
+
+    /// Converts one tracing/import wire value into core's unknown-preserving relation storage.
+    ///
+    /// This sibling hook deliberately does not make arbitrary string relations supported public
+    /// semantic API. Known values remain queryable through `StageRelation`; unknown values exist
+    /// only for forward-compatible wire preservation.
+    #[must_use]
+    pub fn stage_relations_from_wire_value(value: String) -> StageRelations {
+        StageRelations::from_wire_value(value)
+    }
 
     /// Internal cross-crate protocol signal used by the Tokio integration.
     ///

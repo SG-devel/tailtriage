@@ -1753,6 +1753,7 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
     crate::StageEvent {
         request_id: request_id.to_string(),
         stage: stage.to_string(),
+        relations: crate::StageRelations::default(),
         started_at_unix_ms: 3,
         started_at_run_us: None,
         finished_at_unix_ms: 4,
@@ -1761,6 +1762,68 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
         success: true,
         completed: true,
     }
+}
+
+// TT-TEST: support
+#[test]
+fn stage_relations_preserve_schema_v2_wire_compatibility() {
+    use crate::{StageEvent, StageRelation, StageRelations};
+
+    let historical: StageEvent = serde_json::from_str(
+        r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
+    )
+    .unwrap();
+    assert!(historical.relations.is_empty());
+    assert!(!historical.has_relation(StageRelation::BlockingPool));
+    let empty: StageEvent = serde_json::from_str(
+        r#"{"request_id":"r","stage":"work","relations":[],"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
+    )
+    .unwrap();
+    assert!(empty.relations.is_empty());
+
+    let ordinary = StageEvent::new("r", "work", 1, 2, 3, true);
+    assert!(ordinary.relations.is_empty());
+    assert!(serde_json::to_value(&ordinary)
+        .unwrap()
+        .get("relations")
+        .is_none());
+
+    let mut known = ordinary.clone();
+    known.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+    assert!(known.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&known).unwrap()["relations"],
+        serde_json::json!(["blocking_pool"])
+    );
+    assert_eq!(
+        serde_json::from_value::<StageEvent>(serde_json::to_value(&known).unwrap()).unwrap(),
+        known
+    );
+}
+
+// TT-TEST: support
+#[test]
+fn stage_relations_preserve_unknowns_and_canonicalize_duplicates() {
+    use crate::{StageEvent, StageRelation};
+
+    let base = r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true"#;
+    let unknown: StageEvent =
+        serde_json::from_str(&format!(r#"{base},"relations":["z_future","a_future"]}}"#)).unwrap();
+    assert!(!unknown.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&unknown).unwrap()["relations"],
+        serde_json::json!(["a_future", "z_future"])
+    );
+
+    let mixed: StageEvent = serde_json::from_str(&format!(
+        r#"{base},"relations":["future_relation","blocking_pool","blocking_pool"]}}"#
+    ))
+    .unwrap();
+    assert!(mixed.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&mixed).unwrap()["relations"],
+        serde_json::json!(["blocking_pool", "future_relation"])
+    );
 }
 
 fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
@@ -2528,6 +2591,7 @@ mod run_validation_contract {
         StageEvent {
             request_id: id.into(),
             stage: "db".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2634,6 +2698,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "dup".into(),
             stage: "db".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2816,6 +2881,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "retained-stage".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2827,6 +2893,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "missing".into(),
             stage: "orphan-stage".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -3202,6 +3269,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "missing".into(),
             stage: "x".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -3213,6 +3281,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "outside".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(0),
             finished_at_unix_ms: 1_001,
@@ -3224,6 +3293,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "legacy".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: None,
             finished_at_unix_ms: 1_001,
@@ -3774,8 +3844,8 @@ mod prompt09_partial_events {
     use std::task::{Context, Poll, Waker};
 
     use crate::{
-        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, Tailtriage,
-        TruncationSummary, SCHEMA_VERSION,
+        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, StageRelation,
+        Tailtriage, TruncationSummary, SCHEMA_VERSION,
     };
 
     fn poll_once<F: Future>(future: &mut std::pin::Pin<Box<F>>) -> Poll<F::Output> {
@@ -3907,6 +3977,36 @@ mod prompt09_partial_events {
         assert_eq!(ev.stage, "db");
         assert!(ev.completed);
         assert!(ev.success);
+        assert!(!ev.has_relation(StageRelation::BlockingPool));
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_records_completed_success_and_error() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let ok: Result<(), ()> = futures_executor::block_on(
+            started
+                .handle
+                .stage("decode-ok")
+                .relation(StageRelation::BlockingPool)
+                .relation(StageRelation::BlockingPool)
+                .await_on(ready(Ok(()))),
+        );
+        let error: Result<(), ()> = futures_executor::block_on(
+            started
+                .handle
+                .stage("decode-error")
+                .relation(StageRelation::BlockingPool)
+                .await_on(ready(Err(()))),
+        );
+        assert!(ok.is_ok());
+        assert!(error.is_err());
+        let run = tt.snapshot();
+        assert!(run
+            .stages
+            .iter()
+            .all(|event| { event.has_relation(StageRelation::BlockingPool) && event.completed }));
     }
 
     // TT-TEST: support
@@ -3918,6 +4018,21 @@ mod prompt09_partial_events {
         let ev = &tt.snapshot().stages[0];
         assert!(ev.completed);
         assert!(ev.success);
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_survives_await_value() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        futures_executor::block_on(
+            started
+                .handle
+                .stage("decode")
+                .relation(StageRelation::BlockingPool)
+                .await_value(ready(())),
+        );
+        assert!(tt.snapshot().stages[0].has_relation(StageRelation::BlockingPool));
     }
 
     // TT-TEST: support
@@ -3958,6 +4073,24 @@ mod prompt09_partial_events {
         assert!(!ev.completed);
         assert!(!ev.success);
         assert!(ev.latency_us <= ev.finished_at_run_us.unwrap_or(u64::MAX));
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_survives_partial_drop() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let fut = started
+            .handle
+            .stage("decode")
+            .relation(StageRelation::BlockingPool)
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let run = tt.snapshot();
+        assert!(!run.stages[0].completed);
+        assert!(run.stages[0].has_relation(StageRelation::BlockingPool));
     }
 
     // TT-TEST: K02 primary

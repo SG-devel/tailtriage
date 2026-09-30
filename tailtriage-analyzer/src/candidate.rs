@@ -1,5 +1,7 @@
 use crate::{
-    partial_evidence::EvidenceBasis, scoring::ExecutorConfidenceLimitation, DiagnosisKind, Suspect,
+    partial_evidence::EvidenceBasis,
+    scoring::{BlockingMeasurement, DownstreamMeasurement, ExecutorConfidenceLimitation},
+    DiagnosisKind, Suspect,
 };
 
 /// A magnitude result together with the support context needed by later phases.
@@ -8,6 +10,9 @@ pub(super) struct SupportedCandidate {
     pub(super) suspect: Suspect,
     pub(super) basis: EvidenceBasis,
     pub(super) executor_limitation: Option<ExecutorConfidenceLimitation>,
+    pub(super) relevant_support: usize,
+    pub(super) blocking_measurement: Option<BlockingMeasurement>,
+    pub(super) downstream_measurement: Option<DownstreamMeasurement>,
 }
 
 /// Owns the single selected representation for each diagnosis family.
@@ -47,15 +52,18 @@ impl FamilyCandidates {
     }
 }
 
-pub(super) fn completed_candidate(suspect: Suspect) -> SupportedCandidate {
+pub(super) fn completed_candidate(suspect: Suspect, relevant_support: usize) -> SupportedCandidate {
     SupportedCandidate {
         suspect,
         basis: EvidenceBasis::Completed,
         executor_limitation: None,
+        relevant_support,
+        blocking_measurement: None,
+        downstream_measurement: None,
     }
 }
 
 pub(super) fn fallback_candidate(suspect: Suspect) -> SupportedCandidate {
     debug_assert_eq!(suspect.kind, DiagnosisKind::InsufficientEvidence);
-    completed_candidate(suspect)
+    completed_candidate(suspect, 0)
 }
