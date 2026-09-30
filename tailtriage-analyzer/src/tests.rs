@@ -3342,7 +3342,7 @@ fn blocking_like_stage_name_has_no_relation_semantics() {
     assert!(report.related_groups.is_empty());
 }
 
-// TT-TEST: A12 primary
+// TT-TEST: support
 #[test]
 #[allow(clippy::too_many_lines)]
 fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_scores() {
@@ -3463,7 +3463,134 @@ fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_sco
     );
 }
 
-// TT-TEST: A12 primary
+// TT-TEST: A06 primary
+#[test]
+#[allow(clippy::too_many_lines)]
+fn related_representative_and_unrelated_candidate_are_ambiguity_peers() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            started_at_run_us: None,
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
+            latency_us: 4_000,
+            outcome: "ok".into(),
+        })
+        .collect();
+    for request in &run.requests {
+        run.stages.push(StageEvent {
+            request_id: request.request_id.clone(),
+            stage: "typed_blocking_work".into(),
+            relations: StageRelations::from_relation(StageRelation::BlockingPool),
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 3_600,
+            success: true,
+            completed: true,
+        });
+        run.queues.push(QueueEvent {
+            request_id: request.request_id.clone(),
+            queue: "admission".into(),
+            waited_from_unix_ms: 1,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 2,
+            waited_until_run_us: None,
+            wait_us: 3_600,
+            depth_at_start: Some(20),
+            completed: true,
+        });
+    }
+    run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(16)); 40];
+
+    let mut unrelated = run.clone();
+    for stage in &mut unrelated.stages {
+        stage.relations = StageRelations::default();
+    }
+    let independent = analyze_run(&unrelated, AnalyzeOptions::default()).unwrap();
+    let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    let group = report.related_groups.first().expect("one related group");
+    assert_eq!(
+        group.representative,
+        DiagnosisKind::DownstreamStageDominance
+    );
+    assert_eq!(group.members.len(), 2);
+
+    let suspects = std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        suspects
+            .iter()
+            .map(|suspect| &suspect.kind)
+            .collect::<Vec<_>>(),
+        vec![
+            &DiagnosisKind::ApplicationQueuePressure,
+            &DiagnosisKind::DownstreamStageDominance,
+        ],
+        "the related non-representative is absent while the unrelated family remains"
+    );
+    let options = AnalyzeOptions::default();
+    assert!(suspects.iter().all(|suspect| {
+        suspect.score >= options.confidence.ambiguity_min_score
+            && suspect.score.abs_diff(suspects[0].score) <= options.confidence.ambiguity_score_gap
+    }));
+    assert!(suspects
+        .iter()
+        .all(|suspect| suspect.score >= options.confidence.medium_score_threshold));
+
+    let ambiguity_note = "Top suspects are close in score; confidence is capped by ambiguity.";
+    let ambiguity_members = suspects
+        .iter()
+        .filter(|suspect| {
+            suspect
+                .confidence_notes
+                .iter()
+                .any(|note| note == ambiguity_note)
+        })
+        .count();
+    assert_eq!(ambiguity_members, 2);
+    assert!(suspects
+        .iter()
+        .all(|suspect| suspect.confidence == Confidence::Medium));
+    let has_warning = report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("ranking as ambiguous"));
+    assert_eq!(has_warning, ambiguity_members >= 2);
+
+    let score = |report: &Report, kind: DiagnosisKind| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .find(|suspect| suspect.kind == kind)
+            .map(|suspect| suspect.score)
+            .expect("family remains independently visible in the ungrouped control")
+    };
+    for kind in [
+        DiagnosisKind::ApplicationQueuePressure,
+        DiagnosisKind::BlockingPoolPressure,
+        DiagnosisKind::DownstreamStageDominance,
+    ] {
+        let expected = score(&independent, kind.clone());
+        if kind == DiagnosisKind::BlockingPoolPressure {
+            let blocking = group
+                .members
+                .iter()
+                .find(|member| member.diagnosis == kind)
+                .expect("blocking member remains structured evidence");
+            assert_eq!(blocking.relevant_support, 40);
+        } else {
+            assert_eq!(score(&report, kind), expected);
+        }
+    }
+}
+
+// TT-TEST: support
 #[test]
 fn unknown_relation_round_trips_but_is_analyzer_inert() {
     let mut run = test_run();
@@ -3496,7 +3623,7 @@ fn unknown_relation_round_trips_but_is_analyzer_inert() {
     assert!(report.related_groups.is_empty());
 }
 
-// TT-TEST: A12 primary
+// TT-TEST: support
 #[test]
 fn one_tagged_event_does_not_promote_same_named_untagged_evidence() {
     let mut run = test_run();

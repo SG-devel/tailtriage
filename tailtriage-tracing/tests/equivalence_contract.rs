@@ -2,6 +2,7 @@
 #[path = "support/equivalence_harness.rs"]
 mod equivalence_harness;
 use equivalence_harness::*;
+use tailtriage_analyzer::{DiagnosisKind, RelatedEvidenceBasis, RelatedEvidenceMeasurement};
 use tailtriage_core::{inspect_run, CaptureLimits, InFlightSnapshot, RuntimeSnapshot};
 
 fn pair(name: &str) -> (tailtriage_core::Run, tailtriage_core::Run) {
@@ -29,7 +30,7 @@ fn assert_reports(name: &str) {
     assert_eq!(report(&t), expected);
 }
 
-// TT-TEST: A12 primary
+// TT-TEST: F03 primary
 #[test]
 fn typed_blocking_relation_has_native_tracing_semantic_parity() {
     let (mut native, mut tracing) = pair("typed_blocking_relation");
@@ -57,12 +58,58 @@ fn typed_blocking_relation_has_native_tracing_semantic_parity() {
     assert_eq!(native_report.related_groups.len(), 1);
     let group = &native_report.related_groups[0];
     assert_eq!(group.relation, tailtriage_core::StageRelation::BlockingPool);
+    assert_eq!(group.representative, DiagnosisKind::BlockingPoolPressure);
     assert_eq!(group.members.len(), 2);
-    assert!(group
-        .members
+    let blocking = &group.members[0];
+    assert_eq!(blocking.diagnosis, DiagnosisKind::BlockingPoolPressure);
+    assert_eq!(blocking.stage, None);
+    assert_eq!(blocking.evidence_basis, RelatedEvidenceBasis::Completed);
+    assert_eq!(blocking.relevant_support, 40);
+    assert_eq!(
+        blocking.measurement,
+        RelatedEvidenceMeasurement::BlockingPool {
+            usable_snapshots: 40,
+            p95_depth: 16,
+            peak_depth: 16,
+            nonzero_share_permille: 1000,
+        }
+    );
+    let downstream = &group.members[1];
+    assert_eq!(
+        downstream.diagnosis,
+        DiagnosisKind::DownstreamStageDominance
+    );
+    assert_eq!(downstream.stage.as_deref(), Some("db"));
+    assert_eq!(downstream.evidence_basis, RelatedEvidenceBasis::Completed);
+    assert_eq!(downstream.relevant_support, 8);
+    assert_eq!(
+        downstream.measurement,
+        RelatedEvidenceMeasurement::DownstreamStage {
+            tail_contribution_permille: 425,
+            cumulative_contribution_permille: 425,
+        }
+    );
+    assert_eq!(
+        std::iter::once(&native_report.primary_suspect)
+            .chain(&native_report.secondary_suspects)
+            .map(|suspect| suspect.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            DiagnosisKind::ApplicationQueuePressure,
+            DiagnosisKind::BlockingPoolPressure,
+            DiagnosisKind::ExecutorPressure,
+        ]
+    );
+    assert!(!native_report
+        .warnings
         .iter()
-        .all(|member| member.relevant_support > 0));
-    assert!(!native_report.secondary_suspects.is_empty());
+        .any(|warning| warning.contains("ranking as ambiguous")));
+    assert!(std::iter::once(&native_report.primary_suspect)
+        .chain(&native_report.secondary_suspects)
+        .all(|suspect| suspect
+            .confidence_notes
+            .iter()
+            .all(|note| !note.contains("capped by ambiguity"))));
     assert_eq!(native_report.warnings, tracing_report.warnings);
 }
 fn limits() -> CaptureLimits {

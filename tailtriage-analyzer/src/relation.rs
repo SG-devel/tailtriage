@@ -143,7 +143,7 @@ mod tests {
         )
     }
 
-    // TT-TEST: A12 primary
+    // TT-TEST: support
     #[test]
     fn representative_order_prefers_maturity_before_support_or_magnitude() {
         let mature = candidate(DiagnosisKind::BlockingPoolPressure, 8, 1);
@@ -151,7 +151,7 @@ mod tests {
         assert!(representative_order(&mature, &sparse).is_gt());
     }
 
-    // TT-TEST: A12 primary
+    // TT-TEST: support
     #[test]
     fn representative_order_prefers_support_within_one_maturity_class() {
         let supported = candidate(DiagnosisKind::BlockingPoolPressure, 12, 1);
@@ -159,7 +159,7 @@ mod tests {
         assert!(representative_order(&supported, &weaker).is_gt());
     }
 
-    // TT-TEST: A12 primary
+    // TT-TEST: support
     #[test]
     fn representative_order_prefers_raw_magnitude_after_maturity_and_support_tie() {
         let lower = candidate(DiagnosisKind::BlockingPoolPressure, 20, 80);
@@ -167,7 +167,7 @@ mod tests {
         assert!(representative_order(&higher, &lower).is_gt());
     }
 
-    // TT-TEST: A12 primary
+    // TT-TEST: support
     #[test]
     fn representative_order_uses_stable_family_order_for_exact_tie() {
         let blocking = candidate(DiagnosisKind::BlockingPoolPressure, 20, 80);
