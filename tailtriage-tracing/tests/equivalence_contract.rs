@@ -28,6 +28,43 @@ fn assert_reports(name: &str) {
     assert_eq!(report(&n), expected);
     assert_eq!(report(&t), expected);
 }
+
+// TT-TEST: A12 primary
+#[test]
+fn typed_blocking_relation_has_native_tracing_semantic_parity() {
+    let (mut native, mut tracing) = pair("typed_blocking_relation");
+    for run in [&mut native, &mut tracing] {
+        run.runtime_snapshots = (0..40)
+            .map(|at| RuntimeSnapshot {
+                at_unix_ms: at,
+                at_run_us: None,
+                alive_tasks: Some(1),
+                worker_count: Some(1),
+                global_queue_depth: Some(1),
+                local_queue_depth: Some(1),
+                blocking_queue_depth: Some(16),
+                remote_schedule_count: None,
+            })
+            .collect();
+    }
+    assert_eq!(native.stages, tracing.stages);
+    let native_report = typed_report(&native);
+    let tracing_report = typed_report(&tracing);
+    assert_eq!(
+        project_report(&native_report),
+        project_report(&tracing_report)
+    );
+    assert_eq!(native_report.related_groups.len(), 1);
+    let group = &native_report.related_groups[0];
+    assert_eq!(group.relation, tailtriage_core::StageRelation::BlockingPool);
+    assert_eq!(group.members.len(), 2);
+    assert!(group
+        .members
+        .iter()
+        .all(|member| member.relevant_support > 0));
+    assert!(!native_report.secondary_suspects.is_empty());
+    assert_eq!(native_report.warnings, tracing_report.warnings);
+}
 fn limits() -> CaptureLimits {
     CaptureLimits {
         max_requests: 2,

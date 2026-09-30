@@ -124,11 +124,10 @@ score = 32 + min(P, 24) + floor(min(K, 24) / 2)
 
 The score is soft-capped at 94 unless `P >= 16`, `K >= 24`, and `Z >= 900`.
 Evidence reports p95, peak, and `N/T`; next checks audit synchronous hot-path
-work and `spawn_blocking` call sites. The configurable “strong blocking” test
-requires all of `blocking.strong_p95_threshold`, `strong_peak_threshold`,
-`strong_nonzero_share_permille`, and `strong_min_samples`. It does not alter
-the blocking score; it controls correlation with blocking-looking downstream
-stage names.
+work and `spawn_blocking` call sites. These constants belong only to the private
+blocking magnitude formula. Blocking/downstream grouping uses typed
+`StageRelation::BlockingPool` metadata and never stage-name inference or a
+separate blocking-strength gate.
 
 Runtime truncation or missing/partial key runtime fields can cap confidence.
 
@@ -352,10 +351,6 @@ also printed by `tailtriage analyzer-options`:
 | --- | --- | --- | --- |
 | `queueing.trigger_permille` | 300 | permille | queue candidate trigger |
 | `blocking.min_nonzero_samples_for_signal` | 2 | samples | zero-p95 blocking eligibility |
-| `blocking.strong_p95_threshold` | 12 | depth | blocking-correlation strength |
-| `blocking.strong_peak_threshold` | 20 | depth | blocking-correlation strength |
-| `blocking.strong_nonzero_share_permille` | 700 | permille | blocking-correlation strength |
-| `blocking.strong_min_samples` | 30 | samples | blocking-correlation strength |
 | `executor.min_global_queue_p95_for_signal` | 1 | depth | legacy executor trigger |
 | `executor.min_runnable_queue_per_worker_p95_milli_for_signal` | 500 | milli-tasks/worker | normalized executor trigger |
 | `downstream.min_stage_samples` | 3 | distinct requests | stage eligibility |

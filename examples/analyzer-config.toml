@@ -6,10 +6,6 @@ trigger_permille = 400
 
 [analyzer.blocking]
 min_nonzero_samples_for_signal = 2
-strong_p95_threshold = 12
-strong_peak_threshold = 20
-strong_nonzero_share_permille = 700
-strong_min_samples = 30
 
 [analyzer.executor]
 # Historical or ambiguous artifacts without complete worker-count evidence only.

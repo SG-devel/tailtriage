@@ -26,6 +26,7 @@ pub struct ComparableStage {
     pub latency_us: u64,
     pub started_at_run_us: Option<u64>,
     pub finished_at_run_us: Option<u64>,
+    pub relations: Value,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComparableQueue {
@@ -103,6 +104,7 @@ pub fn project_run(run: &Run) -> Result<RepresentableRunProjection, UnsupportedP
                 latency_us: x.latency_us,
                 started_at_run_us: x.started_at_run_us,
                 finished_at_run_us: x.finished_at_run_us,
+                relations: serde_json::to_value(&x.relations).unwrap(),
             })
             .collect(),
         queues: run
@@ -141,6 +143,7 @@ pub struct ComparableReportProjection {
     pub warnings: Vec<String>,
     pub route_breakdowns: Value,
     pub temporal_segments: Value,
+    pub related_groups: Value,
 }
 pub fn project_report(r: &Report) -> ComparableReportProjection {
     let v = serde_json::to_value(r).unwrap();
@@ -163,6 +166,7 @@ pub fn project_report(r: &Report) -> ComparableReportProjection {
         warnings: r.warnings.clone(),
         route_breakdowns: v["route_breakdowns"].clone(),
         temporal_segments: temporal,
+        related_groups: v["related_groups"].clone(),
     }
 }
 pub fn fixture_path(name: &str) -> std::path::PathBuf {

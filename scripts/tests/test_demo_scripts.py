@@ -141,6 +141,32 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertIn("blocking_depth_decreases", demo_tool.evaluate_live_scenario("blocking", before, after)["failed_expectations"])
 
     # TT-TEST: D02 primary
+    def test_blocking_policy_accepts_measured_related_group_without_vacuous_score(self):
+        def grouped(depth):
+            report = self._report(
+                "downstream_stage_dominance",
+                p95=1_000 if depth == 10 else 500,
+                evidence=[f"Blocking queue depth p95 is {depth}"],
+            )
+            report["related_groups"] = [{
+                "relation": "blocking_pool",
+                "representative": "downstream_stage_dominance",
+                "members": [{
+                    "diagnosis": "blocking_pool_pressure",
+                    "measurement": {"kind": "blocking_pool", "p95_depth": depth},
+                }],
+            }]
+            return report
+
+        result = demo_tool.evaluate_live_scenario("blocking", grouped(10), grouped(5))
+        self.assertTrue(result["checks"]["baseline_targeted"])
+        self.assertTrue(result["checks"]["targeted_score_nonworsening"])
+        missing = grouped(5)
+        missing["related_groups"] = []
+        failed = demo_tool.evaluate_live_scenario("blocking", grouped(10), missing)
+        self.assertFalse(failed["checks"]["targeted_score_nonworsening"])
+
+    # TT-TEST: D02 primary
     def test_executor_and_extended_semantics_remain(self):
         executor=self._report("executor_pressure", evidence=["Blocking queue depth p95 is 4"])
         result=demo_tool.evaluate_live_scenario("executor", executor, self._report("executor_pressure", p95=500))

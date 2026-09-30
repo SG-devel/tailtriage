@@ -12,8 +12,8 @@ use super::temporal::{
 use crate::{
     analyze_run, analyze_run_internal, evidence, render_json, render_json_pretty, render_text,
     AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality,
-    EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
-    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    EvidenceQualityLevel, InflightTrend, RelatedEvidenceMeasurement, Report, SignalCoverageStatus,
+    Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -3344,6 +3344,7 @@ fn blocking_like_stage_name_has_no_relation_semantics() {
 
 // TT-TEST: A12 primary
 #[test]
+#[allow(clippy::too_many_lines)]
 fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_scores() {
     let mut run = test_run();
     run.requests = (0..40)
@@ -3393,6 +3394,15 @@ fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_sco
     );
     assert_eq!(group.members[0].relevant_support, 40);
     assert_eq!(
+        group.members[0].measurement,
+        RelatedEvidenceMeasurement::BlockingPool {
+            usable_snapshots: 40,
+            p95_depth: 16,
+            peak_depth: 16,
+            nonzero_share_permille: 1000,
+        }
+    );
+    assert_eq!(
         group.members[1..]
             .iter()
             .map(|member| member.stage.as_deref().unwrap())
@@ -3428,6 +3438,20 @@ fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_sco
         "each related stage remains separately represented"
     );
     assert_eq!(
+        group.members[1].measurement,
+        RelatedEvidenceMeasurement::DownstreamStage {
+            tail_contribution_permille: 475,
+            cumulative_contribution_permille: 475,
+        }
+    );
+    assert_eq!(
+        group.members[2].measurement,
+        RelatedEvidenceMeasurement::DownstreamStage {
+            tail_contribution_permille: 375,
+            cumulative_contribution_permille: 375,
+        }
+    );
+    assert_eq!(
         related
             .primary_suspect
             .confidence_notes
@@ -3437,6 +3461,73 @@ fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_sco
         0,
         "a related pair cannot create ambiguity with itself"
     );
+}
+
+// TT-TEST: A12 primary
+#[test]
+fn unknown_relation_round_trips_but_is_analyzer_inert() {
+    let mut run = test_run();
+    run.requests = (0..40).map(|i| sample_request(i + 1)).collect();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|request| StageEvent {
+            request_id: request.request_id.clone(),
+            stage: "neutral".into(),
+            relations: serde_json::from_value(serde_json::json!(["future_relation"]))
+                .expect("unknown relation remains supported wire data"),
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 900,
+            success: true,
+            completed: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
+    let encoded = serde_json::to_value(&run).unwrap();
+    assert!(encoded["stages"][0]["relations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "future_relation"));
+    let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    assert!(report.related_groups.is_empty());
+}
+
+// TT-TEST: A12 primary
+#[test]
+fn one_tagged_event_does_not_promote_same_named_untagged_evidence() {
+    let mut run = test_run();
+    run.requests = (0..40).map(|i| sample_request(i + 1)).collect();
+    run.stages = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(index, request)| StageEvent {
+            request_id: request.request_id.clone(),
+            stage: "same_name".into(),
+            relations: if index == 0 {
+                StageRelations::from_relation(StageRelation::BlockingPool)
+            } else {
+                StageRelations::default()
+            },
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 900,
+            success: true,
+            completed: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
+    let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    assert!(report.related_groups.is_empty());
+    assert!(std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominance));
 }
 
 // TT-TEST: support
@@ -5349,10 +5440,6 @@ fn analyze_options_defaults_match_v1_surface() {
     let options = AnalyzeOptions::default();
     assert_eq!(options.queueing.trigger_permille, 300);
     assert_eq!(options.blocking.min_nonzero_samples_for_signal, 2);
-    assert_eq!(options.blocking.strong_p95_threshold, 12);
-    assert_eq!(options.blocking.strong_peak_threshold, 20);
-    assert_eq!(options.blocking.strong_nonzero_share_permille, 700);
-    assert_eq!(options.blocking.strong_min_samples, 30);
     assert_eq!(options.executor.min_global_queue_p95_for_signal, 1);
     assert_eq!(options.downstream.min_stage_samples, 3);
     assert_eq!(options.confidence.medium_score_threshold, 65);
@@ -5395,16 +5482,6 @@ fn analyze_options_validate_rejects_invalid_classes() {
         {
             let o = &mut options.queueing;
             o.trigger_permille = 1001;
-        }
-        options
-    }
-    .validate()
-    .is_err());
-    assert!({
-        let mut options = AnalyzeOptions::default();
-        {
-            let o = &mut options.blocking;
-            o.strong_nonzero_share_permille = 1001;
         }
         options
     }
@@ -5656,10 +5733,6 @@ fn descriptors_have_unique_and_exact_v1_paths() {
     let expected = [
         "queueing.trigger_permille",
         "blocking.min_nonzero_samples_for_signal",
-        "blocking.strong_p95_threshold",
-        "blocking.strong_peak_threshold",
-        "blocking.strong_nonzero_share_permille",
-        "blocking.strong_min_samples",
         "executor.min_global_queue_p95_for_signal",
         "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
         "downstream.min_stage_samples",
@@ -5701,22 +5774,6 @@ fn descriptor_defaults_match_analyze_options_defaults() {
         (
             "blocking.min_nonzero_samples_for_signal",
             opts.blocking.min_nonzero_samples_for_signal.to_string(),
-        ),
-        (
-            "blocking.strong_p95_threshold",
-            opts.blocking.strong_p95_threshold.to_string(),
-        ),
-        (
-            "blocking.strong_peak_threshold",
-            opts.blocking.strong_peak_threshold.to_string(),
-        ),
-        (
-            "blocking.strong_nonzero_share_permille",
-            opts.blocking.strong_nonzero_share_permille.to_string(),
-        ),
-        (
-            "blocking.strong_min_samples",
-            opts.blocking.strong_min_samples.to_string(),
         ),
         (
             "executor.min_global_queue_p95_for_signal",
@@ -6316,8 +6373,8 @@ fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
     let base = {
         let mut options = AnalyzeOptions::default();
         {
-            let o = &mut options.blocking;
-            o.strong_p95_threshold = 99;
+            let o = &mut options.executor;
+            o.min_global_queue_p95_for_signal = 99;
         }
         options
     };
@@ -6325,7 +6382,7 @@ fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
         .merge_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=410\n")
         .expect("merge");
     assert_eq!(merged.queueing.trigger_permille, 410);
-    assert_eq!(merged.blocking.strong_p95_threshold, 99);
+    assert_eq!(merged.executor.min_global_queue_p95_for_signal, 99);
 }
 
 // TT-TEST: support

@@ -123,3 +123,55 @@ const fn kind_tie_rank(kind: &DiagnosisKind) -> u8 {
         DiagnosisKind::InsufficientEvidence => 255,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{candidate::completed_candidate, Suspect};
+
+    fn candidate(kind: DiagnosisKind, support: usize, score: u8) -> SupportedCandidate {
+        completed_candidate(
+            Suspect {
+                kind,
+                score,
+                confidence: Confidence::High,
+                evidence: Vec::new(),
+                next_checks: Vec::new(),
+                confidence_notes: Vec::new(),
+            },
+            support,
+        )
+    }
+
+    // TT-TEST: A12 primary
+    #[test]
+    fn representative_order_prefers_maturity_before_support_or_magnitude() {
+        let mature = candidate(DiagnosisKind::BlockingPoolPressure, 8, 1);
+        let sparse = candidate(DiagnosisKind::DownstreamStageDominance, 7, 100);
+        assert!(representative_order(&mature, &sparse).is_gt());
+    }
+
+    // TT-TEST: A12 primary
+    #[test]
+    fn representative_order_prefers_support_within_one_maturity_class() {
+        let supported = candidate(DiagnosisKind::BlockingPoolPressure, 12, 1);
+        let weaker = candidate(DiagnosisKind::DownstreamStageDominance, 8, 100);
+        assert!(representative_order(&supported, &weaker).is_gt());
+    }
+
+    // TT-TEST: A12 primary
+    #[test]
+    fn representative_order_prefers_raw_magnitude_after_maturity_and_support_tie() {
+        let lower = candidate(DiagnosisKind::BlockingPoolPressure, 20, 80);
+        let higher = candidate(DiagnosisKind::DownstreamStageDominance, 20, 81);
+        assert!(representative_order(&higher, &lower).is_gt());
+    }
+
+    // TT-TEST: A12 primary
+    #[test]
+    fn representative_order_uses_stable_family_order_for_exact_tie() {
+        let blocking = candidate(DiagnosisKind::BlockingPoolPressure, 20, 80);
+        let downstream = candidate(DiagnosisKind::DownstreamStageDominance, 20, 80);
+        assert!(representative_order(&blocking, &downstream).is_gt());
+    }
+}

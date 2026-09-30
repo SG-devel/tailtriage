@@ -40,7 +40,8 @@
       "completed": true,
       "latency_us": 20000,
       "started_at_run_us": 30000,
-      "finished_at_run_us": 50000
+      "finished_at_run_us": 50000,
+      "relations": []
     },
     {
       "request_id": "limit-2",
@@ -49,7 +50,8 @@
       "completed": true,
       "latency_us": 20000,
       "started_at_run_us": 130000,
-      "finished_at_run_us": 150000
+      "finished_at_run_us": 150000,
+      "relations": []
     }
   ],
   "queues": [

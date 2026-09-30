@@ -27,10 +27,6 @@ struct QueueingOptionsToml {
 #[serde(deny_unknown_fields)]
 struct BlockingOptionsToml {
     min_nonzero_samples_for_signal: Option<usize>,
-    strong_p95_threshold: Option<u64>,
-    strong_peak_threshold: Option<u64>,
-    strong_nonzero_share_permille: Option<u64>,
-    strong_min_samples: Option<usize>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -142,26 +138,6 @@ fn collect_updates(config: &AnalyzerTomlConfig, updates: &mut Vec<(&'static str,
             updates,
             "blocking.min_nonzero_samples_for_signal",
             p.min_nonzero_samples_for_signal.map(OptionValue::Usize),
-        );
-        push_update(
-            updates,
-            "blocking.strong_p95_threshold",
-            p.strong_p95_threshold.map(OptionValue::U64),
-        );
-        push_update(
-            updates,
-            "blocking.strong_peak_threshold",
-            p.strong_peak_threshold.map(OptionValue::U64),
-        );
-        push_update(
-            updates,
-            "blocking.strong_nonzero_share_permille",
-            p.strong_nonzero_share_permille.map(OptionValue::U64),
-        );
-        push_update(
-            updates,
-            "blocking.strong_min_samples",
-            p.strong_min_samples.map(OptionValue::Usize),
         );
     }
     if let Some(p) = &config.executor {

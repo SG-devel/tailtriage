@@ -6,11 +6,9 @@ remain evidence-ranked triage leads, not proof of root cause.
 
 ## 0.4 analyzer target ownership map
 
-This map is the destination for proof ownership during the 0.4 redesign. It reuses A01–A13 rather
-than creating a parallel registry, and it does **not** claim that target semantics are already
-implemented or proved. Until each cutover lands with its executable proof updates, the current
-invariant-registry rows below remain authoritative—for example, current A06 continues to describe
-raw-score-cluster ambiguity even though target A06 will own independent ambiguity.
+This map records proof ownership during the 0.4 redesign. It reuses A01–A13 rather than creating
+a parallel registry. The invariant-registry rows below remain authoritative for activated
+semantics; later calibration remains explicitly deferred in the analyzer design ledger.
 
 | ID | Target 0.4 semantic ownership |
 | --- | --- |
@@ -69,7 +67,7 @@ raw-score-cluster ambiguity even though target A06 will own independent ambiguit
 | A03 | Missing local depth is a normalized lower bound, including worker-count historical fallback | analyzer scoring | Focused executable regression tests for the owning component | executor_pressure golden | unit + golden, gate/CI |
 | A04 | Relevant-support maturity and candidate-local limitations compose before ambiguity with stable notes | analyzer confidence/evidence | Focused executable regression tests for the owning component | goldens and diagnostic partial/truncation cases | unit + golden/integration, gate/CI |
 | A05 | Final ranking is support/confidence-first, then raw magnitude, then stable kind | analyzer lib.rs, confidence | Focused executable regression tests for the owning component | ranking-flip JSON and text rendering boundary | unit + serialization, gate/CI |
-| A06 | Ambiguity uses raw-score cluster semantics and caps members uniformly | analyzer confidence | Focused executable regression tests for the owning component | mixed analyzer goldens | unit + golden, gate/CI |
+| A06 | Only remaining independent candidates with at least Medium pre-ambiguity confidence participate in the unchanged raw-score minimum-and-gap cluster; warning and confidence-cap membership agree | analyzer confidence and relation resolution | Focused executable low-confidence, unrelated-peer, related-pair, related-group-plus-third, and warning/cap consistency tests | mixed analyzer goldens and architecture sentinels | unit + golden, gate/CI |
 | A07 | Warning and evidence-quality status/caps reflect missing, partial, truncated evidence | analyzer evidence/partial modules | Focused executable regression tests for the owning component | diagnostic manifest report contracts and executable partial corpus | unit + integration, gate/CI |
 | A08 | Route analysis is excluded for a single/common route; divergent routes are sorted without changing global result | route.rs, slicing.rs | Focused executable regression tests for the owning component | scoped_route golden | unit + golden, gate/CI |
 | A09 | Temporal analysis excludes insignificant/sparse cases, scopes runtime/inflight, and preserves global result | temporal.rs, slicing.rs | Focused executable regression tests for the owning component | scoped_temporal golden | exhaustive small-domain + golden, gate/CI |

@@ -278,25 +278,23 @@ numeric calibration remains unknown.
 - **Provenance:** Present-purpose inference; exact persistence default and score
   weights have unknown provenance.
 
-### AN-BLOCK-002 — Strong-blocking calibration
+### AN-BLOCK-002 — Typed blocking/downstream relation policy
 
-- **Rule or default:** Configured thresholds define when blocking-pool evidence
-  is independently strong for downstream correlation; they do not change the
-  blocking score;
+- **Rule or default:** Known `StageRelation::BlockingPool` metadata is the only
+  blocking/downstream relation source. Independently eligible families group
+  without changing either raw score;
   see [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure) and
   [downstream dominance](../diagnostics.md#downstream-stage-dominance).
-- **Classification:** Calibrated heuristic.
-- **Problem addressed:** Ordinary blocking eligibility is too weak to justify
-  constraining a separately observed stage.
-- **Why this shape:** Present-purpose inference: require independently material
-  runtime evidence without adding it to the blocking score.
-- **Tradeoff:** True relationships below either boundary are not correlated.
-- **Proof owner:** Strong-blocking boundary tests in
-  `tailtriage-analyzer/src/tests.rs`.
-- **Revision criteria:** Require representative blocking captures and
-  false-correlation cases demonstrating better strong-evidence boundaries.
-- **Provenance:** Present-purpose inference for the policy; exact thresholds
-  have unknown provenance.
+- **Classification:** Hard provenance contract with deterministic representative policy.
+- **Problem addressed:** Stage names cannot safely establish semantic relation, and
+  related evidence must not compete twice in ranking or ambiguity.
+- **Why this shape:** Typed producer-owned metadata is explicit; maturity, support,
+  magnitude, then stable family order select one R-B representative.
+- **Tradeoff:** Untagged or ambiguously mixed evidence remains independent.
+- **Proof owner:** Relation resolver key-order, provenance, member-measurement, and
+  native/tracing parity tests.
+- **Revision criteria:** Require a new typed relation contract and compatibility analysis.
+- **Provenance:** EVIDENCE-02 typed-relation cutover.
 
 ## Executor diagnosis and compatibility
 

@@ -94,7 +94,8 @@
       "completed": true,
       "latency_us": 10000,
       "started_at_run_us": 10000,
-      "finished_at_run_us": 20000
+      "finished_at_run_us": 20000,
+      "relations": []
     },
     {
       "request_id": "route-2",
@@ -103,7 +104,8 @@
       "completed": true,
       "latency_us": 10000,
       "started_at_run_us": 210000,
-      "finished_at_run_us": 220000
+      "finished_at_run_us": 220000,
+      "relations": []
     },
     {
       "request_id": "route-3",
@@ -112,7 +114,8 @@
       "completed": true,
       "latency_us": 10000,
       "started_at_run_us": 410000,
-      "finished_at_run_us": 420000
+      "finished_at_run_us": 420000,
+      "relations": []
     },
     {
       "request_id": "route-4",
@@ -121,7 +124,8 @@
       "completed": true,
       "latency_us": 10000,
       "started_at_run_us": 610000,
-      "finished_at_run_us": 620000
+      "finished_at_run_us": 620000,
+      "relations": []
     },
     {
       "request_id": "route-5",
@@ -130,7 +134,8 @@
       "completed": true,
       "latency_us": 75000,
       "started_at_run_us": 810000,
-      "finished_at_run_us": 885000
+      "finished_at_run_us": 885000,
+      "relations": []
     },
     {
       "request_id": "route-6",
@@ -139,7 +144,8 @@
       "completed": true,
       "latency_us": 75000,
       "started_at_run_us": 1010000,
-      "finished_at_run_us": 1085000
+      "finished_at_run_us": 1085000,
+      "relations": []
     },
     {
       "request_id": "route-7",
@@ -148,7 +154,8 @@
       "completed": true,
       "latency_us": 75000,
       "started_at_run_us": 1210000,
-      "finished_at_run_us": 1285000
+      "finished_at_run_us": 1285000,
+      "relations": []
     },
     {
       "request_id": "route-8",
@@ -157,7 +164,8 @@
       "completed": true,
       "latency_us": 75000,
       "started_at_run_us": 1410000,
-      "finished_at_run_us": 1485000
+      "finished_at_run_us": 1485000,
+      "relations": []
     }
   ],
   "queues": [

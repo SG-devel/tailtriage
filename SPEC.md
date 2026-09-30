@@ -231,7 +231,7 @@ Analyzer output includes:
 - canonical core validation warnings in permissive analysis when generic Run evidence is excluded, canonicalized, or precision-limited
 - primary and secondary suspects with evidence and next checks
 
-Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, all ambiguity-cluster members are capped uniformly, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last. After typed relation resolution, only remaining independent candidates with at least Medium pre-ambiguity confidence participate in the unchanged raw-score minimum-and-gap cluster; all cluster members are capped uniformly. A lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
 
 Schema contract:
 

@@ -83,30 +83,12 @@ pub struct BlockingOptions {
     /// Minimum count of non-zero blocking-queue samples needed for a blocking signal.
     /// Default: `2`. The semantic validator permits zero.
     pub min_nonzero_samples_for_signal: usize,
-    /// Blocking queue-depth p95 count used for stronger blocking-pressure evidence.
-    /// Default: `12`. The semantic validator permits zero.
-    pub strong_p95_threshold: u64,
-    /// Blocking queue-depth peak count used for stronger blocking-pressure evidence.
-    /// Default: `20`. The semantic validator permits zero.
-    pub strong_peak_threshold: u64,
-    /// Minimum share of non-zero blocking samples for stronger blocking-pressure evidence.
-    ///
-    /// Unit: permille. Default: `700`. Valid range: `0..=1000`; larger values fail
-    /// [`AnalyzeOptions::validate`] with [`AnalyzeConfigError::InvalidConfigValue`].
-    pub strong_nonzero_share_permille: u64,
-    /// Minimum blocking-sample count before strong blocking heuristics can trigger.
-    /// Default: `30`. The semantic validator permits zero.
-    pub strong_min_samples: usize,
 }
 
 impl Default for BlockingOptions {
     fn default() -> Self {
         Self {
             min_nonzero_samples_for_signal: 2,
-            strong_p95_threshold: 12,
-            strong_peak_threshold: 20,
-            strong_nonzero_share_permille: 700,
-            strong_min_samples: 30,
         }
     }
 }
@@ -301,12 +283,6 @@ impl AnalyzeOptions {
             |path, message: String| Err(AnalyzeConfigError::InvalidConfigValue { path, message });
         if self.queueing.trigger_permille > 1000 {
             return invalid("queueing.trigger_permille", "must be <= 1000".into());
-        }
-        if self.blocking.strong_nonzero_share_permille > 1000 {
-            return invalid(
-                "blocking.strong_nonzero_share_permille",
-                "must be <= 1000".into(),
-            );
         }
         if self.confidence.medium_score_threshold > self.confidence.high_score_threshold {
             return invalid(

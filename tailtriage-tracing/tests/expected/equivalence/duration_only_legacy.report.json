@@ -58,5 +58,6 @@
     "No runtime snapshots captured; executor and blocking-pressure interpretation is limited."
   ],
   "route_breakdowns": [],
-  "temporal_segments": []
+  "temporal_segments": [],
+  "related_groups": null
 }
