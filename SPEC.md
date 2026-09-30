@@ -182,7 +182,7 @@ Users can depend on `tailtriage-tracing` directly for the narrow crate boundary,
 - CLI imports that wrapper shape with:
   `tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run.json>`
 - stage-only tracing source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, non-string values follow tracing strictness, request/queue values and names have no relation effect, and the stable wrapper remains v1
-- native direct capture and tracing intake both produce standard `Run` artifacts with the same typed relation metadata; the analyzer does not consume typed relations yet
+- native direct capture and tracing intake both produce standard `Run` artifacts with the same typed relation metadata; the analyzer uses known typed relations to group independently eligible blocking and downstream evidence
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
@@ -231,7 +231,7 @@ Analyzer output includes:
 - canonical core validation warnings in permissive analysis when generic Run evidence is excluded, canonicalized, or precision-limited
 - primary and secondary suspects with evidence and next checks
 
-Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, all ambiguity-cluster members are capped uniformly, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last. After typed relation resolution, only remaining independent candidates with at least Medium pre-ambiguity confidence participate in the unchanged raw-score minimum-and-gap cluster; all cluster members are capped uniformly. A lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
 
 Schema contract:
 

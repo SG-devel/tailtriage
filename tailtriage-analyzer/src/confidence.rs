@@ -23,6 +23,8 @@ pub(super) fn apply_evidence_aware_confidence_caps(
             basis: EvidenceBasis::Completed,
             executor_limitation: None,
             relevant_support: 20,
+            blocking_measurement: None,
+            downstream_measurement: None,
         })
         .collect::<Vec<_>>();
     apply_evidence_aware_confidence_caps_scored(&mut scored, run, evidence_quality, options);
@@ -232,7 +234,10 @@ pub(super) fn current_ambiguity_cluster_indices(
     let mut ranked = suspects
         .iter()
         .enumerate()
-        .filter(|(_, s)| s.suspect.kind != DiagnosisKind::InsufficientEvidence)
+        .filter(|(_, s)| {
+            s.suspect.kind != DiagnosisKind::InsufficientEvidence
+                && s.suspect.confidence >= Confidence::Medium
+        })
         .collect::<Vec<_>>();
     ranked.sort_by_key(|(_, s)| std::cmp::Reverse(s.suspect.score));
     let Some((_, top)) = ranked.first() else {

@@ -76,19 +76,17 @@
       ],
       "notes": "Blocking pool backlog is intentional pre-fix condition.",
       "expected_primary_kinds": [
-        "blocking_pool_pressure"
+        "downstream_stage_dominance"
       ],
       "required_visible_suspects": [
-        "blocking_pool_pressure"
+        "downstream_stage_dominance"
       ],
-      "exact_primary_kind": "blocking_pool_pressure",
+      "exact_primary_kind": "downstream_stage_dominance",
       "must_include_evidence": [
-        "Blocking queue depth"
+        "Stage"
       ],
       "must_include_next_checks": [],
       "expected_warnings": [
-        "missing blocking_queue_depth or local_queue_depth",
-        "Top suspects are close in score",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
       "allowed_warnings": [],
@@ -122,7 +120,6 @@
       ],
       "must_include_next_checks": [],
       "expected_warnings": [
-        "missing blocking_queue_depth or local_queue_depth",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
       "allowed_warnings": [

@@ -6,10 +6,6 @@ trigger_permille = 400
 
 [analyzer.blocking]
 min_nonzero_samples_for_signal = 2
-strong_p95_threshold = 12
-strong_peak_threshold = 20
-strong_nonzero_share_permille = 700
-strong_min_samples = 30
 
 [analyzer.executor]
 # Historical or ambiguous artifacts without complete worker-count evidence only.
@@ -19,9 +15,7 @@ min_runnable_queue_per_worker_p95_milli_for_signal = 500
 
 [analyzer.downstream]
 # Patterns are substring matches used for blocking-correlation heuristics.
-blocking_correlated_stage_patterns = ["spawn_blocking", "blocking_path", "blocking"]
 min_stage_samples = 3
-blocking_correlation_score_margin = 2
 
 [analyzer.confidence]
 medium_score_threshold = 65

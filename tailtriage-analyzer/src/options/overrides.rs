@@ -57,15 +57,9 @@ mod tests {
     const EXPECTED_PATHS: &[&str] = &[
         "queueing.trigger_permille",
         "blocking.min_nonzero_samples_for_signal",
-        "blocking.strong_p95_threshold",
-        "blocking.strong_peak_threshold",
-        "blocking.strong_nonzero_share_permille",
-        "blocking.strong_min_samples",
         "executor.min_global_queue_p95_for_signal",
         "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
         "downstream.min_stage_samples",
-        "downstream.blocking_correlated_stage_patterns",
-        "downstream.blocking_correlation_score_margin",
         "confidence.medium_score_threshold",
         "confidence.high_score_threshold",
         "confidence.ambiguity_min_score",
@@ -109,30 +103,6 @@ mod tests {
             summary: "3",
         },
         Case {
-            path: "blocking.strong_p95_threshold",
-            cli: "15",
-            toml: "15",
-            summary: "15",
-        },
-        Case {
-            path: "blocking.strong_peak_threshold",
-            cli: "25",
-            toml: "25",
-            summary: "25",
-        },
-        Case {
-            path: "blocking.strong_nonzero_share_permille",
-            cli: "750",
-            toml: "750",
-            summary: "750",
-        },
-        Case {
-            path: "blocking.strong_min_samples",
-            cli: "40",
-            toml: "40",
-            summary: "40",
-        },
-        Case {
             path: "executor.min_global_queue_p95_for_signal",
             cli: "2",
             toml: "2",
@@ -143,18 +113,6 @@ mod tests {
             cli: "5",
             toml: "5",
             summary: "5",
-        },
-        Case {
-            path: "downstream.blocking_correlated_stage_patterns",
-            cli: "db, cache",
-            toml: "[\"db\", \"cache\"]",
-            summary: "db,cache",
-        },
-        Case {
-            path: "downstream.blocking_correlation_score_margin",
-            cli: "3",
-            toml: "3",
-            summary: "3",
         },
         Case {
             path: "confidence.medium_score_threshold",
@@ -285,7 +243,7 @@ mod tests {
             .map(crate::AnalyzeOptionDescriptor::path)
             .collect();
         let unique: HashSet<_> = paths.iter().copied().collect();
-        assert_eq!(paths.len(), 30);
+        assert_eq!(paths.len(), 24);
         assert_eq!(paths.len(), unique.len());
         assert_eq!(paths, EXPECTED_PATHS);
     }
@@ -303,7 +261,7 @@ mod tests {
     // TT-TEST: Q01 secondary
     #[test]
     fn every_registered_path_accepts_equivalent_cli_and_toml_value() {
-        assert_eq!(CASES.len(), 29);
+        assert_eq!(CASES.len(), 23);
         for case in CASES {
             let mut cli = AnalyzeOptions::default();
             cli.apply_override(&format!("{}={}", case.path, case.cli))
@@ -337,7 +295,7 @@ mod tests {
             .apply_overrides([
                 "temporal.share_shift_permille=250",
                 "queueing.trigger_permille=250",
-                "blocking.strong_p95_threshold=15",
+                "executor.min_global_queue_p95_for_signal=2",
             ])
             .expect("valid overrides");
         let paths: Vec<_> = options
@@ -348,7 +306,7 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                "blocking.strong_p95_threshold",
+                "executor.min_global_queue_p95_for_signal",
                 "queueing.trigger_permille",
                 "temporal.share_shift_permille",
             ]
@@ -379,17 +337,25 @@ mod tests {
         }
     }
 
-    // TT-TEST: support
+    // TT-TEST: A13 primary
     #[test]
-    fn toml_string_list_preserves_commas_inside_items() {
-        let options = AnalyzeOptions::from_toml_str(
-            "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns = ['db,primary', 'cache']\n",
-        )
-        .expect("valid typed TOML list");
-        assert_eq!(
-            options.downstream.blocking_correlated_stage_patterns,
-            vec!["db,primary", "cache"]
-        );
+    fn removed_strong_blocking_paths_are_not_supported() {
+        for path in [
+            "blocking.strong_p95_threshold",
+            "blocking.strong_peak_threshold",
+            "blocking.strong_nonzero_share_permille",
+            "blocking.strong_min_samples",
+        ] {
+            assert!(matches!(
+                AnalyzeOptions::default().apply_override(&format!("{path}=1")),
+                Err(AnalyzeConfigError::UnknownOverridePath { .. })
+            ));
+            let field = path.strip_prefix("blocking.").unwrap();
+            assert!(AnalyzeOptions::from_toml_str(&format!(
+                "[analyzer]\nschema_version=1\n[analyzer.blocking]\n{field}=1\n"
+            ))
+            .is_err());
+        }
     }
 
     // TT-TEST: A13 secondary
@@ -402,10 +368,6 @@ mod tests {
         let expected: Vec<_> = [
             ("queueing.trigger_permille", "300", "u64"),
             ("blocking.min_nonzero_samples_for_signal", "2", "usize"),
-            ("blocking.strong_p95_threshold", "12", "u64"),
-            ("blocking.strong_peak_threshold", "20", "u64"),
-            ("blocking.strong_nonzero_share_permille", "700", "u64"),
-            ("blocking.strong_min_samples", "30", "usize"),
             ("executor.min_global_queue_p95_for_signal", "1", "u64"),
             (
                 "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
@@ -413,12 +375,6 @@ mod tests {
                 "u64",
             ),
             ("downstream.min_stage_samples", "3", "usize"),
-            (
-                "downstream.blocking_correlated_stage_patterns",
-                "[\"spawn_blocking\", \"blocking_path\", \"blocking\"]",
-                "Vec<String>",
-            ),
-            ("downstream.blocking_correlation_score_margin", "2", "u8"),
             ("confidence.medium_score_threshold", "65", "u8"),
             ("confidence.high_score_threshold", "85", "u8"),
             ("confidence.ambiguity_min_score", "60", "u8"),
@@ -535,35 +491,6 @@ mod tests {
                 value,
                 expected: "'true' or 'false'",
             } if value == "yes"
-        ));
-    }
-
-    // TT-TEST: support
-    #[test]
-    fn comma_separated_cli_lists_trim_entries() {
-        let mut options = AnalyzeOptions::default();
-        options
-            .apply_override("downstream.blocking_correlated_stage_patterns=db, cache ,worker")
-            .expect("valid list");
-        assert_eq!(
-            options.downstream.blocking_correlated_stage_patterns,
-            vec!["db", "cache", "worker"]
-        );
-    }
-
-    // TT-TEST: support
-    #[test]
-    fn empty_cli_list_entries_are_rejected() {
-        let err = AnalyzeOptions::default()
-            .apply_override("downstream.blocking_correlated_stage_patterns=db,,cache")
-            .expect_err("empty list entry must fail");
-        assert!(matches!(
-            err,
-            AnalyzeConfigError::InvalidOverrideValue {
-                path: "downstream.blocking_correlated_stage_patterns",
-                value,
-                expected: "comma-separated non-empty entries (Vec<String>)",
-            } if value == "db,,cache"
         ));
     }
 

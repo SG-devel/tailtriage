@@ -12,8 +12,8 @@ use super::temporal::{
 use crate::{
     analyze_run, analyze_run_internal, evidence, render_json, render_json_pretty, render_text,
     AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality,
-    EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
-    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    EvidenceQualityLevel, InflightTrend, RelatedEvidenceMeasurement, Report, SignalCoverageStatus,
+    Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -168,6 +168,8 @@ fn literal_scored(
         basis: super::partial_evidence::EvidenceBasis::Completed,
         executor_limitation: None,
         relevant_support: 20,
+        blocking_measurement: None,
+        downstream_measurement: None,
     }
 }
 
@@ -387,7 +389,7 @@ fn scoped_evidence(
 
 // TT-TEST: A06 primary
 #[test]
-fn ambiguity_cluster_membership_uses_raw_scores_only() {
+fn low_pre_ambiguity_confidence_excludes_candidate_from_cluster() {
     let options = {
         let mut options = AnalyzeOptions::default();
         {
@@ -407,10 +409,7 @@ fn ambiguity_cluster_membership_uses_raw_scores_only() {
         literal_scored(DiagnosisKind::BlockingPoolPressure, 70, Confidence::High),
         literal_scored(DiagnosisKind::InsufficientEvidence, 100, Confidence::High),
     ];
-    let expected = vec![
-        DiagnosisKind::ApplicationQueuePressure,
-        DiagnosisKind::DownstreamStageDominance,
-    ];
+    let expected: Vec<DiagnosisKind> = vec![];
     let permutations = vec![
         candidates.clone(),
         candidates.iter().cloned().rev().collect::<Vec<_>>(),
@@ -3298,27 +3297,7 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
 
 // TT-TEST: support
 #[test]
-fn ambiguity_warning_requires_close_calibrated_scores() {
-    let suspects = vec![
-        Suspect::new(
-            DiagnosisKind::DownstreamStageDominance,
-            82,
-            vec!["e".into()],
-            vec![],
-        ),
-        Suspect::new(
-            DiagnosisKind::BlockingPoolPressure,
-            79,
-            vec!["e".into()],
-            vec![],
-        ),
-    ];
-    assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
-}
-
-// TT-TEST: support
-#[test]
-fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
+fn blocking_like_stage_name_has_no_relation_semantics() {
     let mut run = test_run();
     run.requests = (0..40)
         .map(|i| RequestEvent {
@@ -3354,48 +3333,19 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
-        DiagnosisKind::BlockingPoolPressure
+        DiagnosisKind::DownstreamStageDominance
     );
     assert!(report
         .secondary_suspects
         .iter()
-        .any(|s| s.kind == DiagnosisKind::DownstreamStageDominance));
+        .any(|s| s.kind == DiagnosisKind::BlockingPoolPressure));
+    assert!(report.related_groups.is_empty());
 }
 
 // TT-TEST: support
 #[test]
-fn legacy_blocking_correlation_is_case_insensitive_substring_matching() {
-    let options = AnalyzeOptions::default();
-    for (name, expected) in [
-        ("spawn_blocking_resize", true),
-        ("resize_image", false),
-        ("nonblocking_cache", true),
-        ("unblocking_cleanup", true),
-        ("blocking", true),
-        ("SpAwN_BlOcKiNg_ReSiZe", true),
-    ] {
-        assert_eq!(
-            super::scoring::stage_correlates_with_blocking_pool(name, &options),
-            expected,
-            "legacy lexical result for {name}"
-        );
-    }
-
-    let mut custom = options;
-    custom.downstream.blocking_correlated_stage_patterns = vec!["DB_QUERY".to_string()];
-    assert!(super::scoring::stage_correlates_with_blocking_pool(
-        "prefix_db_query_suffix",
-        &custom
-    ));
-    assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "spawn_blocking_resize",
-        &custom
-    ));
-}
-
-// TT-TEST: support
-#[test]
-fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
+#[allow(clippy::too_many_lines)]
+fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_scores() {
     let mut run = test_run();
     run.requests = (0..40)
         .map(|i| RequestEvent {
@@ -3406,81 +3356,305 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
             started_at_run_us: None,
             finished_at_unix_ms: i + 1,
             finished_at_run_us: None,
-            latency_us: 4_000_000,
+            latency_us: 4_000,
             outcome: "ok".into(),
         })
         .collect();
-    run.stages = run
-        .requests
-        .iter()
-        .map(|r| StageEvent {
-            request_id: r.request_id.clone(),
-            stage: "spawn_blocking_path".into(),
-            relations: tailtriage_core::StageRelations::default(),
+    for request in &run.requests {
+        for (name, latency) in [("neutral_alpha", 1_900), ("neutral_beta", 1_500)] {
+            run.stages.push(StageEvent {
+                request_id: request.request_id.clone(),
+                stage: name.into(),
+                relations: StageRelations::from_relation(StageRelation::BlockingPool),
+                started_at_unix_ms: 1,
+                started_at_run_us: None,
+                finished_at_unix_ms: 2,
+                finished_at_run_us: None,
+                latency_us: latency,
+                success: true,
+                completed: true,
+            });
+        }
+    }
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
+
+    let mut untagged = run.clone();
+    for stage in &mut untagged.stages {
+        stage.relations = StageRelations::default();
+    }
+    let independent = analyze_run(&untagged, AnalyzeOptions::default()).unwrap();
+    let related = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    assert_eq!(related.related_groups.len(), 1);
+    let group = &related.related_groups[0];
+    assert_eq!(group.relation, StageRelation::BlockingPool);
+    assert_eq!(group.members.len(), 3);
+    assert_eq!(
+        group.members[0].diagnosis,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    assert_eq!(group.members[0].relevant_support, 40);
+    assert_eq!(
+        group.members[0].measurement,
+        RelatedEvidenceMeasurement::BlockingPool {
+            usable_snapshots: 40,
+            p95_depth: 16,
+            peak_depth: 16,
+            nonzero_share_permille: 1000,
+        }
+    );
+    assert_eq!(
+        group.members[1..]
+            .iter()
+            .map(|member| member.stage.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["neutral_alpha", "neutral_beta"]
+    );
+    let scores = |report: &Report| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .map(|suspect| (suspect.kind.clone(), suspect.score))
+            .collect::<Vec<_>>()
+    };
+    let independent_scores = scores(&independent);
+    let related_scores = scores(&related);
+    assert_eq!(
+        related_scores
+            .iter()
+            .find(|(kind, _)| kind == &group.representative)
+            .unwrap()
+            .1,
+        independent_scores
+            .iter()
+            .find(|(kind, _)| kind == &group.representative)
+            .unwrap()
+            .1
+    );
+    assert_eq!(
+        group.members[1].relevant_support, 40,
+        "member support is stage-owned distinct-request support"
+    );
+    assert_eq!(
+        group.members[2].relevant_support, 40,
+        "each related stage remains separately represented"
+    );
+    assert_eq!(
+        group.members[1].measurement,
+        RelatedEvidenceMeasurement::DownstreamStage {
+            tail_contribution_permille: 475,
+            cumulative_contribution_permille: 475,
+        }
+    );
+    assert_eq!(
+        group.members[2].measurement,
+        RelatedEvidenceMeasurement::DownstreamStage {
+            tail_contribution_permille: 375,
+            cumulative_contribution_permille: 375,
+        }
+    );
+    assert_eq!(
+        related
+            .primary_suspect
+            .confidence_notes
+            .iter()
+            .filter(|note| note.contains("ambiguity"))
+            .count(),
+        0,
+        "a related pair cannot create ambiguity with itself"
+    );
+}
+
+// TT-TEST: A06 primary
+#[test]
+#[allow(clippy::too_many_lines)]
+fn related_representative_and_unrelated_candidate_are_ambiguity_peers() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            started_at_run_us: None,
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
+            latency_us: 4_000,
+            outcome: "ok".into(),
+        })
+        .collect();
+    for request in &run.requests {
+        run.stages.push(StageEvent {
+            request_id: request.request_id.clone(),
+            stage: "typed_blocking_work".into(),
+            relations: StageRelations::from_relation(StageRelation::BlockingPool),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
             finished_at_run_us: None,
-            latency_us: 3_900_000,
+            latency_us: 3_600,
             success: true,
             completed: true,
-        })
-        .collect();
-    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
+        });
+        run.queues.push(QueueEvent {
+            request_id: request.request_id.clone(),
+            queue: "admission".into(),
+            waited_from_unix_ms: 1,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 2,
+            waited_until_run_us: None,
+            wait_us: 3_600,
+            depth_at_start: Some(20),
+            completed: true,
+        });
+    }
+    run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(16)); 40];
 
-    let downstream_score_for = |margin: u8| {
-        let options = {
-            let mut options = AnalyzeOptions::default();
-            {
-                let o = &mut options.downstream;
-                o.blocking_correlation_score_margin = margin;
-            }
-            options
-        };
-        let report = analyze_run(&run, options).expect("analyzer options should be valid");
-        report
-            .secondary_suspects
+    let mut unrelated = run.clone();
+    for stage in &mut unrelated.stages {
+        stage.relations = StageRelations::default();
+    }
+    let independent = analyze_run(&unrelated, AnalyzeOptions::default()).unwrap();
+    let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    let group = report.related_groups.first().expect("one related group");
+    assert_eq!(
+        group.representative,
+        DiagnosisKind::DownstreamStageDominance
+    );
+    assert_eq!(group.members.len(), 2);
+
+    let suspects = std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        suspects
             .iter()
-            .find(|s| s.kind == DiagnosisKind::DownstreamStageDominance)
-            .map(|s| s.score)
-            .expect("downstream suspect should be present")
-    };
+            .map(|suspect| &suspect.kind)
+            .collect::<Vec<_>>(),
+        vec![
+            &DiagnosisKind::ApplicationQueuePressure,
+            &DiagnosisKind::DownstreamStageDominance,
+        ],
+        "the related non-representative is absent while the unrelated family remains"
+    );
+    let options = AnalyzeOptions::default();
+    assert!(suspects.iter().all(|suspect| {
+        suspect.score >= options.confidence.ambiguity_min_score
+            && suspect.score.abs_diff(suspects[0].score) <= options.confidence.ambiguity_score_gap
+    }));
+    assert!(suspects
+        .iter()
+        .all(|suspect| suspect.score >= options.confidence.medium_score_threshold));
 
-    let no_margin_score = downstream_score_for(0);
-    let large_margin_score = downstream_score_for(10);
-    assert!(large_margin_score < no_margin_score);
+    let ambiguity_note = "Top suspects are close in score; confidence is capped by ambiguity.";
+    let ambiguity_members = suspects
+        .iter()
+        .filter(|suspect| {
+            suspect
+                .confidence_notes
+                .iter()
+                .any(|note| note == ambiguity_note)
+        })
+        .count();
+    assert_eq!(ambiguity_members, 2);
+    assert!(suspects
+        .iter()
+        .all(|suspect| suspect.confidence == Confidence::Medium));
+    let has_warning = report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("ranking as ambiguous"));
+    assert_eq!(has_warning, ambiguity_members >= 2);
+
+    let score = |report: &Report, kind: DiagnosisKind| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .find(|suspect| suspect.kind == kind)
+            .map(|suspect| suspect.score)
+            .expect("family remains independently visible in the ungrouped control")
+    };
+    for kind in [
+        DiagnosisKind::ApplicationQueuePressure,
+        DiagnosisKind::BlockingPoolPressure,
+        DiagnosisKind::DownstreamStageDominance,
+    ] {
+        let expected = score(&independent, kind.clone());
+        if kind == DiagnosisKind::BlockingPoolPressure {
+            let blocking = group
+                .members
+                .iter()
+                .find(|member| member.diagnosis == kind)
+                .expect("blocking member remains structured evidence");
+            assert_eq!(blocking.relevant_support, 40);
+        } else {
+            assert_eq!(score(&report, kind), expected);
+        }
+    }
 }
 
 // TT-TEST: support
 #[test]
-fn non_default_overrides_are_sorted_and_include_downstream_margin_override() {
-    let options = {
-        let mut options = AnalyzeOptions::default();
-        {
-            let o = &mut options.temporal;
-            o.min_request_count = 25;
-        }
-        {
-            let o = &mut options.downstream;
-            o.blocking_correlation_score_margin = 7;
-        }
-        {
-            let o = &mut options.queueing;
-            o.trigger_permille = 250;
-        }
-        options
-    };
-    let overrides = options.non_default_overrides();
-    let paths = overrides
+fn unknown_relation_round_trips_but_is_analyzer_inert() {
+    let mut run = test_run();
+    run.requests = (0..40).map(|i| sample_request(i + 1)).collect();
+    run.stages = run
+        .requests
         .iter()
-        .map(|o| o.path.as_str())
-        .collect::<Vec<_>>();
-    let mut sorted = paths.clone();
-    sorted.sort_unstable();
-    assert_eq!(paths, sorted);
-    assert!(overrides
+        .map(|request| StageEvent {
+            request_id: request.request_id.clone(),
+            stage: "neutral".into(),
+            relations: serde_json::from_value(serde_json::json!(["future_relation"]))
+                .expect("unknown relation remains supported wire data"),
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 900,
+            success: true,
+            completed: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
+    let encoded = serde_json::to_value(&run).unwrap();
+    assert!(encoded["stages"][0]["relations"]
+        .as_array()
+        .unwrap()
         .iter()
-        .any(|o| { o.path == "downstream.blocking_correlation_score_margin" && o.value == "7" }));
+        .any(|value| value == "future_relation"));
+    let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    assert!(report.related_groups.is_empty());
+}
+
+// TT-TEST: support
+#[test]
+fn one_tagged_event_does_not_promote_same_named_untagged_evidence() {
+    let mut run = test_run();
+    run.requests = (0..40).map(|i| sample_request(i + 1)).collect();
+    run.stages = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(index, request)| StageEvent {
+            request_id: request.request_id.clone(),
+            stage: "same_name".into(),
+            relations: if index == 0 {
+                StageRelations::from_relation(StageRelation::BlockingPool)
+            } else {
+                StageRelations::default()
+            },
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 900,
+            success: true,
+            completed: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
+    let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
+    assert!(report.related_groups.is_empty());
+    assert!(std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominance));
 }
 
 // TT-TEST: support
@@ -5393,17 +5567,8 @@ fn analyze_options_defaults_match_v1_surface() {
     let options = AnalyzeOptions::default();
     assert_eq!(options.queueing.trigger_permille, 300);
     assert_eq!(options.blocking.min_nonzero_samples_for_signal, 2);
-    assert_eq!(options.blocking.strong_p95_threshold, 12);
-    assert_eq!(options.blocking.strong_peak_threshold, 20);
-    assert_eq!(options.blocking.strong_nonzero_share_permille, 700);
-    assert_eq!(options.blocking.strong_min_samples, 30);
     assert_eq!(options.executor.min_global_queue_p95_for_signal, 1);
     assert_eq!(options.downstream.min_stage_samples, 3);
-    assert_eq!(
-        options.downstream.blocking_correlated_stage_patterns,
-        vec!["spawn_blocking", "blocking_path", "blocking"]
-    );
-    assert_eq!(options.downstream.blocking_correlation_score_margin, 2);
     assert_eq!(options.confidence.medium_score_threshold, 65);
     assert_eq!(options.confidence.high_score_threshold, 85);
     assert_eq!(options.confidence.ambiguity_min_score, 60);
@@ -5452,16 +5617,6 @@ fn analyze_options_validate_rejects_invalid_classes() {
     assert!({
         let mut options = AnalyzeOptions::default();
         {
-            let o = &mut options.blocking;
-            o.strong_nonzero_share_permille = 1001;
-        }
-        options
-    }
-    .validate()
-    .is_err());
-    assert!({
-        let mut options = AnalyzeOptions::default();
-        {
             let o = &mut options.confidence;
             o.medium_score_threshold = 90;
             o.high_score_threshold = 80;
@@ -5495,16 +5650,6 @@ fn analyze_options_validate_rejects_invalid_classes() {
         {
             let o = &mut options.confidence;
             o.ambiguity_score_gap = 101;
-        }
-        options
-    }
-    .validate()
-    .is_err());
-    assert!({
-        let mut options = AnalyzeOptions::default();
-        {
-            let o = &mut options.downstream;
-            o.blocking_correlation_score_margin = 101;
         }
         options
     }
@@ -5590,26 +5735,6 @@ fn analyze_options_validate_rejects_invalid_classes() {
             let o = &mut options.temporal;
             o.p95_shift_ratio_numerator = 1;
             o.p95_shift_ratio_denominator = 2;
-        }
-        options
-    }
-    .validate()
-    .is_err());
-    assert!({
-        let mut options = AnalyzeOptions::default();
-        {
-            let o = &mut options.downstream;
-            o.blocking_correlated_stage_patterns = Vec::new();
-        }
-        options
-    }
-    .validate()
-    .is_err());
-    assert!({
-        let mut options = AnalyzeOptions::default();
-        {
-            let o = &mut options.downstream;
-            o.blocking_correlated_stage_patterns = vec!["  ".to_string()];
         }
         options
     }
@@ -5735,15 +5860,9 @@ fn descriptors_have_unique_and_exact_v1_paths() {
     let expected = [
         "queueing.trigger_permille",
         "blocking.min_nonzero_samples_for_signal",
-        "blocking.strong_p95_threshold",
-        "blocking.strong_peak_threshold",
-        "blocking.strong_nonzero_share_permille",
-        "blocking.strong_min_samples",
         "executor.min_global_queue_p95_for_signal",
         "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
         "downstream.min_stage_samples",
-        "downstream.blocking_correlated_stage_patterns",
-        "downstream.blocking_correlation_score_margin",
         "confidence.medium_score_threshold",
         "confidence.high_score_threshold",
         "confidence.ambiguity_min_score",
@@ -5784,22 +5903,6 @@ fn descriptor_defaults_match_analyze_options_defaults() {
             opts.blocking.min_nonzero_samples_for_signal.to_string(),
         ),
         (
-            "blocking.strong_p95_threshold",
-            opts.blocking.strong_p95_threshold.to_string(),
-        ),
-        (
-            "blocking.strong_peak_threshold",
-            opts.blocking.strong_peak_threshold.to_string(),
-        ),
-        (
-            "blocking.strong_nonzero_share_permille",
-            opts.blocking.strong_nonzero_share_permille.to_string(),
-        ),
-        (
-            "blocking.strong_min_samples",
-            opts.blocking.strong_min_samples.to_string(),
-        ),
-        (
             "executor.min_global_queue_p95_for_signal",
             opts.executor.min_global_queue_p95_for_signal.to_string(),
         ),
@@ -5812,21 +5915,6 @@ fn descriptor_defaults_match_analyze_options_defaults() {
         (
             "downstream.min_stage_samples",
             opts.downstream.min_stage_samples.to_string(),
-        ),
-        (
-            "downstream.blocking_correlated_stage_patterns",
-            format!(
-                "[\"{}\", \"{}\", \"{}\"]",
-                opts.downstream.blocking_correlated_stage_patterns[0],
-                opts.downstream.blocking_correlated_stage_patterns[1],
-                opts.downstream.blocking_correlated_stage_patterns[2]
-            ),
-        ),
-        (
-            "downstream.blocking_correlation_score_margin",
-            opts.downstream
-                .blocking_correlation_score_margin
-                .to_string(),
         ),
         (
             "confidence.medium_score_threshold",
@@ -5979,7 +6067,7 @@ fn default_options_compat_blocking_pool_pressure_case() {
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
-        DiagnosisKind::BlockingPoolPressure
+        DiagnosisKind::DownstreamStageDominance
     );
     assert_default_report_has_no_analyzer_config(&report);
 }
@@ -6045,26 +6133,6 @@ fn default_options_compat_truncated_evidence_case() {
         .any(|w| w.contains("dropped evidence can reduce diagnosis completeness and confidence")));
     assert!(report.evidence_quality.truncated);
     assert_default_report_has_no_analyzer_config(&report);
-}
-
-// TT-TEST: support
-#[test]
-fn default_options_compat_ambiguous_top_suspects_case() {
-    let suspects = vec![
-        Suspect::new(
-            DiagnosisKind::DownstreamStageDominance,
-            82,
-            vec!["e".into()],
-            vec![],
-        ),
-        Suspect::new(
-            DiagnosisKind::BlockingPoolPressure,
-            79,
-            vec!["e".into()],
-            vec![],
-        ),
-    ];
-    assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
 }
 
 // TT-TEST: support
@@ -6432,8 +6500,8 @@ fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
     let base = {
         let mut options = AnalyzeOptions::default();
         {
-            let o = &mut options.blocking;
-            o.strong_p95_threshold = 99;
+            let o = &mut options.executor;
+            o.min_global_queue_p95_for_signal = 99;
         }
         options
     };
@@ -6441,7 +6509,7 @@ fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
         .merge_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=410\n")
         .expect("merge");
     assert_eq!(merged.queueing.trigger_permille, 410);
-    assert_eq!(merged.blocking.strong_p95_threshold, 99);
+    assert_eq!(merged.executor.min_global_queue_p95_for_signal, 99);
 }
 
 // TT-TEST: support
@@ -6564,29 +6632,6 @@ fn analyzer_toml_example_file_has_v1_namespaced_groups_only() {
         assert!(!input.contains(&format!("[{group}]")));
     }
 }
-// TT-TEST: support
-#[test]
-fn analyzer_toml_downstream_patterns_list_parses() {
-    let input = "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['db','cache']\n";
-    let opts = AnalyzeOptions::from_toml_str(input).expect("parse list");
-    assert_eq!(
-        opts.downstream.blocking_correlated_stage_patterns,
-        vec!["db", "cache"]
-    );
-}
-// TT-TEST: support
-#[test]
-fn analyzer_toml_empty_pattern_fails_validation() {
-    let err = AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['']\n").expect_err("must fail");
-    assert!(matches!(
-        err,
-        AnalyzeConfigError::InvalidConfigValue {
-            path: "downstream.blocking_correlated_stage_patterns",
-            ..
-        }
-    ));
-}
-
 // TT-TEST: A10 secondary
 #[test]
 fn prompt09_partial_events_are_now_visible_without_contaminating_completed_percentiles() {

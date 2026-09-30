@@ -124,11 +124,10 @@ score = 32 + min(P, 24) + floor(min(K, 24) / 2)
 
 The score is soft-capped at 94 unless `P >= 16`, `K >= 24`, and `Z >= 900`.
 Evidence reports p95, peak, and `N/T`; next checks audit synchronous hot-path
-work and `spawn_blocking` call sites. The configurable “strong blocking” test
-requires all of `blocking.strong_p95_threshold`, `strong_peak_threshold`,
-`strong_nonzero_share_permille`, and `strong_min_samples`. It does not alter
-the blocking score; it controls correlation with blocking-looking downstream
-stage names.
+work and `spawn_blocking` call sites. These constants belong only to the private
+blocking magnitude formula. Blocking/downstream grouping uses typed
+`StageRelation::BlockingPool` metadata and never stage-name inference or a
+separate blocking-strength gate.
 
 Runtime truncation or missing/partial key runtime fields can cap confidence.
 
@@ -217,14 +216,7 @@ Selection is deterministic: pre-ambiguity confidence, family-relevant support,
 raw score, completed evidence over lower-bound evidence, tail share, cumulative
 share, then stage name ascending.
 
-If the selected stage name case-insensitively contains a configured
-`downstream.blocking_correlated_stage_patterns` entry and runtime blocking
-evidence meets every configured strong threshold, its final score is limited to
-at most `blocking_score - downstream.blocking_correlation_score_margin`
-(saturating at zero). Evidence
-states the correlation so blocking pressure stays prioritized. Otherwise next
-checks target the named dependency, retries, and its SLO. Selecting a partial
-stage path caps confidence at Medium.
+A selected downstream candidate and an independently eligible blocking candidate form one related interpretation only when the selected stage representation is unambiguously tagged with `StageRelation::BlockingPool`. Stage labels have no semantic effect. The representative is chosen by maturity class, family-relevant support, raw magnitude, then the stable diagnosis-kind tie order. The non-representative leaves independent ranking and ambiguity competition, while `related_groups` retains real blocking measurements and each eligible typed stage's own basis, distinct-request support, tail contribution, and cumulative contribution. Grouping neither changes scores nor creates missing blocking evidence, and it is not proof of root cause.
 
 ## Confidence, ambiguity, and final ordering
 
@@ -236,12 +228,11 @@ The pipeline order is contractual:
 3. apply provisional maturity and every non-ambiguity candidate/evidence
    limitation;
 4. resolve representations so only one candidate per real family remains;
-5. apply the current lexical blocking/downstream relation behavior;
-6. find current ambiguity membership from the remaining raw scores, using the
-   unchanged A06 thresholds;
+5. resolve typed blocking/downstream groups and retain one representative;
+6. find ambiguity membership among the remaining independent candidates whose pre-ambiguity confidence is at least Medium, using the unchanged numeric thresholds;
 7. sort by final confidence, raw score, and stable ties.
 
-An ambiguity cluster exists when the highest raw score is at least
+Among independent candidates with at least Medium pre-ambiguity confidence, an ambiguity cluster exists when the highest raw score is at least
 `confidence.ambiguity_min_score` and at least two candidates also meet that
 minimum and fall within `confidence.ambiguity_score_gap` of the highest raw
 score. Cluster members are capped at Medium.
@@ -360,15 +351,9 @@ also printed by `tailtriage analyzer-options`:
 | --- | --- | --- | --- |
 | `queueing.trigger_permille` | 300 | permille | queue candidate trigger |
 | `blocking.min_nonzero_samples_for_signal` | 2 | samples | zero-p95 blocking eligibility |
-| `blocking.strong_p95_threshold` | 12 | depth | blocking-correlation strength |
-| `blocking.strong_peak_threshold` | 20 | depth | blocking-correlation strength |
-| `blocking.strong_nonzero_share_permille` | 700 | permille | blocking-correlation strength |
-| `blocking.strong_min_samples` | 30 | samples | blocking-correlation strength |
 | `executor.min_global_queue_p95_for_signal` | 1 | depth | legacy executor trigger |
 | `executor.min_runnable_queue_per_worker_p95_milli_for_signal` | 500 | milli-tasks/worker | normalized executor trigger |
 | `downstream.min_stage_samples` | 3 | distinct requests | stage eligibility |
-| `downstream.blocking_correlated_stage_patterns` | `spawn_blocking, blocking_path, blocking` | string list | stage/blocking correlation |
-| `downstream.blocking_correlation_score_margin` | 2 | score points | correlated-stage score limit |
 | `confidence.medium_score_threshold` | 65 | score | initial Medium boundary |
 | `confidence.high_score_threshold` | 85 | score | initial High boundary |
 | `confidence.ambiguity_min_score` | 60 | score | ambiguity eligibility |
@@ -432,4 +417,4 @@ contract beyond behavior explicitly protected by tests.
 
 ### Support, maturity, and downstream materiality
 
-Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping is not active, and ordinary reports continue to omit empty `related_groups`.
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping uses only captured relation metadata, does not alter raw magnitude, and ordinary reports continue to omit empty `related_groups`.

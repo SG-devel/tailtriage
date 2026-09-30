@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use tailtriage_core::Run;
+use tailtriage_core::StageRelation;
 
 use crate::{
     candidate::SupportedCandidate,
@@ -39,12 +40,12 @@ struct QueueMeasurement {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BlockingMeasurement {
-    p95_queue_depth: u64,
-    peak_queue_depth: u64,
+pub(super) struct BlockingMeasurement {
+    pub(super) p95_queue_depth: u64,
+    pub(super) peak_queue_depth: u64,
     nonzero_sample_count: usize,
-    usable_sample_count: usize,
-    nonzero_share_permille: u64,
+    pub(super) usable_sample_count: usize,
+    pub(super) nonzero_share_permille: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,15 +61,15 @@ struct ExecutorMeasurement {
     inflight_growth: bool,
 }
 
-#[derive(Debug, Clone)]
-struct DownstreamMeasurement {
-    basis: EvidenceBasis,
-    stage: String,
-    request_sample_count: usize,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DownstreamMeasurement {
+    pub(super) basis: EvidenceBasis,
+    pub(super) stage: String,
+    pub(super) request_sample_count: usize,
     p95_attributed_latency_us: u64,
     cumulative_attributed_latency_us: u64,
-    cumulative_share_permille: u64,
-    tail_share_permille: u64,
+    pub(super) cumulative_share_permille: u64,
+    pub(super) tail_share_permille: u64,
     partial_event_count: usize,
 }
 
@@ -344,6 +345,8 @@ fn queue_magnitude(
         basis: measurement.basis,
         executor_limitation: None,
         relevant_support: measurement.sample_count,
+        blocking_measurement: None,
+        downstream_measurement: None,
     }
 }
 
@@ -437,22 +440,6 @@ fn eligible_blocking_measurement(
         .then_some(measurement)
 }
 
-fn strong_blocking_signal(signal: BlockingMeasurement, options: &AnalyzeOptions) -> bool {
-    signal.p95_queue_depth >= options.blocking.strong_p95_threshold
-        && signal.peak_queue_depth >= options.blocking.strong_peak_threshold
-        && signal.nonzero_share_permille >= options.blocking.strong_nonzero_share_permille
-        && signal.usable_sample_count >= options.blocking.strong_min_samples
-}
-
-pub(super) fn stage_correlates_with_blocking_pool(stage: &str, options: &AnalyzeOptions) -> bool {
-    let lower = stage.to_ascii_lowercase();
-    options
-        .downstream
-        .blocking_correlated_stage_patterns
-        .iter()
-        .any(|p| lower.contains(&p.trim().to_ascii_lowercase()))
-}
-
 pub(super) fn blocking_pressure_suspect(
     run: &Run,
     options: &AnalyzeOptions,
@@ -489,6 +476,8 @@ pub(super) fn blocking_pressure_suspect(
         basis: EvidenceBasis::Completed,
         executor_limitation: None,
         relevant_support: signal.usable_sample_count,
+        blocking_measurement: Some(signal),
+        downstream_measurement: None,
     })
 }
 
@@ -705,6 +694,8 @@ impl DownstreamRepresentations {
                     basis: stage.measurement.basis,
                     executor_limitation: None,
                     relevant_support: stage.measurement.request_sample_count,
+                    blocking_measurement: None,
+                    downstream_measurement: Some(stage.measurement.clone()),
                 };
                 (stage, supported)
             })
@@ -840,6 +831,41 @@ fn downstream_stage_candidates(
     cands
 }
 
+/// Returns independently eligible, typed-related stage representations, one per stage identity.
+/// Filtering happens before attribution so an identically named untagged event is never promoted
+/// into relation evidence.
+pub(super) fn blocking_related_stage_candidates(
+    run: &Run,
+    p95_req: u64,
+    options: &AnalyzeOptions,
+) -> Vec<DownstreamMeasurement> {
+    let mut related_run = run.clone();
+    related_run
+        .stages
+        .retain(|stage| stage.has_relation(StageRelation::BlockingPool));
+    let candidates = downstream_stage_candidates(&related_run, p95_req, options);
+    let mut stages = candidates
+        .iter()
+        .map(|candidate| candidate.measurement.stage.clone())
+        .collect::<Vec<_>>();
+    stages.sort();
+    stages.dedup();
+    stages
+        .into_iter()
+        .filter_map(|stage| {
+            DownstreamRepresentations(
+                candidates
+                    .iter()
+                    .filter(|candidate| candidate.measurement.stage == stage)
+                    .cloned()
+                    .collect(),
+            )
+            .select(run, options)
+            .map(|candidate| candidate.measurement)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 pub(super) type StageCandidateProjectionForTest =
     (EvidenceBasis, String, usize, u64, u64, u64, u64, u8);
@@ -879,36 +905,14 @@ pub(super) fn downstream_stage_suspect(
         95,
         100,
     )?;
-    let blocking = eligible_blocking_measurement(run, options);
-    let blocking_score = blocking.map(|signal| {
-        let clean_extreme = signal.p95_queue_depth >= 16
-            && signal.peak_queue_depth >= 24
-            && signal.nonzero_share_permille >= 900;
-        cap_unless_clean_evidence(
-            32 + signal.p95_queue_depth.min(24)
-                + (signal.peak_queue_depth.min(24) / 2)
-                + (signal.nonzero_share_permille / 80),
-            clean_extreme,
-            94,
-        )
-    });
     let best = DownstreamRepresentations(downstream_stage_candidates(run, p95_req, options))
         .select(run, options)?;
-    let (downstream_score, correlation_evidence) = apply_current_downstream_relation_policy(
-        &best.measurement.stage,
-        best.score,
-        blocking,
-        blocking_score,
-        options,
-    );
-    let mut evidence = downstream_stage_evidence(&best);
-    if let Some(extra) = correlation_evidence {
-        evidence.push(extra);
-    }
+    let evidence = downstream_stage_evidence(&best);
+    let measurement = best.measurement.clone();
     Some(SupportedCandidate {
         suspect: suspect(
             DiagnosisKind::DownstreamStageDominance,
-            downstream_score,
+            best.score,
             evidence,
             vec![
                 format!(
@@ -925,31 +929,9 @@ pub(super) fn downstream_stage_suspect(
         basis: best.measurement.basis,
         executor_limitation: None,
         relevant_support: best.measurement.request_sample_count,
+        blocking_measurement: None,
+        downstream_measurement: Some(measurement),
     })
-}
-
-fn apply_current_downstream_relation_policy(
-    stage: &str,
-    downstream_score: u8,
-    blocking: Option<BlockingMeasurement>,
-    blocking_score: Option<u8>,
-    options: &AnalyzeOptions,
-) -> (u8, Option<String>) {
-    if stage_correlates_with_blocking_pool(stage, options)
-        && blocking.is_some_and(|signal| strong_blocking_signal(signal, options))
-        && blocking_score.is_some()
-    {
-        let cap = blocking_score
-            .unwrap_or(downstream_score)
-            .saturating_sub(options.downstream.blocking_correlation_score_margin);
-        return (
-            downstream_score.min(cap),
-            Some(format!(
-                "Stage '{stage}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
-            )),
-        );
-    }
-    (downstream_score, None)
 }
 
 fn downstream_stage_evidence(best: &StageCandidate) -> Vec<String> {
