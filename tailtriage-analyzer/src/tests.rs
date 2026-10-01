@@ -3188,19 +3188,59 @@ fn typed_stage_relation_metadata_is_analyzer_inert() {
 // TT-TEST: support
 #[test]
 fn typed_blocking_pool_relation_is_independent_of_stage_display_name() {
-    for name in [
-        "spawn_blocking_resize",
-        "resize_image",
-        "nonblocking_cache",
-        "unblocking_cleanup",
-        "blocking",
-    ] {
-        let mut stage = StageEvent::new("req-1", name, 1, 2, 1, true);
-        assert!(!stage.has_relation(StageRelation::BlockingPool), "{name}");
+    let report = |name: &str, typed: bool| {
+        let mut run = test_run();
+        run.requests = (0..40)
+            .map(|i| precise_request(&format!("r{i}"), 4_000))
+            .collect();
+        run.stages = run
+            .requests
+            .iter()
+            .map(|request| {
+                let mut stage =
+                    precise_stage(&request.request_id, name, Some(0), Some(3_600), 3_600);
+                if typed {
+                    stage.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+                }
+                stage
+            })
+            .collect();
+        run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
+        analyze_run(&run, AnalyzeOptions::default()).unwrap()
+    };
 
-        stage.relations = StageRelations::from_relation(StageRelation::BlockingPool);
-        assert!(stage.has_relation(StageRelation::BlockingPool), "{name}");
+    let alpha = report("resize_image", true);
+    let beta = report("utterly_neutral_label", true);
+    let disposition = |report: &Report| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .map(|suspect| {
+                (
+                    suspect.kind.clone(),
+                    suspect.score,
+                    suspect.confidence,
+                    suspect.confidence_notes.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(disposition(&alpha), disposition(&beta));
+    assert_eq!(alpha.related_groups.len(), 1);
+    assert_eq!(beta.related_groups.len(), 1);
+    let mut alpha_group = alpha.related_groups[0].clone();
+    let mut beta_group = beta.related_groups[0].clone();
+    assert_eq!(alpha_group.relation, beta_group.relation);
+    assert_eq!(alpha_group.representative, beta_group.representative);
+    for member in &mut alpha_group.members {
+        member.stage = None;
     }
+    for member in &mut beta_group.members {
+        member.stage = None;
+    }
+    assert_eq!(alpha_group, beta_group);
+
+    let untyped = report("blocking_pool", false);
+    assert!(untyped.related_groups.is_empty());
 }
 
 // TT-TEST: support
@@ -3460,6 +3500,84 @@ fn typed_blocking_relation_groups_real_stage_owned_evidence_without_changing_sco
             .count(),
         0,
         "a related pair cannot create ambiguity with itself"
+    );
+}
+
+// TT-TEST: support
+#[test]
+fn blocking_relation_resolution_is_idempotent_and_never_combines_raw_scores() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| precise_request(&format!("r{i}"), 4_000))
+        .collect();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|request| {
+            let mut stage = precise_stage(
+                &request.request_id,
+                "typed_work",
+                Some(0),
+                Some(3_600),
+                3_600,
+            );
+            stage.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+            stage
+        })
+        .collect();
+    run.queues = run
+        .requests
+        .iter()
+        .map(|request| precise_queue(&request.request_id, 0, 2_000, 2_000))
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(16)); 40];
+    let options = AnalyzeOptions::default();
+    let queue =
+        super::scoring::queue_candidate_for_test(&run, &[2_000; 40], true, Some(4_000), &options)
+            .unwrap();
+    let blocking = super::scoring::blocking_pressure_suspect(&run, &options).unwrap();
+    let downstream = super::scoring::downstream_stage_suspect(&run, &options).unwrap();
+    let member_scores = [blocking.suspect.score, downstream.suspect.score];
+    let unrelated_score = queue.suspect.score;
+    let mut candidates = vec![queue, blocking, downstream];
+
+    let first = super::relation::resolve_blocking_pool_group(&mut candidates, &run, &options);
+    assert_eq!(first.len(), 1);
+    assert_eq!(candidates.len(), 2);
+    assert!(candidates
+        .iter()
+        .any(|candidate| candidate.suspect.kind == DiagnosisKind::ApplicationQueuePressure));
+    let representative = candidates
+        .iter()
+        .find(|candidate| candidate.suspect.kind == first[0].representative)
+        .unwrap();
+    assert!(member_scores.contains(&representative.suspect.score));
+    assert_ne!(
+        representative.suspect.score,
+        member_scores[0].saturating_add(member_scores[1])
+    );
+    assert_eq!(
+        candidates
+            .iter()
+            .find(|candidate| candidate.suspect.kind == DiagnosisKind::ApplicationQueuePressure)
+            .unwrap()
+            .suspect
+            .score,
+        unrelated_score
+    );
+
+    let surviving = candidates
+        .iter()
+        .map(|candidate| (candidate.suspect.kind.clone(), candidate.suspect.score))
+        .collect::<Vec<_>>();
+    let second = super::relation::resolve_blocking_pool_group(&mut candidates, &run, &options);
+    assert!(second.is_empty());
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| (candidate.suspect.kind.clone(), candidate.suspect.score))
+            .collect::<Vec<_>>(),
+        surviving
     );
 }
 
@@ -4575,8 +4693,9 @@ fn route_breakdowns_do_not_change_global_primary_suspect() {
     );
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
-    assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
+    assert_eq!(report.primary_suspect, global.primary_suspect);
+    assert_eq!(report.secondary_suspects, global.secondary_suspects);
+    assert_eq!(report.related_groups, global.related_groups);
 }
 
 // TT-TEST: A09 primary
@@ -5123,7 +5242,7 @@ fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
 
 // TT-TEST: A09 primary
 #[test]
-fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
+fn temporal_segments_do_not_change_global_candidate_semantics() {
     let mut run = test_run();
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     for i in 1..=10 {
@@ -5146,8 +5265,9 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
     );
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
-    assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
+    assert_eq!(report.primary_suspect, global.primary_suspect);
+    assert_eq!(report.secondary_suspects, global.secondary_suspects);
+    assert_eq!(report.related_groups, global.related_groups);
 }
 
 fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
@@ -7714,6 +7834,66 @@ fn downstream_materiality_boundary_and_fallback_are_exact() {
     );
 }
 
+// TT-TEST: A01 primary
+#[test]
+fn every_isolated_below_boundary_path_has_exact_insufficient_fallback() {
+    let assert_fallback = |run: &Run, options: AnalyzeOptions| {
+        let report = analyze_run(run, options).expect("locally valid options");
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::InsufficientEvidence
+        );
+        assert_eq!(report.primary_suspect.score, 50);
+        assert!(report.secondary_suspects.is_empty());
+    };
+
+    let requests = || {
+        (0..20)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect::<Vec<_>>()
+    };
+
+    let mut queue = test_run();
+    queue.requests = requests();
+    queue.queues = (0..20)
+        .map(|i| precise_queue(&format!("r{i}"), 0, 299, 299))
+        .collect();
+    assert_fallback(&queue, AnalyzeOptions::default());
+
+    let mut blocking = test_run();
+    blocking.requests = requests();
+    blocking.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(0)); 20];
+    assert_fallback(&blocking, AnalyzeOptions::default());
+
+    let mut legacy = blocking.clone();
+    legacy.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(0), Some(0)); 20];
+    let mut legacy_options = AnalyzeOptions::default();
+    legacy_options.executor.min_global_queue_p95_for_signal = 2;
+    assert_fallback(&legacy, legacy_options);
+
+    let mut normalized = legacy;
+    for snapshot in &mut normalized.runtime_snapshots {
+        snapshot.worker_count = Some(4);
+    }
+    let mut normalized_options = AnalyzeOptions::default();
+    normalized_options
+        .executor
+        .min_runnable_queue_per_worker_p95_milli_for_signal = 500;
+    assert_fallback(&normalized, normalized_options);
+
+    let mut downstream = test_run();
+    downstream.requests = requests();
+    downstream.stages = (0..20)
+        .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(299), 299))
+        .collect();
+    assert_fallback(&downstream, AnalyzeOptions::default());
+
+    downstream.stages.truncate(2);
+    let mut sample_options = AnalyzeOptions::default();
+    sample_options.downstream.min_stage_samples = 3;
+    assert_fallback(&downstream, sample_options);
+}
+
 // TT-TEST: A02 primary
 #[test]
 fn relevant_support_units_are_family_specific_and_distinct_from_event_counts() {
@@ -7895,6 +8075,167 @@ fn support_does_not_add_raw_magnitude_on_any_scoring_path() {
             }
         )
     );
+}
+
+// TT-TEST: A02 primary
+#[test]
+fn unrelated_family_evidence_does_not_rewrite_raw_magnitude() {
+    let options = AnalyzeOptions::default();
+    let mut base = test_run();
+    base.requests = (0..20)
+        .map(|i| precise_request(&format!("r{i}"), 1_000))
+        .collect();
+    base.queues = (0..20)
+        .map(|i| precise_queue(&format!("r{i}"), 0, 600, 600))
+        .collect();
+    base.stages = (0..20)
+        .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(700), 700))
+        .collect();
+    base.runtime_snapshots = vec![runtime_snapshot(Some(8), Some(4), Some(8)); 20];
+
+    let queue_score = |run: &Run| {
+        super::scoring::queue_candidate_for_test(run, &[600; 20], true, Some(600), &options)
+            .unwrap()
+            .suspect
+            .score
+    };
+    let blocking_score = |run: &Run| {
+        super::scoring::blocking_pressure_suspect(run, &options)
+            .unwrap()
+            .suspect
+            .score
+    };
+    let executor_score = |run: &Run, status| {
+        super::scoring::executor_pressure_suspect(run, Some(status), None, &options)
+            .unwrap()
+            .0
+            .score
+    };
+    let downstream_score = |run: &Run| {
+        super::scoring::downstream_stage_suspect(run, &options)
+            .unwrap()
+            .suspect
+            .score
+    };
+
+    let mut without_runtime = base.clone();
+    without_runtime.runtime_snapshots.clear();
+    assert_eq!(queue_score(&base), queue_score(&without_runtime));
+    assert_eq!(downstream_score(&base), downstream_score(&without_runtime));
+
+    let mut without_request_families = base.clone();
+    without_request_families.queues.clear();
+    without_request_families.stages.clear();
+    assert_eq!(
+        blocking_score(&base),
+        blocking_score(&without_request_families)
+    );
+    assert_eq!(
+        executor_score(
+            &base,
+            super::scoring::WorkerEvidenceStatus::HistoricalAbsent
+        ),
+        executor_score(
+            &without_request_families,
+            super::scoring::WorkerEvidenceStatus::HistoricalAbsent
+        )
+    );
+    for snapshot in &mut base.runtime_snapshots {
+        snapshot.worker_count = Some(4);
+    }
+    for snapshot in &mut without_request_families.runtime_snapshots {
+        snapshot.worker_count = Some(4);
+    }
+    let complete = super::scoring::WorkerEvidenceStatus::Complete {
+        worker_count: 4,
+        local_complete: true,
+    };
+    assert_eq!(
+        executor_score(&base, complete),
+        executor_score(&without_request_families, complete)
+    );
+}
+
+// TT-TEST: support
+#[test]
+fn tuning_thresholds_are_directional_at_valid_local_values() {
+    let has = |report: &Report, kind: DiagnosisKind| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .any(|suspect| suspect.kind == kind)
+    };
+    let requests = || {
+        (0..20)
+            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .collect::<Vec<_>>()
+    };
+
+    let mut queue = test_run();
+    queue.requests = requests();
+    queue.queues = (0..20)
+        .map(|i| precise_queue(&format!("r{i}"), 0, 500, 500))
+        .collect();
+    let low = analyze_run(&queue, AnalyzeOptions::default()).unwrap();
+    let mut raised = AnalyzeOptions::default();
+    raised.queueing.trigger_permille = 501;
+    let high = analyze_run(&queue, raised).unwrap();
+    assert!(has(&low, DiagnosisKind::ApplicationQueuePressure));
+    assert!(!has(&high, DiagnosisKind::ApplicationQueuePressure));
+
+    let mut runtime = test_run();
+    runtime.requests = requests();
+    runtime.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(1)); 20];
+    let mut sparse_blocking = runtime.clone();
+    for snapshot in sparse_blocking.runtime_snapshots.iter_mut().take(19) {
+        snapshot.blocking_queue_depth = Some(0);
+    }
+    let mut permissive = AnalyzeOptions::default();
+    permissive.blocking.min_nonzero_samples_for_signal = 1;
+    let low_blocking = analyze_run(&sparse_blocking, permissive).unwrap();
+    let mut raised = AnalyzeOptions::default();
+    raised.blocking.min_nonzero_samples_for_signal = 2;
+    let high = analyze_run(&sparse_blocking, raised).unwrap();
+    assert!(has(&low_blocking, DiagnosisKind::BlockingPoolPressure));
+    assert!(!has(&high, DiagnosisKind::BlockingPoolPressure));
+
+    let low = analyze_run(&runtime, AnalyzeOptions::default()).unwrap();
+    let mut raised = AnalyzeOptions::default();
+    raised.executor.min_global_queue_p95_for_signal = 2;
+    assert!(has(&low, DiagnosisKind::ExecutorPressure));
+    assert!(!has(
+        &analyze_run(&runtime, raised).unwrap(),
+        DiagnosisKind::ExecutorPressure
+    ));
+
+    for snapshot in &mut runtime.runtime_snapshots {
+        snapshot.worker_count = Some(2);
+        snapshot.global_queue_depth = Some(1);
+        snapshot.local_queue_depth = Some(0);
+    }
+    let low = analyze_run(&runtime, AnalyzeOptions::default()).unwrap();
+    let mut raised = AnalyzeOptions::default();
+    raised
+        .executor
+        .min_runnable_queue_per_worker_p95_milli_for_signal = 501;
+    assert!(has(&low, DiagnosisKind::ExecutorPressure));
+    assert!(!has(
+        &analyze_run(&runtime, raised).unwrap(),
+        DiagnosisKind::ExecutorPressure
+    ));
+
+    let mut stage = test_run();
+    stage.requests = requests();
+    stage.stages = (0..20)
+        .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(700), 700))
+        .collect();
+    let low = analyze_run(&stage, AnalyzeOptions::default()).unwrap();
+    let mut raised = AnalyzeOptions::default();
+    raised.downstream.min_stage_samples = 21;
+    assert!(has(&low, DiagnosisKind::DownstreamStageDominance));
+    assert!(!has(
+        &analyze_run(&stage, raised).unwrap(),
+        DiagnosisKind::DownstreamStageDominance
+    ));
 }
 
 // TT-TEST: A02 primary
