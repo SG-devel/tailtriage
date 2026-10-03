@@ -269,8 +269,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["selected-a", "selected-b"]
         );
-        assert!(sliced.run.runtime_snapshots.is_empty());
-        assert!(sliced.run.inflight.is_empty());
+        assert_eq!(sliced.run.runtime_snapshots.len(), 0);
+        assert_eq!(sliced.run.inflight.len(), 0);
         assert!(!sliced.used_unix_fallback);
         assert_eq!(sliced.run.metadata, expected_metadata);
         assert_eq!(sliced.run.truncation, expected_truncation);
@@ -402,8 +402,8 @@ mod tests {
                 run_relative: Some((10, 20)),
             }),
         );
-        assert!(negative.run.runtime_snapshots.is_empty());
-        assert!(negative.run.inflight.is_empty());
+        assert_eq!(negative.run.runtime_snapshots.len(), 0);
+        assert_eq!(negative.run.inflight.len(), 0);
         assert!(!negative.used_unix_fallback);
 
         source.runtime_snapshots = [

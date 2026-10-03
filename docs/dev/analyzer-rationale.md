@@ -243,7 +243,10 @@ numeric calibration remains unknown.
 - **Problem addressed:** Additive weak signals could otherwise reach the same
   ceiling as broad, extreme, well-sampled evidence.
 - **Why this shape:** Present-purpose inference: reserve maximum ranking strength
-  for unusually clear cases without making the cap absolute.
+  for unusually clear physical magnitudes without making the cap absolute.
+  Clean-extreme bypass is exclusively a physical-magnitude policy; evidence
+  breadth and family-relevant support are handled separately by maturity and
+  confidence and never change raw magnitude.
 - **Tradeoff:** Strong but nonconforming cases cluster below the cap; exception
   boundaries add policy complexity.
 - **Proof owner:** Family soft-cap boundary tests in

@@ -848,8 +848,9 @@ mod tests {
         sampler.shutdown().await;
 
         let snapshot = tailtriage.snapshot();
-        assert!(
-            !snapshot.runtime_snapshots.is_empty(),
+        assert_ne!(
+            snapshot.runtime_snapshots.len(),
+            0,
             "sampler should record runtime snapshots"
         );
 
@@ -1122,7 +1123,7 @@ mod tests {
         sampler.shutdown().await;
 
         let snapshot = tailtriage.snapshot();
-        assert!(!snapshot.runtime_snapshots.is_empty());
+        assert_ne!(snapshot.runtime_snapshots.len(), 0);
         assert!(
             snapshot.metadata.effective_tokio_sampler_config.is_some(),
             "sampler startup should record effective sampler metadata"
@@ -1179,7 +1180,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(10)).await;
         let snapshot = tailtriage.snapshot();
-        assert!(snapshot.runtime_snapshots.is_empty());
+        assert_eq!(snapshot.runtime_snapshots.len(), 0);
         assert!(snapshot.metadata.effective_tokio_sampler_config.is_none());
     }
 
@@ -1362,7 +1363,7 @@ mod helper_tests {
         assert!(snap.queues.iter().any(|q| q.queue == "mutex"));
         assert!(snap.queues.iter().any(|q| q.queue == "rw_read"));
         assert!(snap.queues.iter().any(|q| q.queue == "rw_write"));
-        assert!(snap.stages.is_empty());
+        assert_eq!(snap.stages.len(), 0);
     }
 
     // TT-TEST: T02 primary
@@ -1649,13 +1650,13 @@ mod helper_tests {
         drop(borrowed_permit);
         {
             let _inflight = owned.inflight("owned_busy");
-            assert!(run.snapshot().requests.is_empty());
+            assert_eq!(run.snapshot().requests.len(), 0);
         }
         let _ = owned
             .timeout_stage("owned_timeout", Duration::from_millis(10), async { 1usize })
             .await
             .expect("ok");
-        assert!(run.snapshot().requests.is_empty());
+        assert_eq!(run.snapshot().requests.len(), 0);
         started.completion.finish_ok();
         assert_eq!(run.snapshot().requests.len(), 1);
     }
@@ -1763,7 +1764,7 @@ mod prompt09_tokio_partial_tests {
                 .owned_semaphore("owned_unpolled", Arc::clone(&owned)),
         );
 
-        assert!(tt.snapshot().queues.is_empty());
+        assert_eq!(tt.snapshot().queues.len(), 0);
         started.completion.finish_ok();
     }
 

@@ -33,7 +33,7 @@ fn cli_json_matches_analyzer_renderer_output() {
 
     let loaded =
         artifact::load_run_artifact(&artifact_path).expect("artifact should load successfully");
-    assert!(loaded.warnings.is_empty());
+    assert_eq!(loaded.warnings, Vec::<String>::new());
 
     let report = tailtriage_analyzer::analyze_run(
         &loaded.run,
@@ -196,7 +196,7 @@ fn allow_ambiguous_artifact_emits_every_core_issue_in_order() {
         .issues
         .iter()
         .map(|issue| {
-            assert!(!issue.code.as_str().is_empty());
+            assert_ne!(issue.code.as_str(), "");
             let mut location = issue.location.section.as_str().to_owned();
             if let Some(index) = issue.location.index {
                 write!(location, "[{index}]").expect("writing to String should not fail");
@@ -205,7 +205,7 @@ fn allow_ambiguous_artifact_emits_every_core_issue_in_order() {
                 location.push('.');
                 location.push_str(field);
             }
-            assert!(!location.is_empty());
+            assert_ne!(location, "");
             format!(
                 "warning: permissive Run normalization {} at {location}: {}",
                 issue.code.as_str(),
@@ -292,14 +292,16 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
             case.name
         );
         if case.strict_ok {
-            assert!(
-                strict_error_codes.is_empty(),
+            assert_eq!(
+                strict_error_codes.len(),
+                0,
                 "{} strict success should not expose error codes",
                 case.name
             );
         } else {
-            assert!(
-                !strict_error_codes.is_empty(),
+            assert_ne!(
+                strict_error_codes.len(),
+                0,
                 "{} strict failure should expose deterministic error codes",
                 case.name
             );
@@ -403,8 +405,9 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
             case.name
         );
         if strict.is_err() {
-            assert!(
-                strict_output.stdout.is_empty(),
+            assert_eq!(
+                strict_output.stdout.len(),
+                0,
                 "{} strict failure should not write report",
                 case.name
             );
@@ -550,8 +553,9 @@ fn native_run_is_strict_valid_and_normalization_idempotent() {
         renormalized_projection, normalized_projection,
         "normalization should be idempotent for valid native runs"
     );
-    assert!(
-        normalized_projection.strict_error_codes.is_empty(),
+    assert_eq!(
+        normalized_projection.strict_error_codes.len(),
+        0,
         "valid native normalization should not expose generic error codes"
     );
 

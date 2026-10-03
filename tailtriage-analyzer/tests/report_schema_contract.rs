@@ -69,7 +69,7 @@ fn documented_report_keys_exist_in_json_output() {
     let evidence = json_path_exists(&json, &["primary_suspect", "evidence"])
         .and_then(Value::as_array)
         .expect("primary_suspect.evidence should be an array");
-    assert!(!evidence.is_empty(), "evidence array should not be empty");
+    assert_ne!(evidence.len(), 0, "evidence array should not be empty");
     assert!(
         evidence.iter().all(Value::is_string),
         "primary_suspect.evidence should contain strings"
