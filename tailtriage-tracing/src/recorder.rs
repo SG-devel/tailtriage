@@ -2104,9 +2104,9 @@ mod tests {
             let span = tracing::info_span!("other", user_id = 42_u64);
             drop(span);
             let run = recorder.snapshot_run().unwrap();
-            assert!(run.run().requests.is_empty());
-            assert!(run.run().stages.is_empty());
-            assert!(run.run().queues.is_empty());
+            assert_eq!(run.run().requests.len(), 0);
+            assert_eq!(run.run().stages.len(), 0);
+            assert_eq!(run.run().queues.len(), 0);
         });
     }
 
@@ -2214,10 +2214,10 @@ mod tests {
             drop(span);
 
             let run = recorder.snapshot_run().unwrap();
-            assert!(run.run().requests.is_empty());
-            assert!(run.run().stages.is_empty());
-            assert!(run.run().queues.is_empty());
-            assert!(run.warnings().is_empty());
+            assert_eq!(run.run().requests.len(), 0);
+            assert_eq!(run.run().stages.len(), 0);
+            assert_eq!(run.run().queues.len(), 0);
+            assert_eq!(run.warnings().len(), 0);
         });
     }
 
@@ -2242,9 +2242,9 @@ mod tests {
             drop(numeric_kind);
 
             let run = recorder.snapshot_run().unwrap();
-            assert!(run.run().requests.is_empty());
-            assert!(run.run().stages.is_empty());
-            assert!(run.run().queues.is_empty());
+            assert_eq!(run.run().requests.len(), 0);
+            assert_eq!(run.run().stages.len(), 0);
+            assert_eq!(run.run().queues.len(), 0);
         });
     }
 
@@ -2295,7 +2295,7 @@ mod tests {
 
             let imported = recorder.snapshot_run().unwrap();
             let run = imported.run();
-            assert!(run.requests.is_empty());
+            assert_eq!(run.requests.len(), 0);
             assert!(imported
                 .warnings()
                 .iter()
@@ -2340,7 +2340,7 @@ mod tests {
             assert_eq!(run.requests.len(), 1);
             assert_eq!(run.queues.len(), 1);
             assert_eq!(run.stages.len(), 1);
-            assert!(run.runtime_snapshots.is_empty());
+            assert_eq!(run.runtime_snapshots.len(), 0);
             let report = analyze_run(run, AnalyzeOptions::default())
                 .expect("analyzer options should be valid");
             assert_eq!(report.request_count, 1);
@@ -2482,7 +2482,7 @@ mod tests {
         assert_eq!(run.requests.len(), 1);
         assert_eq!(run.requests[0].request_id, "r1");
         assert_eq!(run.requests[0].route, "/r1");
-        assert!(run.stages.is_empty());
+        assert_eq!(run.stages.len(), 0);
         assert!(run.truncation.limits_hit);
         assert_eq!(run.truncation.dropped_requests, 1);
 
@@ -2787,7 +2787,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(request_ids, vec!["r2"]);
         assert_eq!(run.requests.len(), 1);
-        assert!(run.stages.is_empty());
+        assert_eq!(run.stages.len(), 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("evicted 1 completed child candidate span(s)")
@@ -2887,9 +2887,9 @@ mod tests {
             .iter()
             .map(|request| request.request_id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
-        assert!(request_ids.is_empty());
+        assert_eq!(request_ids.len(), 0);
         assert_eq!(imported.run().requests.len(), 0);
-        assert!(imported.retained_sources().is_empty());
+        assert_eq!(imported.retained_sources().len(), 0);
         assert_eq!(imported.run().truncation.dropped_requests, 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
@@ -3495,7 +3495,7 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().truncation.dropped_stages, 1);
     }
 
@@ -3533,7 +3533,7 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert!(imported.run().queues.is_empty());
+        assert_eq!(imported.run().queues.len(), 0);
         assert_eq!(imported.run().truncation.dropped_queues, 1);
     }
 
@@ -3838,7 +3838,7 @@ mod tests {
         });
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported.warnings().is_empty());
+        assert_eq!(imported.warnings().len(), 0);
     }
 
     // TT-TEST: support
@@ -3867,9 +3867,9 @@ mod tests {
             );
             drop(span);
             let imported = recorder.snapshot_run().unwrap();
-            assert!(imported.run().requests.is_empty());
-            assert!(imported.run().stages.is_empty());
-            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.run().requests.len(), 0);
+            assert_eq!(imported.run().stages.len(), 0);
+            assert_eq!(imported.run().queues.len(), 0);
             assert_eq!(imported.warnings().len(), 1);
             let msg = imported.warnings()[0].message();
             assert!(msg.contains("invalid tt.kind"));
@@ -3899,9 +3899,9 @@ mod tests {
             );
             drop(span);
             let imported = recorder.snapshot_run().unwrap();
-            assert!(imported.run().requests.is_empty());
-            assert!(imported.run().stages.is_empty());
-            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.run().requests.len(), 0);
+            assert_eq!(imported.run().stages.len(), 0);
+            assert_eq!(imported.run().queues.len(), 0);
             assert_eq!(imported.warnings().len(), 1);
             let msg = imported.warnings()[0].message();
             assert!(msg.contains("invalid tt.kind"));
@@ -3925,9 +3925,9 @@ mod tests {
             );
             drop(span);
             let imported = recorder.snapshot_run().unwrap();
-            assert!(imported.run().requests.is_empty());
-            assert!(imported.run().stages.is_empty());
-            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.run().requests.len(), 0);
+            assert_eq!(imported.run().stages.len(), 0);
+            assert_eq!(imported.run().queues.len(), 0);
             assert_eq!(imported.warnings().len(), 1);
             let msg = imported.warnings()[0].message();
             assert!(msg.contains("invalid tt.kind"));
@@ -3959,9 +3959,9 @@ mod tests {
                 tt.request_id = "r-malformed"
             ));
             let imported = recorder.snapshot_run().unwrap();
-            assert!(imported.run().requests.is_empty());
-            assert!(imported.run().stages.is_empty());
-            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.run().requests.len(), 0);
+            assert_eq!(imported.run().stages.len(), 0);
+            assert_eq!(imported.run().queues.len(), 0);
             assert_eq!(imported.warnings().len(), 1);
             let msg = imported.warnings()[0].message();
             assert!(msg.contains("invalid tt.kind"));
@@ -4066,10 +4066,10 @@ mod tests {
             let span = tracing::info_span!("ordinary", user_id = 7_u64);
             drop(span);
             let imported = recorder.snapshot_run().unwrap();
-            assert!(imported.run().requests.is_empty());
-            assert!(imported.run().stages.is_empty());
-            assert!(imported.run().queues.is_empty());
-            assert!(imported.warnings().is_empty());
+            assert_eq!(imported.run().requests.len(), 0);
+            assert_eq!(imported.run().stages.len(), 0);
+            assert_eq!(imported.run().queues.len(), 0);
+            assert_eq!(imported.warnings().len(), 0);
         });
     }
     // TT-TEST: support
@@ -4108,7 +4108,7 @@ mod tests {
             )
             .entered();
             let snapshot = recorder.snapshot_run().unwrap();
-            assert!(snapshot.run().requests.is_empty());
+            assert_eq!(snapshot.run().requests.len(), 0);
             assert!(snapshot.warnings().iter().any(|w| w
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
@@ -4144,7 +4144,7 @@ mod tests {
         with_recorder(|recorder| {
             let _open = tracing::info_span!("other", user = 1_u64).entered();
             let snapshot = recorder.snapshot_run().unwrap();
-            assert!(snapshot.warnings().is_empty());
+            assert_eq!(snapshot.warnings().len(), 0);
         });
     }
 
@@ -4427,8 +4427,9 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .filter(|name| name.to_string_lossy().starts_with(&temp_prefix))
             .collect::<Vec<_>>();
-        assert!(
-            leftovers.is_empty(),
+        assert_eq!(
+            leftovers.len(),
+            0,
             "completed-span JSONL temp artifacts remain: {leftovers:?}"
         );
     }
@@ -4890,7 +4891,7 @@ mod tests {
         );
 
         let direct_issues = relevant_issue_projection(&direct_provenance.normalized.report);
-        assert!(!direct_issues.is_empty());
+        assert_ne!(direct_issues.len(), 0);
         assert_eq!(
             direct_issues,
             vec![
@@ -5307,7 +5308,7 @@ mod tests {
             source_identity(replay.retained_sources()),
             source_identity(imported.retained_sources())
         );
-        assert!(replay.run().runtime_snapshots.is_empty());
+        assert_eq!(replay.run().runtime_snapshots.len(), 0);
         assert_ne!(replay.run(), imported.run());
         // Completed-span JSONL intentionally replays retained request/stage/queue
         // evidence only; runtime snapshots remain Run-only metadata.
@@ -6108,7 +6109,7 @@ mod tests {
         assert_eq!(run.requests.len(), 1);
         assert_eq!(run.stages.len(), 1);
         assert_eq!(run.queues.len(), 1);
-        assert!(run.runtime_snapshots.is_empty());
+        assert_eq!(run.runtime_snapshots.len(), 0);
         assert_eq!(run.requests[0].route, "/checkout");
         assert_eq!(run.stages[0].stage, "db");
         assert_eq!(run.queues[0].queue, "admission");

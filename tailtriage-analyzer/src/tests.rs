@@ -615,7 +615,7 @@ fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
         primary.confidence_notes,
         vec![super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()]
     );
-    assert!(secondary.confidence_notes.is_empty());
+    assert_eq!(secondary.confidence_notes.len(), 0);
     assert!(!report.warnings.iter().any(|w| w.contains("close in score")));
     assert!(!std::iter::once(primary)
         .chain(report.secondary_suspects.iter())
@@ -767,8 +767,8 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
         &late_evidence.0,
         &late_evidence.1,
     );
-    assert!(early.warnings.is_empty());
-    assert!(late.warnings.is_empty());
+    assert_eq!(early.warnings.len(), 0);
+    assert_eq!(late.warnings.len(), 0);
 }
 
 // TT-TEST: A02 secondary
@@ -2797,6 +2797,32 @@ fn executor_inflight_growth_bonus_remains_exactly_four() {
         .any(|e| e.contains("latest active episode") && e.contains("run-relative rate=2000")));
 }
 
+// TT-TEST: A02 primary
+#[test]
+fn normalized_executor_inflight_growth_bonus_remains_exactly_four() {
+    let mut baseline = option_run_twenty_requests();
+    baseline.runtime_snapshots = (0..20)
+        .map(|_| {
+            let mut snapshot = runtime_snapshot(Some(8), Some(4), Some(0));
+            snapshot.worker_count = Some(4);
+            snapshot
+        })
+        .collect();
+    let mut growing = baseline.clone();
+    growing.inflight = vec![
+        inflight("g", 1, Some(1), 1),
+        inflight("g", 2, Some(1_000_001), 3),
+    ];
+
+    let without = analyze_run(&baseline, AnalyzeOptions::default()).unwrap();
+    let with = analyze_run(&growing, AnalyzeOptions::default()).unwrap();
+    let baseline_score = suspect_score(&without, &DiagnosisKind::ExecutorPressure);
+    let growing_score = suspect_score(&with, &DiagnosisKind::ExecutorPressure);
+    assert!(growing_score >= baseline_score);
+    assert_eq!(growing_score - baseline_score, 4);
+    assert!(growing_score <= 100);
+}
+
 // TT-TEST: support
 #[test]
 fn declining_inflight_episode_adds_no_growth_bonus() {
@@ -3240,7 +3266,7 @@ fn typed_blocking_pool_relation_is_independent_of_stage_display_name() {
     assert_eq!(alpha_group, beta_group);
 
     let untyped = report("blocking_pool", false);
-    assert!(untyped.related_groups.is_empty());
+    assert_eq!(untyped.related_groups.len(), 0);
 }
 
 // TT-TEST: support
@@ -3379,7 +3405,7 @@ fn blocking_like_stage_name_has_no_relation_semantics() {
         .secondary_suspects
         .iter()
         .any(|s| s.kind == DiagnosisKind::BlockingPoolPressure));
-    assert!(report.related_groups.is_empty());
+    assert_eq!(report.related_groups.len(), 0);
 }
 
 // TT-TEST: support
@@ -3584,7 +3610,7 @@ fn blocking_relation_resolution_is_idempotent_and_never_combines_raw_scores() {
         .map(|candidate| (candidate.suspect.kind.clone(), candidate.suspect.score))
         .collect::<Vec<_>>();
     let second = super::relation::resolve_blocking_pool_group(&mut candidates, &run, &options);
-    assert!(second.is_empty());
+    assert_eq!(second.len(), 0);
     assert_eq!(
         candidates
             .iter()
@@ -3751,7 +3777,7 @@ fn unknown_relation_round_trips_but_is_analyzer_inert() {
         .iter()
         .any(|value| value == "future_relation"));
     let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
-    assert!(report.related_groups.is_empty());
+    assert_eq!(report.related_groups.len(), 0);
 }
 
 // TT-TEST: support
@@ -3782,7 +3808,7 @@ fn one_tagged_event_does_not_promote_same_named_untagged_evidence() {
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(16)); 40];
     let report = analyze_run(&run, AnalyzeOptions::default()).unwrap();
-    assert!(report.related_groups.is_empty());
+    assert_eq!(report.related_groups.len(), 0);
     assert!(std::iter::once(&report.primary_suspect)
         .chain(&report.secondary_suspects)
         .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominance));
@@ -4151,7 +4177,7 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
         DiagnosisKind::ApplicationQueuePressure
     );
     assert_eq!(report.primary_suspect.confidence, Confidence::High);
-    assert!(report.primary_suspect.confidence_notes.is_empty());
+    assert_eq!(report.primary_suspect.confidence_notes.len(), 0);
 }
 
 // TT-TEST: support
@@ -4469,7 +4495,7 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
         &AnalyzeOptions::default(),
     );
     assert_eq!(suspects[0].confidence, Confidence::High);
-    assert!(suspects[0].confidence_notes.is_empty());
+    assert_eq!(suspects[0].confidence_notes.len(), 0);
 }
 
 // TT-TEST: A08 primary
@@ -4477,7 +4503,7 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
 fn route_breakdowns_empty_for_single_route() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
         .expect("analyzer options should be valid");
-    assert!(report.route_breakdowns.is_empty());
+    assert_eq!(report.route_breakdowns.len(), 0);
     assert!(report
         .warnings
         .iter()
@@ -4491,7 +4517,7 @@ fn single_route_executor_signals_do_not_emit_route_breakdowns_or_divergence_warn
     run.runtime_snapshots = vec![runtime_snapshot(Some(150), Some(120), Some(2))];
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert!(report.route_breakdowns.is_empty());
+    assert_eq!(report.route_breakdowns.len(), 0);
     assert!(report
         .warnings
         .iter()
@@ -4687,7 +4713,7 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
     }
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert!(report.route_breakdowns.is_empty());
+    assert_eq!(report.route_breakdowns.len(), 0);
     assert!(report
         .warnings
         .iter()
@@ -4718,7 +4744,7 @@ fn temporal_segments_present_and_empty_below_threshold() {
         .expect("analyzer options should be valid");
     let value = serde_json::to_value(&report).expect("serialize");
     assert!(value.get("temporal_segments").is_some());
-    assert!(report.temporal_segments.is_empty());
+    assert_eq!(report.temporal_segments.len(), 0);
 }
 
 // TT-TEST: support
@@ -5162,7 +5188,7 @@ fn temporal_segments_not_emitted_when_no_meaningful_difference() {
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert!(report.temporal_segments.is_empty());
+    assert_eq!(report.temporal_segments.len(), 0);
     assert!(!report
         .warnings
         .iter()
@@ -5421,7 +5447,7 @@ fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segment
     }];
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert!(report.temporal_segments.is_empty());
+    assert_eq!(report.temporal_segments.len(), 0);
 }
 
 // TT-TEST: support
@@ -5621,7 +5647,7 @@ fn public_api_supports_report_text_and_json_contract_fields() {
     let report: Report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let text = render_text(&report);
-    assert!(!text.is_empty(), "rendered text should not be empty");
+    assert_ne!(text.len(), 0, "rendered text should not be empty");
 
     let report_json =
         serde_json::to_string_pretty(&report).expect("report should serialize to json");
@@ -6315,7 +6341,7 @@ fn default_options_compat_route_breakdowns_case() {
     run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert!(!report.route_breakdowns.is_empty());
+    assert_ne!(report.route_breakdowns.len(), 0);
     assert!(report
         .warnings
         .iter()
@@ -6375,7 +6401,7 @@ fn default_options_compat_temporal_segments_case() {
         .collect();
     let report =
         analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
-    assert!(!report.temporal_segments.is_empty());
+    assert_ne!(report.temporal_segments.len(), 0);
     assert_default_report_has_no_analyzer_config(&report);
 }
 
@@ -7361,7 +7387,7 @@ fn assert_completed_scoped_projection(report: &Report, name: &str, route_warning
             "Stage 'db' contributes 300 permille of tail request latency.".to_string(),
         ]
     );
-    assert!(report.primary_suspect.confidence_notes.is_empty());
+    assert_eq!(report.primary_suspect.confidence_notes.len(), 0);
     assert!(report
         .primary_suspect
         .evidence
@@ -7838,7 +7864,7 @@ fn downstream_materiality_boundary_and_fallback_are_exact() {
         DiagnosisKind::InsufficientEvidence
     );
     assert_eq!(below.primary_suspect.score, 50);
-    assert!(below.secondary_suspects.is_empty());
+    assert_eq!(below.secondary_suspects.len(), 0);
 
     let boundary = report_at(300);
     assert_eq!(
@@ -7857,7 +7883,7 @@ fn every_isolated_below_boundary_path_has_exact_insufficient_fallback() {
             DiagnosisKind::InsufficientEvidence
         );
         assert_eq!(report.primary_suspect.score, 50);
-        assert!(report.secondary_suspects.is_empty());
+        assert_eq!(report.secondary_suspects.len(), 0);
     };
 
     let requests = || {
@@ -8254,6 +8280,11 @@ fn tuning_thresholds_are_directional_at_valid_local_values() {
 // TT-TEST: A02 primary
 #[test]
 fn tuning_options_do_not_rewrite_unrelated_or_surviving_family_magnitude() {
+    let has = |report: &Report, kind: DiagnosisKind| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .any(|suspect| suspect.kind == kind)
+    };
     let mut run = test_run();
     run.requests = (0..40)
         .map(|i| precise_request(&format!("r{i}"), 1_000))
@@ -8328,6 +8359,57 @@ fn tuning_options_do_not_rewrite_unrelated_or_surviving_family_magnitude() {
     } {
         assert_eq!(scores(options), baseline);
     }
+
+    let unrelated_scores = |run: &Run, options| {
+        let report = analyze_run(run, options).unwrap();
+        [
+            DiagnosisKind::ApplicationQueuePressure,
+            DiagnosisKind::DownstreamStageDominance,
+        ]
+        .map(|kind| suspect_score(&report, &kind))
+    };
+
+    let mut blocking_boundary = run.clone();
+    blocking_boundary.runtime_snapshots = (0..20)
+        .map(|index| runtime_snapshot(Some(0), Some(0), Some(u64::from(index == 0))))
+        .collect();
+    let mut blocking_low = AnalyzeOptions::default();
+    blocking_low.blocking.min_nonzero_samples_for_signal = 1;
+    let low_report = analyze_run(&blocking_boundary, blocking_low.clone()).unwrap();
+    assert!(has(&low_report, DiagnosisKind::BlockingPoolPressure));
+    let mut blocking_high = AnalyzeOptions::default();
+    blocking_high.blocking.min_nonzero_samples_for_signal = 2;
+    let high_report = analyze_run(&blocking_boundary, blocking_high.clone()).unwrap();
+    assert!(!has(&high_report, DiagnosisKind::BlockingPoolPressure));
+    assert_eq!(
+        unrelated_scores(&blocking_boundary, blocking_low),
+        unrelated_scores(&blocking_boundary, blocking_high)
+    );
+
+    let mut normalized_boundary = run;
+    normalized_boundary.runtime_snapshots = (0..20)
+        .map(|_| {
+            let mut snapshot = runtime_snapshot(Some(2), Some(0), Some(0));
+            snapshot.worker_count = Some(4);
+            snapshot
+        })
+        .collect();
+    let mut normalized_low = AnalyzeOptions::default();
+    normalized_low
+        .executor
+        .min_runnable_queue_per_worker_p95_milli_for_signal = 500;
+    let low_report = analyze_run(&normalized_boundary, normalized_low.clone()).unwrap();
+    assert!(has(&low_report, DiagnosisKind::ExecutorPressure));
+    let mut normalized_high = AnalyzeOptions::default();
+    normalized_high
+        .executor
+        .min_runnable_queue_per_worker_p95_milli_for_signal = 501;
+    let high_report = analyze_run(&normalized_boundary, normalized_high.clone()).unwrap();
+    assert!(!has(&high_report, DiagnosisKind::ExecutorPressure));
+    assert_eq!(
+        unrelated_scores(&normalized_boundary, normalized_low),
+        unrelated_scores(&normalized_boundary, normalized_high)
+    );
 }
 
 // TT-TEST: support
@@ -8659,25 +8741,50 @@ fn family_magnitude_is_monotone_bounded_and_normalized_executor_is_scale_invaria
         assert!(scores.into_iter().all(|score| score <= 100));
     }
 
-    let downstream = |latency| {
+    let downstream = |latencies: &[u64]| {
         let mut run = test_run();
         run.requests = (0..20)
             .map(|i| precise_request(&format!("r{i}"), 1_000))
             .collect();
-        run.stages = (0..20)
-            .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(latency), latency))
+        run.stages = latencies
+            .iter()
+            .enumerate()
+            .map(|(i, latency)| {
+                precise_stage(&format!("r{i}"), "db", Some(0), Some(*latency), *latency)
+            })
             .collect();
         super::scoring::downstream_stage_suspect(&run, &options)
             .unwrap()
             .suspect
             .score
     };
-    let scores = [300, 500, 700, 960, 1_000].map(downstream);
-    assert!(scores.windows(2).all(|pair| pair[0] <= pair[1]));
-    assert!(scores.into_iter().all(|score| score <= 100));
+    let equal_cumulative = [vec![450; 20], {
+        let mut values = vec![400; 20];
+        values[18] = 900;
+        values[19] = 900;
+        values
+    }]
+    .map(|latencies| downstream(&latencies));
+    assert!(equal_cumulative[0] <= equal_cumulative[1]);
+    let equal_tail = [
+        {
+            let mut values = vec![300; 20];
+            values[18] = 700;
+            values[19] = 700;
+            values
+        },
+        vec![700; 20],
+    ]
+    .map(|latencies| downstream(&latencies));
+    assert!(equal_tail[0] <= equal_tail[1]);
+    assert!(equal_cumulative
+        .into_iter()
+        .chain(equal_tail)
+        .all(|score| score <= 100));
 
     // Existing exact bonus tests independently own absent -> positive growth for queue and both
-    // executor paths; this property owns the remaining physical axes without copying formulas.
+    // executor paths; the two downstream pairs independently hold cumulative and tail attribution
+    // constant while strengthening the other production measurement.
 }
 
 // TT-TEST: A04 primary
@@ -8713,82 +8820,73 @@ fn relevant_support_can_only_raise_maturity_without_changing_magnitude() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn weaker_family_evidence_cannot_increase_pre_ambiguity_confidence() {
-    use super::candidate::completed_candidate;
-    use super::partial_evidence::{
-        EvidenceBasis, PARTIAL_QUEUE_CONFIDENCE_NOTE, PARTIAL_STAGE_CONFIDENCE_NOTE,
-    };
-
-    let options = AnalyzeOptions::default();
     let rank = |confidence| match confidence {
         Confidence::Low => 0,
         Confidence::Medium => 1,
         Confidence::High => 2,
     };
-    let evaluate = |kind, run: &Run, support, basis| {
-        let mut candidate = completed_candidate(Suspect::new(kind, 95, vec![], vec![]), support);
-        candidate.basis = basis;
-        let quality = evidence::evidence_quality(run, &options);
-        super::confidence::apply_pre_ambiguity_confidence_caps(
-            std::slice::from_mut(&mut candidate),
-            run,
-            &quality,
-            &options,
-        );
-        candidate.suspect
+    let candidate = |run: &Run, kind: DiagnosisKind| {
+        let report = analyze_run(run, AnalyzeOptions::default()).unwrap();
+        std::iter::once(report.primary_suspect)
+            .chain(report.secondary_suspects)
+            .find(|suspect| suspect.kind == kind)
+            .expect("production analyzer should emit the candidate")
     };
-    let complete_run = |family: DiagnosisKind| {
+    let family_run = |family: DiagnosisKind, support: usize, completed: bool| {
         let mut run = test_run();
-        run.requests = (0..20).map(sample_request).collect();
+        run.requests = (0..support)
+            .map(|i| precise_request(&format!("req-{i}"), 1_000))
+            .collect();
         match family {
             DiagnosisKind::ApplicationQueuePressure => {
-                run.queues = (0..20)
-                    .map(|i| precise_queue(&format!("req-{i}"), 0, 900, 900))
+                run.queues = (0..support)
+                    .map(|i| {
+                        let mut queue = precise_queue(&format!("req-{i}"), 0, 900, 900);
+                        queue.completed = completed;
+                        queue
+                    })
                     .collect();
             }
             DiagnosisKind::DownstreamStageDominance => {
-                run.stages = (0..20)
-                    .map(|i| precise_stage(&format!("req-{i}"), "db", Some(0), Some(900), 900))
+                run.stages = (0..support)
+                    .map(|i| {
+                        let mut stage =
+                            precise_stage(&format!("req-{i}"), "db", Some(0), Some(900), 900);
+                        stage.completed = completed;
+                        stage
+                    })
                     .collect();
-            }
-            DiagnosisKind::ExecutorPressure => {
-                run.runtime_snapshots = vec![runtime_snapshot(Some(8), Some(4), Some(0)); 20];
             }
             _ => unreachable!(),
         }
         run
     };
 
-    for (kind, partial_note, missing_note) in [
+    for (kind, partial_note) in [
         (
             DiagnosisKind::ApplicationQueuePressure,
-            PARTIAL_QUEUE_CONFIDENCE_NOTE,
-            "Missing queue instrumentation limits queue-saturation confidence.",
+            "Partial queue evidence materially contributes",
         ),
         (
             DiagnosisKind::DownstreamStageDominance,
-            PARTIAL_STAGE_CONFIDENCE_NOTE,
-            "Missing stage instrumentation limits downstream-stage confidence.",
+            "Partial stage evidence materially contributes",
         ),
     ] {
-        let baseline_run = complete_run(kind.clone());
-        let baseline = evaluate(kind.clone(), &baseline_run, 20, EvidenceBasis::Completed);
-        for (label, weak, expected_note) in [
+        let baseline_run = family_run(kind.clone(), 20, true);
+        let baseline = candidate(&baseline_run, kind.clone());
+        for (label, weak_run, expected_note) in [
             (
                 "sparse",
-                evaluate(kind.clone(), &baseline_run, 7, EvidenceBasis::Completed),
+                family_run(kind.clone(), 7, true),
                 "provisional maturity",
             ),
             (
                 "lower bound",
-                evaluate(
-                    kind.clone(),
-                    &baseline_run,
-                    20,
-                    EvidenceBasis::ObservedLowerBound,
-                ),
+                family_run(kind.clone(), 20, false),
                 partial_note,
             ),
         ] {
+            let weak = candidate(&weak_run, kind.clone());
             assert_eq!(
                 weak.score, baseline.score,
                 "{label} must not rewrite magnitude"
@@ -8806,62 +8904,35 @@ fn weaker_family_evidence_cannot_increase_pre_ambiguity_confidence() {
         } else {
             truncated_run.truncation.dropped_stages = 1;
         }
-        let truncated = evaluate(kind.clone(), &truncated_run, 20, EvidenceBasis::Completed);
+        let truncated = candidate(&truncated_run, kind.clone());
         assert_eq!(truncated.score, baseline.score);
         assert!(rank(truncated.confidence) <= rank(baseline.confidence));
         assert!(truncated
             .confidence_notes
             .iter()
             .any(|note| note.contains("Capture truncation")));
-
-        let mut missing_run = baseline_run;
-        if kind == DiagnosisKind::ApplicationQueuePressure {
-            missing_run.queues.clear();
-        } else {
-            missing_run.stages.clear();
-        }
-        let missing = evaluate(kind, &missing_run, 20, EvidenceBasis::Completed);
-        assert_eq!(missing.score, baseline.score);
-        assert!(rank(missing.confidence) <= rank(baseline.confidence));
-        assert!(missing
-            .confidence_notes
-            .iter()
-            .any(|note| note == missing_note));
     }
 
-    let runtime = complete_run(DiagnosisKind::ExecutorPressure);
-    let baseline = evaluate(
-        DiagnosisKind::ExecutorPressure,
-        &runtime,
-        20,
-        EvidenceBasis::Completed,
-    );
+    let mut runtime = option_run_twenty_requests();
+    runtime.runtime_snapshots = (0..20)
+        .map(|_| {
+            let mut snapshot = runtime_snapshot(Some(8), Some(0), Some(0));
+            snapshot.worker_count = Some(4);
+            snapshot
+        })
+        .collect();
+    let baseline = candidate(&runtime, DiagnosisKind::ExecutorPressure);
     let mut partial_runtime = runtime.clone();
     for snapshot in &mut partial_runtime.runtime_snapshots {
         snapshot.local_queue_depth = None;
     }
-    let mut missing_runtime = runtime;
-    missing_runtime.runtime_snapshots.clear();
-    for (weak_run, expected_note) in [
-        (
-            partial_runtime,
-            "Runtime snapshots are partial; missing runtime queue-depth fields limit executor/blocking confidence.",
-        ),
-        (
-            missing_runtime,
-            "Missing runtime snapshots limit executor/blocking confidence.",
-        ),
-    ] {
-        let weak = evaluate(
-            DiagnosisKind::ExecutorPressure,
-            &weak_run,
-            20,
-            EvidenceBasis::Completed,
-        );
-        assert_eq!(weak.score, baseline.score);
-        assert!(rank(weak.confidence) <= rank(baseline.confidence));
-        assert!(weak.confidence_notes.iter().any(|note| note == expected_note));
-    }
+    let weak = candidate(&partial_runtime, DiagnosisKind::ExecutorPressure);
+    assert_eq!(weak.score, baseline.score);
+    assert!(rank(weak.confidence) <= rank(baseline.confidence));
+    assert!(weak
+        .confidence_notes
+        .iter()
+        .any(|note| note.contains("Missing local queue depth")));
 }
 
 // TT-TEST: A04 primary

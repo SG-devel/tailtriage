@@ -292,14 +292,16 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
             case.name
         );
         if case.strict_ok {
-            assert!(
-                strict_error_codes.is_empty(),
+            assert_eq!(
+                strict_error_codes.len(),
+                0,
                 "{} strict success should not expose error codes",
                 case.name
             );
         } else {
-            assert!(
-                !strict_error_codes.is_empty(),
+            assert_ne!(
+                strict_error_codes.len(),
+                0,
                 "{} strict failure should expose deterministic error codes",
                 case.name
             );
@@ -403,8 +405,9 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
             case.name
         );
         if strict.is_err() {
-            assert!(
-                strict_output.stdout.is_empty(),
+            assert_eq!(
+                strict_output.stdout.len(),
+                0,
                 "{} strict failure should not write report",
                 case.name
             );
@@ -550,8 +553,9 @@ fn native_run_is_strict_valid_and_normalization_idempotent() {
         renormalized_projection, normalized_projection,
         "normalization should be idempotent for valid native runs"
     );
-    assert!(
-        normalized_projection.strict_error_codes.is_empty(),
+    assert_eq!(
+        normalized_projection.strict_error_codes.len(),
+        0,
         "valid native normalization should not expose generic error codes"
     );
 

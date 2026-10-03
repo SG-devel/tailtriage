@@ -144,12 +144,14 @@ fn fixture_categories_produce_expected_primary_suspect() {
         let report =
             analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         assert_eq!(report.primary_suspect.kind, expected, "fixture={fixture}");
-        assert!(
-            !report.primary_suspect.evidence.is_empty(),
+        assert_ne!(
+            report.primary_suspect.evidence.len(),
+            0,
             "fixture={fixture} should include evidence"
         );
-        assert!(
-            !report.primary_suspect.next_checks.is_empty(),
+        assert_ne!(
+            report.primary_suspect.next_checks.len(),
+            0,
             "fixture={fixture} should include next checks"
         );
     }
@@ -167,7 +169,7 @@ fn fixture_reports_render_to_text_and_json() {
     assert!(text.contains("Request time at p95:"));
     assert!(text.contains("queue 66.6%"));
     assert!(text.contains("non-queue service 50.0%"));
-    assert!(text.contains("Secondary suspects:") || report.secondary_suspects.is_empty());
+    assert!(text.contains("Secondary suspects:") || report.secondary_suspects.as_slice() == []);
 
     let json = serde_json::to_string_pretty(&report).expect("json rendering should work");
     assert!(json.contains("primary_suspect"));

@@ -280,8 +280,9 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.queues.len(), 1);
     assert_eq!(run.stages.len(), 1);
-    assert!(
-        run.runtime_snapshots.is_empty(),
+    assert_eq!(
+        run.runtime_snapshots.len(),
+        0,
         "tracing-only import must not fabricate runtime snapshots"
     );
     let report =

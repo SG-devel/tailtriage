@@ -77,11 +77,11 @@ async fn tracing_session_shutdown_output_is_finalized() {
     let imported = session.shutdown().await.expect("shutdown session");
     let after_shutdown = unix_time_ms();
     let run = imported.run();
-    assert!(!run.requests.is_empty());
-    assert!(!run.stages.is_empty());
-    assert!(!run.queues.is_empty());
+    assert_ne!(run.requests.len(), 0);
+    assert_ne!(run.stages.len(), 0);
+    assert_ne!(run.queues.len(), 0);
     assert_eq!(run.queues[0].depth_at_start, Some(2));
-    assert!(!run.runtime_snapshots.is_empty());
+    assert_ne!(run.runtime_snapshots.len(), 0);
     assert!(run.metadata.effective_tokio_sampler_config.is_some());
     assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
     let finalized = run
@@ -188,8 +188,8 @@ async fn a1_bare_tokio_feature_session_rejects_manual_runtime_recording() {
             if reason.contains("runtime collection is not enabled")
     ));
     let imported = session.shutdown().await.expect("shutdown");
-    assert!(imported.run().runtime_snapshots.is_empty());
-    assert!(imported.run().metadata.lifecycle_warnings.is_empty());
+    assert_eq!(imported.run().runtime_snapshots.len(), 0);
+    assert_eq!(imported.run().metadata.lifecycle_warnings.len(), 0);
 }
 
 // TT-TEST: R04 primary
@@ -276,7 +276,7 @@ async fn a3_sampler_interval_starts_background_and_retains_manual_snapshot() {
         .expect("record manual snapshot");
     wait_for_runtime_snapshot(&session).await;
     let imported = session.shutdown().await.expect("shutdown");
-    assert!(!imported.run().runtime_snapshots.is_empty());
+    assert_ne!(imported.run().runtime_snapshots.len(), 0);
     assert!(imported
         .run()
         .runtime_snapshots
@@ -333,8 +333,8 @@ async fn a5_ordinary_live_session_captures_request_stage_queue_without_runtime_c
     assert_eq!(imported.run().requests.len(), 1);
     assert_eq!(imported.run().stages.len(), 1);
     assert_eq!(imported.run().queues.len(), 1);
-    assert!(imported.run().runtime_snapshots.is_empty());
-    assert!(imported.run().metadata.lifecycle_warnings.is_empty());
+    assert_eq!(imported.run().runtime_snapshots.len(), 0);
+    assert_eq!(imported.run().metadata.lifecycle_warnings.len(), 0);
 }
 
 // TT-TEST: R04 primary
@@ -366,7 +366,7 @@ async fn active_sampler_shutdown_stops_before_outputs_and_keeps_runtime_run_only
     wait_for_runtime_snapshot(&session).await;
     let before_shutdown = session.snapshot_run().expect("pre-shutdown snapshot");
     assert_eq!(before_shutdown.run().requests.len(), 1);
-    assert!(!before_shutdown.run().runtime_snapshots.is_empty());
+    assert_ne!(before_shutdown.run().runtime_snapshots.len(), 0);
     assert!(!run_path.exists());
     assert!(!spans_path.exists());
 
