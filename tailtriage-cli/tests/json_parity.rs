@@ -33,7 +33,7 @@ fn cli_json_matches_analyzer_renderer_output() {
 
     let loaded =
         artifact::load_run_artifact(&artifact_path).expect("artifact should load successfully");
-    assert!(loaded.warnings.is_empty());
+    assert_eq!(loaded.warnings, Vec::<String>::new());
 
     let report = tailtriage_analyzer::analyze_run(
         &loaded.run,
@@ -196,7 +196,7 @@ fn allow_ambiguous_artifact_emits_every_core_issue_in_order() {
         .issues
         .iter()
         .map(|issue| {
-            assert!(!issue.code.as_str().is_empty());
+            assert_ne!(issue.code.as_str(), "");
             let mut location = issue.location.section.as_str().to_owned();
             if let Some(index) = issue.location.index {
                 write!(location, "[{index}]").expect("writing to String should not fail");
@@ -205,7 +205,7 @@ fn allow_ambiguous_artifact_emits_every_core_issue_in_order() {
                 location.push('.');
                 location.push_str(field);
             }
-            assert!(!location.is_empty());
+            assert_ne!(location, "");
             format!(
                 "warning: permissive Run normalization {} at {location}: {}",
                 issue.code.as_str(),
