@@ -8758,7 +8758,7 @@ fn family_magnitude_is_monotone_bounded_and_normalized_executor_is_scale_invaria
     let downstream = |latencies: &[u64]| {
         let mut run = test_run();
         run.requests = (0..20)
-            .map(|i| precise_request(&format!("r{i}"), 1_000))
+            .map(|i| precise_request(&format!("r{i}"), if i < 18 { 1_000 } else { 2_000 }))
             .collect();
         run.stages = latencies
             .iter()
@@ -8767,34 +8767,76 @@ fn family_magnitude_is_monotone_bounded_and_normalized_executor_is_scale_invaria
                 precise_stage(&format!("r{i}"), "db", Some(0), Some(*latency), *latency)
             })
             .collect();
-        super::scoring::downstream_stage_suspect(&run, &options)
-            .unwrap()
-            .suspect
-            .score
+        super::scoring::downstream_stage_candidates_for_test(&run, 2_000, &options)
+            .into_iter()
+            .find(|candidate| {
+                candidate.0 == super::partial_evidence::EvidenceBasis::Completed
+                    && candidate.1 == "db"
+            })
+            .expect("eligible completed db representation")
     };
-    let equal_cumulative = [vec![450; 20], {
-        let mut values = vec![400; 20];
-        values[18] = 900;
-        values[19] = 900;
+
+    let weak_tail = downstream(&{
+        let mut values = vec![422; 20];
+        values[17] = 426;
+        values[18] = 600;
+        values[19] = 600;
         values
-    }]
-    .map(|latencies| downstream(&latencies));
-    assert!(equal_cumulative[0] <= equal_cumulative[1]);
-    let equal_tail = [
-        {
-            let mut values = vec![300; 20];
-            values[18] = 700;
-            values[19] = 700;
-            values
-        },
-        vec![700; 20],
-    ]
-    .map(|latencies| downstream(&latencies));
-    assert!(equal_tail[0] <= equal_tail[1]);
-    assert!(equal_cumulative
-        .into_iter()
-        .chain(equal_tail)
-        .all(|score| score <= 100));
+    });
+    let strong_tail = downstream(&{
+        let mut values = vec![355; 20];
+        values[17] = 365;
+        values[18] = 1_200;
+        values[19] = 1_200;
+        values
+    });
+    assert_eq!(weak_tail.2, 20);
+    assert_eq!(strong_tail.2, 20);
+    assert_eq!(
+        weak_tail.0,
+        super::partial_evidence::EvidenceBasis::Completed
+    );
+    assert_eq!(
+        strong_tail.0,
+        super::partial_evidence::EvidenceBasis::Completed
+    );
+    assert_eq!(weak_tail.5, 400);
+    assert_eq!(strong_tail.5, 400);
+    assert_eq!(weak_tail.6, 300);
+    assert_eq!(strong_tail.6, 600);
+    assert!(weak_tail.6 < strong_tail.6);
+    assert!(weak_tail.7 <= strong_tail.7);
+    assert!(weak_tail.7 <= 100 && strong_tail.7 <= 100);
+
+    let weak_cumulative = downstream(&{
+        let mut values = vec![200; 20];
+        values[18] = 1_200;
+        values[19] = 1_200;
+        values
+    });
+    let strong_cumulative = downstream(&{
+        let mut values = vec![400; 20];
+        values[18] = 1_200;
+        values[19] = 1_200;
+        values
+    });
+    assert_eq!(weak_cumulative.2, 20);
+    assert_eq!(strong_cumulative.2, 20);
+    assert_eq!(
+        weak_cumulative.0,
+        super::partial_evidence::EvidenceBasis::Completed
+    );
+    assert_eq!(
+        strong_cumulative.0,
+        super::partial_evidence::EvidenceBasis::Completed
+    );
+    assert_eq!(weak_cumulative.5, 272);
+    assert_eq!(strong_cumulative.5, 436);
+    assert_eq!(weak_cumulative.6, 600);
+    assert_eq!(strong_cumulative.6, 600);
+    assert!(weak_cumulative.5 < strong_cumulative.5);
+    assert!(weak_cumulative.7 <= strong_cumulative.7);
+    assert!(weak_cumulative.7 <= 100 && strong_cumulative.7 <= 100);
 
     // Existing exact bonus tests independently own absent -> positive growth for queue and both
     // executor paths; the two downstream pairs independently hold cumulative and tail attribution
