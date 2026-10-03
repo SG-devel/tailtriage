@@ -254,7 +254,7 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
         .expect("lock should succeed")
         .clone()
         .expect("sink should receive run");
-    assert!(written.requests.is_empty());
+    assert_eq!(written.requests.as_slice(), []);
     assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
         warning.contains("duplicate_completed_request_id")
             && warning.contains("request event(s) were excluded")
@@ -278,7 +278,7 @@ fn active_snapshot_preserves_pending_request_child_evidence_without_lifecycle_no
     futures_executor::block_on(request.stage("db").await_value(ready(())));
 
     let snapshot = tailtriage.snapshot();
-    assert!(snapshot.requests.is_empty());
+    assert_eq!(snapshot.requests.as_slice(), []);
     assert_eq!(snapshot.stages.len(), 1);
     assert_eq!(snapshot.stages[0].request_id, "req-active");
     assert_eq!(snapshot.queues.len(), 1);
@@ -327,9 +327,9 @@ fn shutdown_normalizes_unfinished_request_children_without_fabricating_completio
         .expect("lock should succeed")
         .clone()
         .expect("sink should receive run");
-    assert!(written.requests.is_empty());
-    assert!(written.stages.is_empty());
-    assert!(written.queues.is_empty());
+    assert_eq!(written.requests.as_slice(), []);
+    assert_eq!(written.stages.as_slice(), []);
+    assert_eq!(written.queues.as_slice(), []);
     assert_eq!(written.metadata.unfinished_requests.count, 1);
     assert_eq!(
         written.metadata.unfinished_requests.sample[0].request_id,
@@ -932,9 +932,9 @@ fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_ine
     let run = tailtriage.snapshot();
     assert_eq!(run.requests.len(), 2);
     assert_eq!(tailtriage.pending_request_count(), 0);
-    assert!(run.stages.is_empty());
-    assert!(run.queues.is_empty());
-    assert!(run.inflight.is_empty());
+    assert_eq!(run.stages.as_slice(), []);
+    assert_eq!(run.queues.as_slice(), []);
+    assert_eq!(run.inflight.as_slice(), []);
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
     assert_eq!(run.truncation.dropped_requests, 2);
     assert!(run.truncation.limits_hit);
@@ -1006,7 +1006,7 @@ fn concurrent_request_admission_cannot_exceed_retained_plus_pending_limit() {
         entered.wait();
         assert_eq!(tailtriage.pending_request_count(), 1);
         let run = tailtriage.snapshot();
-        assert!(run.requests.is_empty());
+        assert_eq!(run.requests.as_slice(), []);
         assert_eq!(run.truncation.dropped_requests, (CALLERS - 1) as u64);
         release.wait();
     });
@@ -1434,7 +1434,7 @@ fn shutdown_warns_with_unfinished_requests() {
     assert_eq!(snapshot.requests.len(), 0);
     assert_eq!(snapshot.metadata.unfinished_requests.count, 1);
     assert_eq!(snapshot.metadata.unfinished_requests.sample.len(), 1);
-    assert!(!snapshot.metadata.lifecycle_warnings.is_empty());
+    assert_ne!(snapshot.metadata.lifecycle_warnings, Vec::<String>::new());
 }
 
 // TT-TEST: support
@@ -1773,16 +1773,16 @@ fn stage_relations_preserve_schema_v2_wire_compatibility() {
         r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
     )
     .unwrap();
-    assert!(historical.relations.is_empty());
+    assert_eq!(historical.relations, StageRelations::default());
     assert!(!historical.has_relation(StageRelation::BlockingPool));
     let empty: StageEvent = serde_json::from_str(
         r#"{"request_id":"r","stage":"work","relations":[],"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
     )
     .unwrap();
-    assert!(empty.relations.is_empty());
+    assert_eq!(empty.relations, StageRelations::default());
 
     let ordinary = StageEvent::new("r", "work", 1, 2, 3, true);
-    assert!(ordinary.relations.is_empty());
+    assert_eq!(ordinary.relations, StageRelations::default());
     assert!(serde_json::to_value(&ordinary)
         .unwrap()
         .get("relations")
@@ -2160,7 +2160,7 @@ fn run_builder_rejects_zero_worker_count_before_retention() {
             reason: "must be greater than zero when present".into(),
         }
     );
-    assert!(builder.build().runtime_snapshots.is_empty());
+    assert_eq!(builder.build().runtime_snapshots.as_slice(), []);
 }
 
 // TT-TEST: support
@@ -2708,8 +2708,8 @@ mod run_validation_contract {
             completed: true,
         });
         let normalized = normalize_run_permissive(&run);
-        assert!(normalized.run.requests.is_empty());
-        assert!(normalized.run.stages.is_empty());
+        assert_eq!(normalized.run.requests.as_slice(), []);
+        assert_eq!(normalized.run.stages.as_slice(), []);
         assert!(normalized
             .report
             .issues
@@ -2796,8 +2796,8 @@ mod run_validation_contract {
 
         let run = builder.build();
 
-        assert!(run.stages.is_empty());
-        assert!(run.queues.is_empty());
+        assert_eq!(run.stages.as_slice(), []);
+        assert_eq!(run.queues.as_slice(), []);
         assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
             warning.contains("orphan_request_scoped_event") && warning.contains("stage")
         }));
@@ -3028,7 +3028,7 @@ mod run_validation_contract {
                 .collect::<Vec<_>>(),
             vec!["retained-queue"]
         );
-        assert!(normalized.run.inflight.is_empty());
+        assert_eq!(normalized.run.inflight.as_slice(), []);
         assert_eq!(normalized.run.runtime_snapshots.len(), 1);
 
         let disposition_projection = normalized
@@ -3119,8 +3119,8 @@ mod run_validation_contract {
         let valid_empty = base_run();
         validate_run_strict(&valid_empty).expect("zero-request run is generically valid");
         let normalized_empty = normalize_run_permissive(&valid_empty);
-        assert!(normalized_empty.run.requests.is_empty());
-        assert!(normalized_empty.report.issues.is_empty());
+        assert_eq!(normalized_empty.run.requests.as_slice(), []);
+        assert_eq!(normalized_empty.report.issues.as_slice(), []);
 
         let mut run = base_run();
         run.stages.push(stage("missing"));
@@ -3143,10 +3143,10 @@ mod run_validation_contract {
         });
 
         let normalized = normalize_run_permissive(&run);
-        assert!(normalized.run.requests.is_empty());
-        assert!(normalized.run.stages.is_empty());
-        assert!(normalized.run.queues.is_empty());
-        assert!(normalized.run.inflight.is_empty());
+        assert_eq!(normalized.run.requests.as_slice(), []);
+        assert_eq!(normalized.run.stages.as_slice(), []);
+        assert_eq!(normalized.run.queues.as_slice(), []);
+        assert_eq!(normalized.run.inflight.as_slice(), []);
         assert_eq!(normalized.run.runtime_snapshots.len(), 1);
 
         let issue_projection = normalized
@@ -3538,7 +3538,7 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
     entered_rx.recv().expect("sink entered");
     drop(started.completion);
     let during = tailtriage.snapshot();
-    assert!(during.requests.is_empty());
+    assert_eq!(during.requests.as_slice(), []);
     assert_eq!(during.metadata.unfinished_requests.count, 1);
     release_tx.send(()).expect("release sink");
     shutdown
@@ -3551,7 +3551,7 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
         .expect("run lock")
         .clone()
         .expect("persisted run");
-    assert!(persisted.requests.is_empty());
+    assert_eq!(persisted.requests.as_slice(), []);
     assert_eq!(persisted.metadata.unfinished_requests.count, 1);
     assert_eq!(
         persisted.metadata.unfinished_requests.sample[0].request_id,
@@ -4125,7 +4125,7 @@ mod prompt09_partial_events {
             .stage("db")
             .await_value(poll_fn(|_| Poll::<()>::Pending));
         drop(fut);
-        assert!(tt.snapshot().stages.is_empty());
+        assert_eq!(tt.snapshot().stages.as_slice(), []);
     }
 
     // TT-TEST: K02 primary
@@ -4138,7 +4138,7 @@ mod prompt09_partial_events {
             .queue("q")
             .await_on(poll_fn(|_| Poll::<()>::Pending));
         drop(fut);
-        assert!(tt.snapshot().queues.is_empty());
+        assert_eq!(tt.snapshot().queues.as_slice(), []);
     }
 
     // TT-TEST: K02 secondary
@@ -4417,7 +4417,7 @@ mod prompt09_partial_events {
         assert_eq!(before_queues, after.queues);
         assert_eq!(before_truncation, after.truncation);
         assert_eq!(before_metadata, after.metadata);
-        assert!(after.stages.is_empty());
-        assert!(after.queues.is_empty());
+        assert_eq!(after.stages.as_slice(), []);
+        assert_eq!(after.queues.as_slice(), []);
     }
 }

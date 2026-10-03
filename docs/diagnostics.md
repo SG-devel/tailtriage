@@ -105,7 +105,8 @@ score = 22 + floor(min(Q, 1000) / 14)
 ```
 
 The score is soft-capped at 95. The cap is removed when `Q >= 985`, `D >= 12`,
-there are at least 20 share samples, and positive in-flight growth is known.
+and positive in-flight growth is known. This exception depends only on physical
+magnitude; family-relevant support affects maturity and confidence separately.
 When both bases qualify, all non-ambiguity limitations apply first. Selection then prefers higher pre-ambiguity confidence, greater family-relevant support, higher raw magnitude, and completed evidence, in that order. Evidence states the p95 share, maximum sampled depth, positive growth,
 and whether the selected value is a lower bound. Next checks target admission,
 producer bursts, and a controlled parallelism comparison. Selecting the
@@ -192,9 +193,8 @@ score = 34 + floor(min(P, 150) / 4)
            + floor(min(A, 400) / 40) + G
 ```
 
-The score is soft-capped at 94 unless `P >= 140` and there are at least 30
-global samples. Historical absence deliberately preserves this formula without
-a worker-related cap. Partial, inconsistent, and invalid-zero worker evidence
+The score is soft-capped at 94 unless `P >= 140`. Historical absence deliberately
+preserves this formula without a worker-related cap. Partial, inconsistent, and invalid-zero worker evidence
 uses the same formula without inventing a worker count, but caps confidence at
 Medium. Evidence names the scoring mode and relevant limitation. Next checks
 target long non-yielding polls, fanout, and stage isolation.
@@ -209,9 +209,9 @@ Let `T` be tail-request share permille and `C` cumulative share permille. Distin
 score = 24 + floor(min(T, 1000) / 11) + floor(C / 35)
 ```
 
-The score is soft-capped at 95 unless `T >= 960`, `C >= 920`, and there are at
-least 20 samples. Stage p95 is supporting evidence; `T`, `C`, and coverage drive
-the score. All non-ambiguity limitations apply before representation selection.
+The score is soft-capped at 95 unless `T >= 960` and `C >= 920`. Stage p95 is
+supporting evidence; `T` and `C` drive the score. All non-ambiguity limitations
+apply before representation selection.
 Selection is deterministic: pre-ambiguity confidence, family-relevant support,
 raw score, completed evidence over lower-bound evidence, tail share, cumulative
 share, then stage name ascending.

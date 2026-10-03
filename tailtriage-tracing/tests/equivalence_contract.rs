@@ -404,15 +404,16 @@ fn semantic_limits_retain_the_same_evidence_and_drop_counts() {
             run.metadata.effective_core_config.unwrap().capture_limits,
             limits()
         );
-        assert!(run.inflight.is_empty() && run.runtime_snapshots.is_empty());
+        assert_eq!(run.inflight.len(), 0);
+        assert_eq!(run.runtime_snapshots.len(), 0);
     }
 }
 // TT-TEST: support
 #[test]
 fn completed_span_jsonl_import_never_fabricates_runtime_or_inflight_evidence() {
     let t = import_case("precise_route_divergent", None);
-    assert!(t.runtime_snapshots.is_empty());
-    assert!(t.inflight.is_empty());
+    assert_eq!(t.runtime_snapshots.len(), 0);
+    assert_eq!(t.inflight.len(), 0);
     assert_eq!(t.metadata.effective_tokio_sampler_config, None);
 }
 // TT-TEST: F03 secondary

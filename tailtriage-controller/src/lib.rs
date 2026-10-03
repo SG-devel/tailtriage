@@ -5418,7 +5418,7 @@ max_runtime_snapshots = 10
 
         let run = read_run(&active.artifact_path);
         assert!(run.metadata.effective_tokio_sampler_config.is_none());
-        assert!(run.runtime_snapshots.is_empty());
+        assert_eq!(run.runtime_snapshots.len(), 0);
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
@@ -5447,7 +5447,7 @@ max_runtime_snapshots = 10
         tokio::time::sleep(Duration::from_millis(30)).await;
 
         let first_run = read_run(&first.artifact_path);
-        assert!(!first_run.runtime_snapshots.is_empty());
+        assert_ne!(first_run.runtime_snapshots.len(), 0);
         let first_metadata = first_run
             .metadata
             .effective_tokio_sampler_config
@@ -5462,7 +5462,7 @@ max_runtime_snapshots = 10
         ));
 
         let second_run = read_run(&second.artifact_path);
-        assert!(!second_run.runtime_snapshots.is_empty());
+        assert_ne!(second_run.runtime_snapshots.len(), 0);
         let second_metadata = second_run
             .metadata
             .effective_tokio_sampler_config
