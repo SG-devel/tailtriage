@@ -49,6 +49,15 @@ def extract_blocking_queue_depth_p95(report: dict) -> int | None:
             match = re.search(r"Blocking queue depth p95 is (\d+)", evidence)
             if match:
                 return int(match.group(1))
+    for group in report.get("related_groups") or []:
+        for member in group.get("members") or []:
+            if member.get("diagnosis") != "blocking_pool_pressure":
+                continue
+            measurement = member.get("measurement") or {}
+            if measurement.get("kind") == "blocking_pool" and isinstance(
+                measurement.get("p95_depth"), int
+            ):
+                return measurement["p95_depth"]
     return None
 
 def normalize_mode(mode: str) -> str:
@@ -220,6 +229,15 @@ def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
     return any((suspect or {}).get("kind") in expected_kinds for suspect in all_suspects)
 
 
+def has_related_member(report: dict, diagnosis: str) -> bool:
+    """Return whether structured related evidence retains a diagnosis family."""
+    return any(
+        member.get("diagnosis") == diagnosis
+        for group in report.get("related_groups") or []
+        for member in group.get("members") or []
+    )
+
+
 # This registry is the single canonical executable policy surface for controlled live demos.
 # Its check names own both baseline expectations and mitigation movement for exactly nine
 # scenarios; both ordinary validation and mitigation reporting consume evaluate_live_scenario.
@@ -228,7 +246,9 @@ LIVE_SCENARIO_POLICIES: dict[str, dict[str, Any]] = {
     "blocking": {"targeted": "blocking_pool_pressure", "checks": ["baseline_targeted", "p95_improves", "blocking_depth_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"blocking_pool_pressure", "downstream_stage_dominance"}},
     "executor": {"targeted": "executor_pressure", "checks": ["baseline_targeted", "executor_present", "no_blocking_evidence", "p95_improves", "targeted_score_nonworsening"]},
     "downstream": {"targeted": "downstream_stage_dominance", "checks": ["baseline_targeted", "p95_improves", "targeted_score_nonworsening"], "after_high_confidence": {"downstream_stage_dominance"}},
-    "mixed": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "baseline_downstream_secondary", "primary_rank_or_score_shifts"]},
+    # Stage visibility is independently owned by the analyzer's 300-permille
+    # materiality boundary; mixed owns queue targeting and mitigation movement.
+    "mixed": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "primary_rank_or_score_shifts"]},
     "cold-start": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "cold_start_or_queue_evidence", "p95_improves", "primary_score_increase_explainable"]},
     "db-pool": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "p95_improves", "queue_share_decreases", "targeted_score_nonworsening"], "after_high_confidence": {"application_queue_pressure", "downstream_stage_dominance"}},
     "shared-lock": {"targeted": "application_queue_pressure", "checks": ["baseline_targeted", "shared_lock_queue_evidence", "p95_improves", "primary_score_nonworsening"]},
@@ -276,6 +296,22 @@ def evaluate_live_scenario(
     ratio = _ratio_delta(before_p95, after_p95)
     evidence = _evidence_text(before)
 
+    def targeted_nonworsening() -> bool:
+        if before_targeted_score is not None and after_targeted_score is not None:
+            return after_targeted_score <= before_targeted_score
+        if scenario == "blocking":
+            # R-B may retain blocking only as measured group evidence. Do not treat the
+            # absent top-level score as success: require the structured disposition on
+            # both reports and non-worsening measured blocking depth.
+            return (
+                has_related_member(before, targeted)
+                and has_related_member(after, targeted)
+                and before_depth is not None
+                and after_depth is not None
+                and after_depth <= before_depth
+            )
+        return before_targeted_score is None or after_targeted_score is None
+
     def cold_start_score_increase_explainable() -> bool:
         before_score, after_score = before_primary.get("score"), after_primary.get("score")
         if before_score is None or after_score is None:
@@ -299,11 +335,11 @@ def evaluate_live_scenario(
         return material_p95_improvement and diagnosis_justified and queue_evidence_nonworsening
 
     def check(name: str) -> bool:
-        if name == "baseline_targeted": return before_primary.get("kind") == targeted
+        if name == "baseline_targeted": return before_primary.get("kind") == targeted or (scenario == "blocking" and has_related_member(before, targeted))
         if name == "p95_improves": return ratio is not None and ratio <= -min_p95_improvement_ratio and after_p95 < before_p95
         if name == "queue_share_decreases": return before_queue is not None and after_queue is not None and after_queue < before_queue
         if name == "blocking_depth_decreases": return before_depth is not None and after_depth is not None and after_depth < before_depth
-        if name == "targeted_score_nonworsening": return before_targeted_score is None or after_targeted_score is None or after_targeted_score <= before_targeted_score
+        if name == "targeted_score_nonworsening": return targeted_nonworsening()
         if name == "primary_score_nonworsening": return before_primary.get("score") is not None and after_primary.get("score") is not None and after_primary["score"] <= before_primary["score"]
         if name == "primary_score_increase_explainable": return cold_start_score_increase_explainable()
         if name == "executor_present": return has_suspect_kind(before, {targeted}) and (profile == "release" or before_targeted_score is not None)
@@ -765,13 +801,19 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
                     f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
                 )
 
-        if not has_suspect_kind(before_native, {expected_kind}):
+        before_native_has_expected = has_suspect_kind(before_native, {expected_kind}) or (
+            scenario == "blocking" and has_related_member(before_native, expected_kind)
+        )
+        before_tracing_has_expected = has_suspect_kind(before_tracing, {expected_kind}) or (
+            scenario == "blocking" and has_related_member(before_tracing, expected_kind)
+        )
+        if not before_native_has_expected:
             raise SystemExit(
-                f"expected baseline native primary suspect {expected_kind}, got {before_native['primary_suspect']['kind']}"
+                f"expected baseline native evidence for {expected_kind}, got {before_native['primary_suspect']['kind']}"
             )
-        if not has_suspect_kind(before_tracing, {expected_kind}):
+        if not before_tracing_has_expected:
             raise SystemExit(
-                f"expected baseline tracing primary suspect {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
+                f"expected baseline tracing evidence for {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
             )
 
         if config["require_p95_improvement"] and after_tracing["p95_latency_us"] > before_tracing["p95_latency_us"]:

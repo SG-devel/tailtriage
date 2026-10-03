@@ -144,12 +144,14 @@ fn fixture_categories_produce_expected_primary_suspect() {
         let report =
             analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         assert_eq!(report.primary_suspect.kind, expected, "fixture={fixture}");
-        assert!(
-            !report.primary_suspect.evidence.is_empty(),
+        assert_ne!(
+            report.primary_suspect.evidence.len(),
+            0,
             "fixture={fixture} should include evidence"
         );
-        assert!(
-            !report.primary_suspect.next_checks.is_empty(),
+        assert_ne!(
+            report.primary_suspect.next_checks.len(),
+            0,
             "fixture={fixture} should include next checks"
         );
     }

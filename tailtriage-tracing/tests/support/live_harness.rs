@@ -152,6 +152,7 @@ fn deterministic_native_run() -> Run {
         run.stages.push(StageEvent {
             request_id: id.to_owned(),
             stage: "db".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: req_start + 85,
             started_at_run_us: None,
             finished_at_unix_ms: req_start + 85 + (db_us / 1000),
@@ -163,6 +164,7 @@ fn deterministic_native_run() -> Run {
         run.stages.push(StageEvent {
             request_id: id.to_owned(),
             stage: "cache".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: req_start + 93,
             started_at_run_us: None,
             finished_at_unix_ms: req_start + 93 + (cache_us / 1000),
@@ -260,7 +262,7 @@ fn format_mismatches(mismatches: &[String]) -> String {
 pub fn assert_deterministic_span_import_full_parity() {
     let native_run = deterministic_native_run();
     let (tracing_run, warnings) = deterministic_tracing_run();
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(warnings.len(), 0, "unexpected warnings: {warnings:?}");
 
     let report = build_parity_report(&native_run, &tracing_run);
 
@@ -273,8 +275,9 @@ pub fn assert_deterministic_span_import_full_parity() {
         Some(DiagnosisKind::ApplicationQueuePressure)
     );
 
-    assert!(
-        report.mismatches.is_empty(),
+    assert_eq!(
+        report.mismatches.len(),
+        0,
         "deterministic span import parity failed:
 \
 run parity mismatches:
@@ -823,7 +826,7 @@ fn parity_report_detects_request_outcome_mismatch() {
 #[test]
 fn live_session_preserves_event_shape_and_outputs_analyzable_run() {
     let (run, warnings) = live_tracing_run();
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(warnings.len(), 0, "unexpected warnings: {warnings:?}");
     assert_eq!(run.requests.len(), 3);
     assert_eq!(run.stages.len(), 6);
     assert_eq!(run.queues.len(), 3);

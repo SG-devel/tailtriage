@@ -254,7 +254,7 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
         .expect("lock should succeed")
         .clone()
         .expect("sink should receive run");
-    assert!(written.requests.is_empty());
+    assert_eq!(written.requests.as_slice(), []);
     assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
         warning.contains("duplicate_completed_request_id")
             && warning.contains("request event(s) were excluded")
@@ -278,7 +278,7 @@ fn active_snapshot_preserves_pending_request_child_evidence_without_lifecycle_no
     futures_executor::block_on(request.stage("db").await_value(ready(())));
 
     let snapshot = tailtriage.snapshot();
-    assert!(snapshot.requests.is_empty());
+    assert_eq!(snapshot.requests.as_slice(), []);
     assert_eq!(snapshot.stages.len(), 1);
     assert_eq!(snapshot.stages[0].request_id, "req-active");
     assert_eq!(snapshot.queues.len(), 1);
@@ -327,9 +327,9 @@ fn shutdown_normalizes_unfinished_request_children_without_fabricating_completio
         .expect("lock should succeed")
         .clone()
         .expect("sink should receive run");
-    assert!(written.requests.is_empty());
-    assert!(written.stages.is_empty());
-    assert!(written.queues.is_empty());
+    assert_eq!(written.requests.as_slice(), []);
+    assert_eq!(written.stages.as_slice(), []);
+    assert_eq!(written.queues.as_slice(), []);
     assert_eq!(written.metadata.unfinished_requests.count, 1);
     assert_eq!(
         written.metadata.unfinished_requests.sample[0].request_id,
@@ -932,9 +932,9 @@ fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_ine
     let run = tailtriage.snapshot();
     assert_eq!(run.requests.len(), 2);
     assert_eq!(tailtriage.pending_request_count(), 0);
-    assert!(run.stages.is_empty());
-    assert!(run.queues.is_empty());
-    assert!(run.inflight.is_empty());
+    assert_eq!(run.stages.as_slice(), []);
+    assert_eq!(run.queues.as_slice(), []);
+    assert_eq!(run.inflight.as_slice(), []);
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
     assert_eq!(run.truncation.dropped_requests, 2);
     assert!(run.truncation.limits_hit);
@@ -1006,7 +1006,7 @@ fn concurrent_request_admission_cannot_exceed_retained_plus_pending_limit() {
         entered.wait();
         assert_eq!(tailtriage.pending_request_count(), 1);
         let run = tailtriage.snapshot();
-        assert!(run.requests.is_empty());
+        assert_eq!(run.requests.as_slice(), []);
         assert_eq!(run.truncation.dropped_requests, (CALLERS - 1) as u64);
         release.wait();
     });
@@ -1434,7 +1434,7 @@ fn shutdown_warns_with_unfinished_requests() {
     assert_eq!(snapshot.requests.len(), 0);
     assert_eq!(snapshot.metadata.unfinished_requests.count, 1);
     assert_eq!(snapshot.metadata.unfinished_requests.sample.len(), 1);
-    assert!(!snapshot.metadata.lifecycle_warnings.is_empty());
+    assert_ne!(snapshot.metadata.lifecycle_warnings, Vec::<String>::new());
 }
 
 // TT-TEST: support
@@ -1753,6 +1753,7 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
     crate::StageEvent {
         request_id: request_id.to_string(),
         stage: stage.to_string(),
+        relations: crate::StageRelations::default(),
         started_at_unix_ms: 3,
         started_at_run_us: None,
         finished_at_unix_ms: 4,
@@ -1761,6 +1762,68 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
         success: true,
         completed: true,
     }
+}
+
+// TT-TEST: support
+#[test]
+fn stage_relations_preserve_schema_v2_wire_compatibility() {
+    use crate::{StageEvent, StageRelation, StageRelations};
+
+    let historical: StageEvent = serde_json::from_str(
+        r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
+    )
+    .unwrap();
+    assert_eq!(historical.relations, StageRelations::default());
+    assert!(!historical.has_relation(StageRelation::BlockingPool));
+    let empty: StageEvent = serde_json::from_str(
+        r#"{"request_id":"r","stage":"work","relations":[],"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#,
+    )
+    .unwrap();
+    assert_eq!(empty.relations, StageRelations::default());
+
+    let ordinary = StageEvent::new("r", "work", 1, 2, 3, true);
+    assert_eq!(ordinary.relations, StageRelations::default());
+    assert!(serde_json::to_value(&ordinary)
+        .unwrap()
+        .get("relations")
+        .is_none());
+
+    let mut known = ordinary.clone();
+    known.relations = StageRelations::from_relation(StageRelation::BlockingPool);
+    assert!(known.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&known).unwrap()["relations"],
+        serde_json::json!(["blocking_pool"])
+    );
+    assert_eq!(
+        serde_json::from_value::<StageEvent>(serde_json::to_value(&known).unwrap()).unwrap(),
+        known
+    );
+}
+
+// TT-TEST: support
+#[test]
+fn stage_relations_preserve_unknowns_and_canonicalize_duplicates() {
+    use crate::{StageEvent, StageRelation};
+
+    let base = r#"{"request_id":"r","stage":"work","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true"#;
+    let unknown: StageEvent =
+        serde_json::from_str(&format!(r#"{base},"relations":["z_future","a_future"]}}"#)).unwrap();
+    assert!(!unknown.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&unknown).unwrap()["relations"],
+        serde_json::json!(["a_future", "z_future"])
+    );
+
+    let mixed: StageEvent = serde_json::from_str(&format!(
+        r#"{base},"relations":["future_relation","blocking_pool","blocking_pool"]}}"#
+    ))
+    .unwrap();
+    assert!(mixed.has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&mixed).unwrap()["relations"],
+        serde_json::json!(["blocking_pool", "future_relation"])
+    );
 }
 
 fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
@@ -2097,7 +2160,7 @@ fn run_builder_rejects_zero_worker_count_before_retention() {
             reason: "must be greater than zero when present".into(),
         }
     );
-    assert!(builder.build().runtime_snapshots.is_empty());
+    assert_eq!(builder.build().runtime_snapshots.as_slice(), []);
 }
 
 // TT-TEST: support
@@ -2528,6 +2591,7 @@ mod run_validation_contract {
         StageEvent {
             request_id: id.into(),
             stage: "db".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2634,6 +2698,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "dup".into(),
             stage: "db".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2643,8 +2708,8 @@ mod run_validation_contract {
             completed: true,
         });
         let normalized = normalize_run_permissive(&run);
-        assert!(normalized.run.requests.is_empty());
-        assert!(normalized.run.stages.is_empty());
+        assert_eq!(normalized.run.requests.as_slice(), []);
+        assert_eq!(normalized.run.stages.as_slice(), []);
         assert!(normalized
             .report
             .issues
@@ -2731,8 +2796,8 @@ mod run_validation_contract {
 
         let run = builder.build();
 
-        assert!(run.stages.is_empty());
-        assert!(run.queues.is_empty());
+        assert_eq!(run.stages.as_slice(), []);
+        assert_eq!(run.queues.as_slice(), []);
         assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
             warning.contains("orphan_request_scoped_event") && warning.contains("stage")
         }));
@@ -2816,6 +2881,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "retained-stage".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2827,6 +2893,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "missing".into(),
             stage: "orphan-stage".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -2961,7 +3028,7 @@ mod run_validation_contract {
                 .collect::<Vec<_>>(),
             vec!["retained-queue"]
         );
-        assert!(normalized.run.inflight.is_empty());
+        assert_eq!(normalized.run.inflight.as_slice(), []);
         assert_eq!(normalized.run.runtime_snapshots.len(), 1);
 
         let disposition_projection = normalized
@@ -3052,8 +3119,8 @@ mod run_validation_contract {
         let valid_empty = base_run();
         validate_run_strict(&valid_empty).expect("zero-request run is generically valid");
         let normalized_empty = normalize_run_permissive(&valid_empty);
-        assert!(normalized_empty.run.requests.is_empty());
-        assert!(normalized_empty.report.issues.is_empty());
+        assert_eq!(normalized_empty.run.requests.as_slice(), []);
+        assert_eq!(normalized_empty.report.issues.as_slice(), []);
 
         let mut run = base_run();
         run.stages.push(stage("missing"));
@@ -3076,10 +3143,10 @@ mod run_validation_contract {
         });
 
         let normalized = normalize_run_permissive(&run);
-        assert!(normalized.run.requests.is_empty());
-        assert!(normalized.run.stages.is_empty());
-        assert!(normalized.run.queues.is_empty());
-        assert!(normalized.run.inflight.is_empty());
+        assert_eq!(normalized.run.requests.as_slice(), []);
+        assert_eq!(normalized.run.stages.as_slice(), []);
+        assert_eq!(normalized.run.queues.as_slice(), []);
+        assert_eq!(normalized.run.inflight.as_slice(), []);
         assert_eq!(normalized.run.runtime_snapshots.len(), 1);
 
         let issue_projection = normalized
@@ -3202,6 +3269,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "missing".into(),
             stage: "x".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(10),
             finished_at_unix_ms: 1_001,
@@ -3213,6 +3281,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "outside".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: Some(0),
             finished_at_unix_ms: 1_001,
@@ -3224,6 +3293,7 @@ mod run_validation_contract {
         run.stages.push(StageEvent {
             request_id: "ok".into(),
             stage: "legacy".into(),
+            relations: crate::StageRelations::default(),
             started_at_unix_ms: 1_000,
             started_at_run_us: None,
             finished_at_unix_ms: 1_001,
@@ -3468,7 +3538,7 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
     entered_rx.recv().expect("sink entered");
     drop(started.completion);
     let during = tailtriage.snapshot();
-    assert!(during.requests.is_empty());
+    assert_eq!(during.requests.as_slice(), []);
     assert_eq!(during.metadata.unfinished_requests.count, 1);
     release_tx.send(()).expect("release sink");
     shutdown
@@ -3481,7 +3551,7 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
         .expect("run lock")
         .clone()
         .expect("persisted run");
-    assert!(persisted.requests.is_empty());
+    assert_eq!(persisted.requests.as_slice(), []);
     assert_eq!(persisted.metadata.unfinished_requests.count, 1);
     assert_eq!(
         persisted.metadata.unfinished_requests.sample[0].request_id,
@@ -3774,8 +3844,8 @@ mod prompt09_partial_events {
     use std::task::{Context, Poll, Waker};
 
     use crate::{
-        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, Tailtriage,
-        TruncationSummary, SCHEMA_VERSION,
+        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, StageRelation,
+        Tailtriage, TruncationSummary, SCHEMA_VERSION,
     };
 
     fn poll_once<F: Future>(future: &mut std::pin::Pin<Box<F>>) -> Poll<F::Output> {
@@ -3907,6 +3977,36 @@ mod prompt09_partial_events {
         assert_eq!(ev.stage, "db");
         assert!(ev.completed);
         assert!(ev.success);
+        assert!(!ev.has_relation(StageRelation::BlockingPool));
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_records_completed_success_and_error() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let ok: Result<(), ()> = futures_executor::block_on(
+            started
+                .handle
+                .stage("decode-ok")
+                .relation(StageRelation::BlockingPool)
+                .relation(StageRelation::BlockingPool)
+                .await_on(ready(Ok(()))),
+        );
+        let error: Result<(), ()> = futures_executor::block_on(
+            started
+                .handle
+                .stage("decode-error")
+                .relation(StageRelation::BlockingPool)
+                .await_on(ready(Err(()))),
+        );
+        assert!(ok.is_ok());
+        assert!(error.is_err());
+        let run = tt.snapshot();
+        assert!(run
+            .stages
+            .iter()
+            .all(|event| { event.has_relation(StageRelation::BlockingPool) && event.completed }));
     }
 
     // TT-TEST: support
@@ -3918,6 +4018,21 @@ mod prompt09_partial_events {
         let ev = &tt.snapshot().stages[0];
         assert!(ev.completed);
         assert!(ev.success);
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_survives_await_value() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        futures_executor::block_on(
+            started
+                .handle
+                .stage("decode")
+                .relation(StageRelation::BlockingPool)
+                .await_value(ready(())),
+        );
+        assert!(tt.snapshot().stages[0].has_relation(StageRelation::BlockingPool));
     }
 
     // TT-TEST: support
@@ -3960,6 +4075,24 @@ mod prompt09_partial_events {
         assert!(ev.latency_us <= ev.finished_at_run_us.unwrap_or(u64::MAX));
     }
 
+    // TT-TEST: support
+    #[test]
+    fn explicit_stage_relation_survives_partial_drop() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let fut = started
+            .handle
+            .stage("decode")
+            .relation(StageRelation::BlockingPool)
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let run = tt.snapshot();
+        assert!(!run.stages[0].completed);
+        assert!(run.stages[0].has_relation(StageRelation::BlockingPool));
+    }
+
     // TT-TEST: K02 primary
     #[test]
     fn queue_pending_then_drop_records_one_partial_event_with_depth() {
@@ -3992,7 +4125,7 @@ mod prompt09_partial_events {
             .stage("db")
             .await_value(poll_fn(|_| Poll::<()>::Pending));
         drop(fut);
-        assert!(tt.snapshot().stages.is_empty());
+        assert_eq!(tt.snapshot().stages.as_slice(), []);
     }
 
     // TT-TEST: K02 primary
@@ -4005,7 +4138,7 @@ mod prompt09_partial_events {
             .queue("q")
             .await_on(poll_fn(|_| Poll::<()>::Pending));
         drop(fut);
-        assert!(tt.snapshot().queues.is_empty());
+        assert_eq!(tt.snapshot().queues.as_slice(), []);
     }
 
     // TT-TEST: K02 secondary
@@ -4284,7 +4417,7 @@ mod prompt09_partial_events {
         assert_eq!(before_queues, after.queues);
         assert_eq!(before_truncation, after.truncation);
         assert_eq!(before_metadata, after.metadata);
-        assert!(after.stages.is_empty());
-        assert!(after.queues.is_empty());
+        assert_eq!(after.stages.as_slice(), []);
+        assert_eq!(after.queues.as_slice(), []);
     }
 }

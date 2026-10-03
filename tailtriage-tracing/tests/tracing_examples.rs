@@ -139,6 +139,56 @@ fn native_core_and_live_tracing_capture_preserve_timing_semantics() {
     assert_single_request_timing_semantics(&tracing);
 }
 
+// TT-TEST: support
+#[cfg(feature = "live")]
+#[test]
+fn native_and_live_tracing_stage_relations_converge() {
+    use tailtriage_core::StageRelation;
+
+    let tailtriage = Tailtriage::builder("svc")
+        .sink(tailtriage_core::DiscardSink)
+        .build()
+        .unwrap();
+    let started = tailtriage.begin_request_with("/", RequestOptions::new().request_id("req-1"));
+    futures_executor::block_on(
+        started
+            .handle
+            .stage("opaque")
+            .relation(StageRelation::BlockingPool)
+            .await_value(async {}),
+    );
+    started.completion.finish_ok();
+    let native = tailtriage.snapshot();
+
+    let session = TracingSession::builder("svc").build().unwrap();
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "request",
+            tt.kind = "request",
+            tt.request_id = "req-1",
+            tt.route = "/"
+        )
+        .in_scope(|| {
+            tracing::info_span!(
+                "opaque",
+                tt.kind = "stage",
+                tt.request_id = "req-1",
+                tt.stage = "opaque",
+                tt.relation = "blocking_pool"
+            )
+            .in_scope(|| {});
+        });
+    });
+    let traced = session.snapshot_run().unwrap();
+    assert!(native.stages[0].has_relation(StageRelation::BlockingPool));
+    assert!(traced.run().stages[0].has_relation(StageRelation::BlockingPool));
+    assert_eq!(
+        serde_json::to_value(&native.stages[0].relations).unwrap(),
+        serde_json::to_value(&traced.run().stages[0].relations).unwrap()
+    );
+}
+
 // TT-TEST: F02 secondary
 #[test]
 fn jsonl_fixture_imports_completed_span_shape() {
@@ -198,6 +248,27 @@ fn jsonl_fixture_reader_and_path_import_parity_on_counts() {
 
 // TT-TEST: support
 #[test]
+fn stable_v1_relation_fields_map_known_and_preserve_unknown_core_values() {
+    let input = concat!(
+        r#"{"format":"tailtriage.tracing-span.v1","span":{"id":null,"parent_id":null,"name":"request","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"},"started_at_unix_ms":100,"finished_at_unix_ms":200}}"#,
+        "\n",
+        r#"{"format":"tailtriage.tracing-span.v1","span":{"id":null,"parent_id":null,"name":"known","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"known","tt.relation":"blocking_pool"},"started_at_unix_ms":110,"finished_at_unix_ms":120}}"#,
+        "\n",
+        r#"{"format":"tailtriage.tracing-span.v1","span":{"id":null,"parent_id":null,"name":"future","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"future","tt.relation":"future_relation"},"started_at_unix_ms":121,"finished_at_unix_ms":130}}"#,
+        "\n"
+    );
+    let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+    assert!(imported.run().stages[0].has_relation(tailtriage_core::StageRelation::BlockingPool));
+    assert!(!imported.run().stages[1].has_relation(tailtriage_core::StageRelation::BlockingPool));
+    let json = serde_json::to_value(imported.run()).unwrap();
+    assert_eq!(
+        json["stages"][1]["relations"],
+        serde_json::json!(["future_relation"])
+    );
+}
+
+// TT-TEST: support
+#[test]
 fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("examples")
@@ -209,8 +280,9 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.queues.len(), 1);
     assert_eq!(run.stages.len(), 1);
-    assert!(
-        run.runtime_snapshots.is_empty(),
+    assert_eq!(
+        run.runtime_snapshots.len(),
+        0,
         "tracing-only import must not fabricate runtime snapshots"
     );
     let report =

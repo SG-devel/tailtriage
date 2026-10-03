@@ -26,7 +26,7 @@ fn cli_json_output_is_valid_report_json() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim().len(), 0);
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     let report: serde_json::Value =
@@ -209,7 +209,7 @@ fn analyze_rejects_duplicate_completed_request_ids_by_default() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("strict artifact validation failed"));
     assert!(stderr.contains("duplicate_completed_request_id"));
@@ -238,7 +238,7 @@ fn analyze_allow_ambiguous_artifact_warns_then_rejects_empty_normalized_run() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout.len(), 0);
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("duplicate_completed_request_id"));
@@ -290,7 +290,7 @@ fn analyze_default_accepts_warning_only_precision_findings() {
     assert!(output.status.success(), "cli failed: {output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("strict artifact validation failed"));
-    assert!(stderr.trim().is_empty());
+    assert_eq!(stderr.trim().len(), 0);
 
     let report: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout should be valid Report JSON");
@@ -318,7 +318,7 @@ fn analyze_default_required_field_location_includes_index_and_field() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("empty_required_field"));
     assert!(stderr.contains("request[0].route"));
@@ -347,7 +347,7 @@ fn analyze_default_duplicate_plus_orphan_displays_unique_error_codes_only() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("duplicate_completed_request_id"));
     assert!(stderr.contains("orphan_request_scoped_event"));
@@ -368,7 +368,7 @@ fn analyze_malformed_json_fails_before_core_validation() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("failed to parse run artifact"));
     assert!(!stderr.contains("strict artifact validation failed"));
@@ -400,7 +400,7 @@ fn analyze_default_discloses_truncated_error_details() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("empty_required_field"));
     assert!(stderr.contains("2 additional error finding(s) omitted"));
@@ -437,7 +437,7 @@ fn analyze_allow_ambiguous_artifact_excludes_orphan_and_warns() {
 
     let original: Run =
         serde_json::from_str(&std::fs::read_to_string(&artifact_path).unwrap()).unwrap();
-    assert!(original.metadata.lifecycle_warnings.is_empty());
+    assert_eq!(original.metadata.lifecycle_warnings.len(), 0);
 }
 
 // TT-TEST: support
@@ -527,7 +527,7 @@ fn analyze_rejects_inverted_interval_by_default() {
             .output()
             .expect("cli should run");
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout.len(), 0);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("inverted_interval"));
         assert!(stderr.contains("request[0].finished_at_unix_ms"));
@@ -560,7 +560,8 @@ fn allow_ambiguous_artifact_is_noop_for_valid_artifact() {
     let permissive = run(true);
     assert!(strict.status.success() && permissive.status.success());
     assert_eq!(strict.stdout, permissive.stdout);
-    assert!(strict.stderr.is_empty() && permissive.stderr.is_empty());
+    assert_eq!(strict.stderr.len(), 0);
+    assert_eq!(permissive.stderr.len(), 0);
 }
 
 // TT-TEST: L01 primary
@@ -588,7 +589,7 @@ fn analyze_rejects_removed_strict_artifact_flag() {
         .output()
         .expect("cli should run");
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout.len(), 0);
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("unexpected argument '--strict-artifact'")
     );
@@ -625,7 +626,7 @@ fn cli_misspelled_analyzer_set_reports_suggestion() {
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("queueing.trigger_permille"));
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
 }
 
 // TT-TEST: support
@@ -646,7 +647,7 @@ fn cli_invalid_analyzer_set_type_reports_expected_type() {
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("queueing.trigger_permille"));
     assert!(stderr.contains("u64") || stderr.contains("expected"));
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
 }
 
 // TT-TEST: support
@@ -672,7 +673,7 @@ fn cli_missing_analyzer_config_file_reports_path() {
     )));
     assert!(!stderr.contains("ReadConfig"));
     assert!(!stderr.contains("analyzer.config_path"));
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
 }
 
 // TT-TEST: L01 primary
@@ -722,7 +723,7 @@ fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     assert_precise_interval_warning_only_in_stderr(&output);
     assert!(run_path.exists(), "run artifact should be written");
 
@@ -754,7 +755,7 @@ fn import_tracing_spans_jsonl_fails_when_output_parent_path_is_not_directory() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(
         stderr.contains("failed to create output parent directory")
@@ -783,7 +784,7 @@ fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded =
@@ -814,7 +815,7 @@ fn import_tracing_spans_jsonl_writes_run_json_when_output_path_contains_spaces()
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
 
     let loaded = artifact::load_run_artifact(&run_path)
         .expect("imported run should load from spaced output path");
@@ -897,7 +898,7 @@ fn import_tracing_spans_jsonl_rejects_zero_max_requests() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("--max-requests"));
     assert!(stderr.contains("at least 1"));
@@ -930,14 +931,14 @@ fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = artifact::load_run_artifact(&run_path)
         .expect("imported request-only run should load in cli loader");
-    assert!(!loaded.run.requests.is_empty());
-    assert!(loaded.run.stages.is_empty());
-    assert!(loaded.run.queues.is_empty());
+    assert_ne!(loaded.run.requests.len(), 0);
+    assert_eq!(loaded.run.stages.len(), 0);
+    assert_eq!(loaded.run.queues.len(), 0);
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
@@ -1026,7 +1027,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixtu
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     assert_precise_interval_warning_only_in_stderr(&output);
     let loaded =
         artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
@@ -1348,7 +1349,7 @@ fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(!stderr.trim().is_empty());
+    assert_ne!(stderr.trim().len(), 0);
     assert!(
         !run_path.exists(),
         "run output should not exist on strict failure"
@@ -1524,7 +1525,7 @@ fn import_tracing_spans_jsonl_non_strict_writes_output_and_emits_warning_to_stde
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
     assert!(run_path.exists(), "run output should be written");
@@ -1558,7 +1559,7 @@ fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded =
@@ -1589,7 +1590,7 @@ fn import_tracing_spans_jsonl_accepts_paths_with_spaces() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim().len(), 0);
     assert!(run_path.exists(), "run output should be written");
 
     artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
@@ -1662,7 +1663,7 @@ fn import_tracing_spans_jsonl_fails_when_non_strict_skips_all_malformed_tt_spans
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("stable import expects wrapper JSONL records"));
-    assert!(!stderr.trim().is_empty());
+    assert_ne!(stderr.trim().len(), 0);
     assert!(!run_path.exists(), "run output should not be written");
 }
 
@@ -1918,7 +1919,7 @@ fn write_valid_artifact(dir: &tempfile::TempDir) -> std::path::PathBuf {
 
 fn parse_report_json(output: std::process::Output) -> serde_json::Value {
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim().len(), 0);
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     serde_json::from_str(&stdout).expect("stdout should be valid json")

@@ -1,4 +1,7 @@
-use super::{Confidence, DiagnosisKind, EvidenceQualityLevel, Report, TemporalSegment};
+use super::{
+    Confidence, DiagnosisKind, EvidenceQualityLevel, RelatedEvidenceBasis,
+    RelatedEvidenceMeasurement, Report, TemporalSegment,
+};
 
 use tailtriage_core::__internal::escape_control_chars;
 
@@ -110,6 +113,9 @@ pub fn render_text(report: &Report) -> String {
             ));
         }
     }
+    if !report.related_groups.is_empty() {
+        append_related_group_text(&mut lines, report);
+    }
     if !report.route_breakdowns.is_empty() {
         lines.push("Route breakdowns:".to_string());
         for route in &report.route_breakdowns {
@@ -136,6 +142,50 @@ pub fn render_text(report: &Report) -> String {
     }
     append_temporal_segment_text(&mut lines, &report.temporal_segments);
     lines.join("\n")
+}
+
+fn append_related_group_text(lines: &mut Vec<String>, report: &Report) {
+    lines.push("Related evidence groups:".to_string());
+    for group in &report.related_groups {
+        lines.push(format!(
+            "- representative: {}; relation: {}",
+            diagnosis_display_name(&group.representative),
+            match group.relation {
+                tailtriage_core::StageRelation::BlockingPool => "blocking_pool",
+                _ => "unknown",
+            }
+        ));
+        for member in &group.members {
+            let stage = member.stage.as_ref().map_or_else(String::new, |stage| {
+                format!("; stage: {}", escape_control_chars(stage))
+            });
+            let basis = match member.evidence_basis {
+                RelatedEvidenceBasis::Completed => "completed",
+                RelatedEvidenceBasis::ObservedLowerBound => "observed_lower_bound",
+            };
+            let measurement = match &member.measurement {
+                RelatedEvidenceMeasurement::BlockingPool {
+                    usable_snapshots,
+                    p95_depth,
+                    peak_depth,
+                    nonzero_share_permille,
+                } => format!(
+                    "blocking_pool: usable_snapshots {usable_snapshots}, p95_depth {p95_depth}, peak_depth {peak_depth}, nonzero_share_permille {nonzero_share_permille}"
+                ),
+                RelatedEvidenceMeasurement::DownstreamStage {
+                    tail_contribution_permille,
+                    cumulative_contribution_permille,
+                } => format!(
+                    "downstream_stage: tail_contribution_permille {tail_contribution_permille}, cumulative_contribution_permille {cumulative_contribution_permille}"
+                ),
+            };
+            lines.push(format!(
+                "  - diagnosis: {}; evidence_basis: {basis}; relevant_support: {}{stage}; measurement: {measurement}",
+                diagnosis_display_name(&member.diagnosis),
+                member.relevant_support,
+            ));
+        }
+    }
 }
 
 fn render_inflight_trend(trend: &crate::InflightTrend) -> String {

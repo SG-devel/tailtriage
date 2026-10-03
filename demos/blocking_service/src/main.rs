@@ -123,7 +123,7 @@ async fn run_demo(
                         let handle =
                             tokio::task::spawn_blocking(move || std::thread::sleep(blocking_work));
                         request
-                            .stage("spawn_blocking_path", async {
+                            .blocking_stage("spawn_blocking_path", async {
                                 handle
                                     .await
                                     .expect("spawn_blocking workload should complete");

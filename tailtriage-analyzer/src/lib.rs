@@ -12,13 +12,14 @@ mod evidence;
 mod options;
 mod partial_evidence;
 mod ratio;
+mod relation;
 mod route;
 mod scoring;
 mod slicing;
 mod stage_attribution;
 mod temporal;
 
-use candidate::{completed_candidate, fallback_candidate, FamilyCandidates, SupportedCandidate};
+use candidate::{fallback_candidate, FamilyCandidates, SupportedCandidate};
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
 pub use options::{
     analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
@@ -28,7 +29,7 @@ pub use options::{
 use partial_evidence::PartialEvidenceProfile;
 use tailtriage_core::{
     normalize_run_permissive, summarize_run_validation, InFlightSnapshot, QueueEvent, Run,
-    RuntimeSnapshot,
+    RuntimeSnapshot, StageRelation,
 };
 
 const ROUTE_DIVERGENCE_WARNING: &str =
@@ -193,6 +194,12 @@ pub struct Report {
     pub primary_suspect: Suspect,
     /// Lower-ranked suspects retained for follow-up triage.
     pub secondary_suspects: Vec<Suspect>,
+    /// Explicit groups of typed, related diagnosis evidence.
+    ///
+    /// Empty groups are omitted from Report JSON. A group is emitted only when typed relation
+    /// metadata connects independently eligible evidence; it does not prove root cause.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related_groups: Vec<RelatedEvidenceGroup>,
     /// Supporting per-route triage summaries when route-level signal adds value.
     pub route_breakdowns: Vec<RouteBreakdown>,
     /// Supporting early/late temporal triage summaries when within-run shifts add value.
@@ -201,6 +208,84 @@ pub struct Report {
     /// `None` is serialized as absence when canonical defaults were used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analyzer_config: Option<AnalyzerConfigSummary>,
+}
+
+/// An explicit group of diagnosis-family evidence joined by one typed stage relation.
+///
+/// The representative is the single group-level identity; members do not repeat a
+/// representative flag. A group records an evidence relationship, not proof of root cause.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RelatedEvidenceGroup {
+    /// Typed relation that justifies presenting the members together.
+    #[serde(serialize_with = "serialize_stage_relation")]
+    pub relation: StageRelation,
+    /// Diagnosis family selected to represent this group.
+    pub representative: DiagnosisKind,
+    /// Family- or stage-owned evidence that participates in the group.
+    pub members: Vec<RelatedEvidenceMember>,
+}
+
+/// One diagnosis-family evidence member in a [`RelatedEvidenceGroup`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RelatedEvidenceMember {
+    /// Diagnosis family to which this evidence belongs.
+    pub diagnosis: DiagnosisKind,
+    /// Stage identity when the measured evidence belongs to one stage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    /// Whether the measurement uses completed evidence or an observed lower bound.
+    pub evidence_basis: RelatedEvidenceBasis,
+    /// Family-relevant support count for this member.
+    pub relevant_support: usize,
+    /// Physical evidence measured for this member's diagnosis family.
+    pub measurement: RelatedEvidenceMeasurement,
+}
+
+/// Completion basis for a related-evidence member's measured evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelatedEvidenceBasis {
+    /// Evidence from completed observations.
+    Completed,
+    /// Evidence including an incomplete observation and therefore only a lower bound.
+    ObservedLowerBound,
+}
+
+/// Family-specific physical measurement carried by a related-evidence member.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RelatedEvidenceMeasurement {
+    /// Blocking-pool depth evidence from usable runtime snapshots.
+    BlockingPool {
+        /// Runtime snapshots with usable blocking-pool depth fields.
+        usable_snapshots: usize,
+        /// p95 observed blocking-pool queue depth.
+        p95_depth: u64,
+        /// Peak observed blocking-pool queue depth.
+        peak_depth: u64,
+        /// Share of usable snapshots with nonzero depth, in permille (`0..=1000`).
+        nonzero_share_permille: u64,
+    },
+    /// Request-attributed contribution evidence for one downstream stage.
+    DownstreamStage {
+        /// Stage contribution among tail requests, in permille (`0..=1000`).
+        tail_contribution_permille: u64,
+        /// Stage contribution across completed requests, in permille (`0..=1000`).
+        cumulative_contribution_permille: u64,
+    },
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's `serialize_with` field hook requires `&T`.
+fn serialize_stage_relation<S>(relation: &StageRelation, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match relation {
+        StageRelation::BlockingPool => serializer.serialize_str("blocking_pool"),
+        _ => Err(serde::ser::Error::custom(
+            "unsupported stage relation in related evidence",
+        )),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -472,17 +557,20 @@ fn analyze_run_internal(
     }
 
     if let Some(blocking_suspect) = scoring::blocking_pressure_suspect(run, options) {
-        family_candidates.set_blocking(Some(completed_candidate(blocking_suspect)));
+        family_candidates.set_blocking(Some(blocking_suspect));
     }
 
     if let Some(executor_suspect) =
         scoring::executor_pressure_suspect(run, worker_status, inflight_candidate.as_ref(), options)
     {
-        let (executor_suspect, executor_limitation) = executor_suspect;
+        let (executor_suspect, executor_limitation, relevant_support) = executor_suspect;
         family_candidates.set_executor(Some(SupportedCandidate {
             suspect: executor_suspect,
             basis: partial_evidence::EvidenceBasis::Completed,
             executor_limitation,
+            relevant_support,
+            blocking_measurement: None,
+            downstream_measurement: None,
         }));
     }
 
@@ -511,7 +599,8 @@ fn analyze_run_internal(
     }
 
     let evidence_quality = evidence::evidence_quality(run, options);
-    let ranked_suspects = finalize_scored_suspects(suspects, run, &evidence_quality, options);
+    let (ranked_suspects, related_groups) =
+        finalize_scored_suspects(suspects, run, &evidence_quality, options);
     let warnings = analysis_warnings(run, &ranked_suspects, options);
 
     let mut ranked = ranked_suspects.into_iter();
@@ -536,6 +625,7 @@ fn analyze_run_internal(
         evidence_quality,
         primary_suspect,
         secondary_suspects: ranked.collect(),
+        related_groups,
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
         analyzer_config: None,
@@ -547,19 +637,19 @@ fn finalize_scored_suspects(
     run: &Run,
     evidence_quality: &EvidenceQuality,
     options: &AnalyzeOptions,
-) -> Vec<Suspect> {
+) -> (Vec<Suspect>, Vec<RelatedEvidenceGroup>) {
     for scored in &mut suspects {
         scored.suspect.confidence =
             Confidence::from_score_with_options(scored.suspect.score, options);
     }
-    confidence::apply_evidence_aware_confidence_caps_scored(
-        &mut suspects,
-        run,
-        evidence_quality,
-        options,
-    );
+    confidence::apply_pre_ambiguity_confidence_caps(&mut suspects, run, evidence_quality, options);
+    let related_groups = relation::resolve_blocking_pool_group(&mut suspects, run, options);
+    confidence::apply_ambiguity_confidence_cap(&mut suspects, options);
     suspects.sort_by(final_suspect_order);
-    suspects.into_iter().map(|s| s.suspect).collect()
+    (
+        suspects.into_iter().map(|s| s.suspect).collect(),
+        related_groups,
+    )
 }
 
 fn final_suspect_order(a: &SupportedCandidate, b: &SupportedCandidate) -> std::cmp::Ordering {
@@ -595,15 +685,16 @@ const fn diagnosis_kind_rank(kind: &DiagnosisKind) -> u8 {
 }
 
 fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<String> {
-    let mut ranked = suspects
+    let _ = options;
+    if suspects
         .iter()
-        .filter(|s| s.kind != DiagnosisKind::InsufficientEvidence)
-        .collect::<Vec<_>>();
-    ranked.sort_by_key(|s| std::cmp::Reverse(s.score));
-    if ranked.len() >= 2
-        && ranked[0].score >= options.confidence.ambiguity_min_score
-        && ranked[1].score >= options.confidence.ambiguity_min_score
-        && ranked[0].score.abs_diff(ranked[1].score) <= options.confidence.ambiguity_score_gap
+        .filter(|suspect| {
+            suspect.confidence_notes.iter().any(|note| {
+                note == "Top suspects are close in score; confidence is capped by ambiguity."
+            })
+        })
+        .count()
+        >= 2
     {
         Some("Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string())
     } else {
@@ -921,11 +1012,12 @@ fn percentile_sorted_u64(values: &[u64], numerator: usize, denominator: usize) -
         return None;
     }
 
-    let max_index = values.len().saturating_sub(1);
-    let index = max_index
+    let len = values.len();
+    let index = len
         .saturating_mul(numerator)
         .div_ceil(denominator)
-        .min(max_index);
+        .saturating_sub(1)
+        .min(len.saturating_sub(1));
     values.get(index).copied()
 }
 

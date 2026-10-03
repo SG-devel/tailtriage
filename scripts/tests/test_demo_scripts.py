@@ -62,6 +62,18 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(expected, set(demo_tool.LIVE_SCENARIO_POLICIES))
         self.assertEqual(expected, set(demo_tool.SCENARIOS))
 
+    # TT-TEST: support
+    def test_mixed_policy_keeps_queue_and_movement_but_retires_downstream_secondary(self) -> None:
+        policy = demo_tool.LIVE_SCENARIO_POLICIES["mixed"]
+        self.assertEqual(policy["targeted"], "application_queue_pressure")
+        self.assertEqual(policy["checks"], ["baseline_targeted", "primary_rank_or_score_shifts"])
+        self.assertNotIn("baseline_downstream_secondary", policy["checks"])
+
+        before = self._report("application_queue_pressure", score=90, secondary=[])
+        moved = self._report("application_queue_pressure", score=80, secondary=[])
+        self.assertTrue(demo_tool.evaluate_live_scenario("mixed", before, moved)["policy_passed"])
+        self.assertIn("primary_rank_or_score_shifts", demo_tool.evaluate_live_scenario("mixed", before, before)["failed_expectations"])
+
     # TT-TEST: D02 secondary
     def test_unknown_live_policy_fails_clearly(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported live-demo scenario: typo"):
@@ -127,6 +139,32 @@ class DemoWrapperTests(unittest.TestCase):
         before=self._report("blocking_pool_pressure", evidence=["Blocking queue depth p95 is 10"])
         after=self._report("blocking_pool_pressure", score=20, p95=500, evidence=["Blocking queue depth p95 is 10"])
         self.assertIn("blocking_depth_decreases", demo_tool.evaluate_live_scenario("blocking", before, after)["failed_expectations"])
+
+    # TT-TEST: D02 primary
+    def test_blocking_policy_accepts_measured_related_group_without_vacuous_score(self):
+        def grouped(depth):
+            report = self._report(
+                "downstream_stage_dominance",
+                p95=1_000 if depth == 10 else 500,
+                evidence=[f"Blocking queue depth p95 is {depth}"],
+            )
+            report["related_groups"] = [{
+                "relation": "blocking_pool",
+                "representative": "downstream_stage_dominance",
+                "members": [{
+                    "diagnosis": "blocking_pool_pressure",
+                    "measurement": {"kind": "blocking_pool", "p95_depth": depth},
+                }],
+            }]
+            return report
+
+        result = demo_tool.evaluate_live_scenario("blocking", grouped(10), grouped(5))
+        self.assertTrue(result["checks"]["baseline_targeted"])
+        self.assertTrue(result["checks"]["targeted_score_nonworsening"])
+        missing = grouped(5)
+        missing["related_groups"] = []
+        failed = demo_tool.evaluate_live_scenario("blocking", grouped(10), missing)
+        self.assertFalse(failed["checks"]["targeted_score_nonworsening"])
 
     # TT-TEST: D02 primary
     def test_executor_and_extended_semantics_remain(self):

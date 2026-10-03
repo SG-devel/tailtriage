@@ -76,7 +76,8 @@
       "completed": true,
       "latency_us": 15000,
       "started_at_run_us": null,
-      "finished_at_run_us": null
+      "finished_at_run_us": null,
+      "relations": []
     },
     {
       "request_id": "legacy-2",
@@ -85,7 +86,8 @@
       "completed": true,
       "latency_us": 15000,
       "started_at_run_us": null,
-      "finished_at_run_us": null
+      "finished_at_run_us": null,
+      "relations": []
     },
     {
       "request_id": "legacy-3",
@@ -94,7 +96,8 @@
       "completed": true,
       "latency_us": 15000,
       "started_at_run_us": null,
-      "finished_at_run_us": null
+      "finished_at_run_us": null,
+      "relations": []
     },
     {
       "request_id": "legacy-4",
@@ -103,7 +106,8 @@
       "completed": true,
       "latency_us": 15000,
       "started_at_run_us": null,
-      "finished_at_run_us": null
+      "finished_at_run_us": null,
+      "relations": []
     },
     {
       "request_id": "legacy-5",
@@ -112,7 +116,8 @@
       "completed": true,
       "latency_us": 15000,
       "started_at_run_us": null,
-      "finished_at_run_us": null
+      "finished_at_run_us": null,
+      "relations": []
     },
     {
       "request_id": "legacy-6",
@@ -121,7 +126,8 @@
       "completed": true,
       "latency_us": 15000,
       "started_at_run_us": null,
-      "finished_at_run_us": null
+      "finished_at_run_us": null,
+      "relations": []
     }
   ],
   "queues": [

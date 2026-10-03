@@ -22,6 +22,9 @@ pub(super) fn apply_evidence_aware_confidence_caps(
             suspect,
             basis: EvidenceBasis::Completed,
             executor_limitation: None,
+            relevant_support: 20,
+            blocking_measurement: None,
+            downstream_measurement: None,
         })
         .collect::<Vec<_>>();
     apply_evidence_aware_confidence_caps_scored(&mut scored, run, evidence_quality, options);
@@ -30,7 +33,26 @@ pub(super) fn apply_evidence_aware_confidence_caps(
     }
 }
 
+pub(super) const fn maturity_cap(relevant_support: usize) -> Confidence {
+    match relevant_support {
+        0..=7 => Confidence::Low,
+        8..=19 => Confidence::Medium,
+        _ => Confidence::High,
+    }
+}
+
 pub(super) fn apply_evidence_aware_confidence_caps_scored(
+    suspects: &mut [SupportedCandidate],
+    run: &Run,
+    evidence_quality: &EvidenceQuality,
+    options: &AnalyzeOptions,
+) {
+    apply_pre_ambiguity_confidence_caps(suspects, run, evidence_quality, options);
+    apply_ambiguity_confidence_cap(suspects, options);
+}
+
+/// Applies all candidate-local limitations, but deliberately not ambiguity.
+pub(super) fn apply_pre_ambiguity_confidence_caps(
     suspects: &mut [SupportedCandidate],
     run: &Run,
     evidence_quality: &EvidenceQuality,
@@ -41,34 +63,44 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
         && (run
             .runtime_snapshots
             .iter()
-            .all(|snapshot| snapshot.blocking_queue_depth.is_none())
+            .all(|s| s.blocking_queue_depth.is_none())
             || run
                 .runtime_snapshots
                 .iter()
-                .all(|snapshot| snapshot.local_queue_depth.is_none())
+                .all(|s| s.local_queue_depth.is_none())
             || run
                 .runtime_snapshots
                 .iter()
-                .all(|snapshot| snapshot.global_queue_depth.is_none()));
-    let ambiguous_cluster = current_ambiguity_cluster_indices(suspects, options);
-    for (i, scored) in suspects.iter_mut().enumerate() {
+                .all(|s| s.global_queue_depth.is_none()));
+
+    // Maturity and candidate-local limitations are materialized before ambiguity is computed.
+    for scored in suspects.iter_mut() {
         let suspect = &mut scored.suspect;
-        let mut cap = Confidence::High;
-        let mut notes = Vec::new();
         let is_insufficient = suspect.kind == DiagnosisKind::InsufficientEvidence;
-        if !is_insufficient && evidence_quality.quality == EvidenceQualityLevel::Weak {
+        if is_insufficient {
+            continue;
+        }
+        let original = suspect.confidence;
+        let mut cap = maturity_cap(scored.relevant_support);
+        let mut notes = Vec::new();
+        if original > cap {
+            notes.push(format!(
+                "Family-relevant support is {} observation(s); provisional maturity caps confidence at {}.",
+                scored.relevant_support,
+                match cap { Confidence::Low => "low", Confidence::Medium => "medium", Confidence::High => "high" }
+            ));
+        }
+        if evidence_quality.quality == EvidenceQualityLevel::Weak {
             cap = cap.min(Confidence::Medium);
         }
-        if !is_insufficient && run.requests.is_empty() {
+        if run.requests.is_empty() {
             cap = Confidence::Low;
             notes.push("Low completed-request count caps confidence.".to_string());
-        } else if run.requests.len() < options.evidence.low_completed_request_threshold
-            && !is_insufficient
-        {
+        } else if run.requests.len() < options.evidence.low_completed_request_threshold {
             cap = cap.min(Confidence::Medium);
             notes.push("Low completed-request count caps confidence.".to_string());
         }
-        if run.truncation.dropped_requests > 0 && !is_insufficient {
+        if run.truncation.dropped_requests > 0 {
             cap = cap.min(Confidence::Medium);
             notes.push(
                 "Capture truncation caps confidence because dropped evidence may affect ranking."
@@ -84,7 +116,6 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
             &mut cap,
             &mut notes,
         );
-        let has_executor_limitation = scored.executor_limitation.is_some();
         if let Some(limitation) = scored.executor_limitation {
             cap = cap.min(Confidence::Medium);
             notes.push(match limitation {
@@ -92,28 +123,33 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
                 crate::scoring::ExecutorConfidenceLimitation::AmbiguousWorkers(status) => format!("Ambiguous worker-count evidence ({status:?}) requires legacy executor scoring; confidence cannot exceed medium."),
             });
         }
-        let ambiguity_capped = ambiguous_cluster.contains(&i) && !is_insufficient;
-        if ambiguity_capped {
-            cap = cap.min(Confidence::Medium);
-            notes.push(
-                "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
-            );
-        }
-        let original = suspect.confidence;
         suspect.confidence = original.min(cap);
-        let cap_changed_bucket = suspect.confidence != original;
-        let has_material_partial_note = notes.iter().any(|note| {
-            note == PARTIAL_QUEUE_CONFIDENCE_NOTE || note == PARTIAL_STAGE_CONFIDENCE_NOTE
-        });
         stable_dedup(&mut notes);
-        if cap_changed_bucket
-            || ambiguity_capped
-            || has_material_partial_note
-            || has_executor_limitation
+        if suspect.confidence != original
+            || notes
+                .iter()
+                .any(|n| n == PARTIAL_QUEUE_CONFIDENCE_NOTE || n == PARTIAL_STAGE_CONFIDENCE_NOTE)
+            || scored.executor_limitation.is_some()
         {
             suspect.confidence_notes = notes;
-        } else {
-            suspect.confidence_notes.clear();
+        }
+    }
+}
+
+pub(super) fn apply_ambiguity_confidence_cap(
+    suspects: &mut [SupportedCandidate],
+    options: &AnalyzeOptions,
+) {
+    let ambiguous_cluster = current_ambiguity_cluster_indices(suspects, options);
+    for (index, scored) in suspects.iter_mut().enumerate() {
+        if ambiguous_cluster.contains(&index)
+            && scored.suspect.kind != DiagnosisKind::InsufficientEvidence
+        {
+            scored.suspect.confidence = scored.suspect.confidence.min(Confidence::Medium);
+            scored.suspect.confidence_notes.push(
+                "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
+            );
+            stable_dedup(&mut scored.suspect.confidence_notes);
         }
     }
 }
@@ -198,7 +234,10 @@ pub(super) fn current_ambiguity_cluster_indices(
     let mut ranked = suspects
         .iter()
         .enumerate()
-        .filter(|(_, s)| s.suspect.kind != DiagnosisKind::InsufficientEvidence)
+        .filter(|(_, s)| {
+            s.suspect.kind != DiagnosisKind::InsufficientEvidence
+                && s.suspect.confidence >= Confidence::Medium
+        })
         .collect::<Vec<_>>();
     ranked.sort_by_key(|(_, s)| std::cmp::Reverse(s.suspect.score));
     let Some((_, top)) = ranked.first() else {

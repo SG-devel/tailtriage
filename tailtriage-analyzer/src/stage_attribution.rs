@@ -216,6 +216,7 @@ mod tests {
         StageEvent {
             request_id: req.into(),
             stage: name.into(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: start,
             finished_at_unix_ms: 1,

@@ -181,7 +181,8 @@ Users can depend on `tailtriage-tracing` directly for the narrow crate boundary,
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
   `tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run.json>`
-- native direct capture and tracing intake both produce standard `Run` artifacts
+- stage-only tracing source `tt.relation = "blocking_pool"` maps to core Run `relations = ["blocking_pool"]`; unknown strings are preserved but inert, non-string values follow tracing strictness, request/queue values and names have no relation effect, and the stable wrapper remains v1
+- native direct capture and tracing intake both produce standard `Run` artifacts with the same typed relation metadata; the analyzer uses known typed relations to group independently eligible blocking and downstream evidence
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
@@ -230,7 +231,7 @@ Analyzer output includes:
 - canonical core validation warnings in permissive analysis when generic Run evidence is excluded, canonicalized, or precision-limited
 - primary and secondary suspects with evidence and next checks
 
-Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, all ambiguity-cluster members are capped uniformly, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last. After typed relation resolution, only remaining independent candidates with at least Medium pre-ambiguity confidence participate in the unchanged raw-score minimum-and-gap cluster; all cluster members are capped uniformly. A lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
 
 Schema contract:
 
@@ -247,6 +248,11 @@ Core Run integrity contract:
 
 - artifacts require top-level `schema_version`
 - Run JSON schema version 2 is the current Run JSON schema version
+- Native `StageTimer::relation(StageRelation::BlockingPool)` captures the one known relation on completed and partial stage events. Ordinary stage names do not imply relations. Tokio `blocking_stage(...)` attaches it automatically because that helper owns `spawn_blocking`; generic join, timeout, queue, and lock helpers do not.
+- Schema-v2 stage events may include plural `relations`. Missing or empty arrays mean no
+  relation; `blocking_pool` is the only known 0.4 relation. Unknown strings are semantically
+  inert and are preserved by the supported core deserialize/serialize round trip. Typed relation
+  metadata is not yet consumed by the analyzer.
 - `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged
 - active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization
 - Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version

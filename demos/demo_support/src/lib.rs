@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, Tailtriage};
+use tailtriage_core::{
+    CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, StageRelation, Tailtriage,
+};
 use tailtriage_tracing::ensure_persistable_run_has_requests;
 use tailtriage_tracing::TracingSession;
 use tokio::sync::Barrier;
@@ -550,6 +552,33 @@ impl DemoRequest {
                     tt.kind = "stage",
                     tt.request_id = tracing_request.request_id.as_str(),
                     tt.stage = stage,
+                    tt.success = true
+                );
+                future.instrument(span).await
+            }
+        }
+    }
+
+    /// Record demo work explicitly related to Tokio's blocking pool.
+    pub async fn blocking_stage<Fut>(&self, stage: &str, future: Fut) -> Fut::Output
+    where
+        Fut: Future,
+    {
+        match &self.inner {
+            DemoRequestInner::Native(request) => {
+                request
+                    .stage(stage)
+                    .relation(StageRelation::BlockingPool)
+                    .await_value(future)
+                    .await
+            }
+            DemoRequestInner::Tracing(tracing_request) => {
+                let span = tracing::info_span!(
+                    "tt.stage",
+                    tt.kind = "stage",
+                    tt.request_id = tracing_request.request_id.as_str(),
+                    tt.stage = stage,
+                    tt.relation = "blocking_pool",
                     tt.success = true
                 );
                 future.instrument(span).await

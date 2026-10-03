@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 8475,
-  "p95_latency_us": 8918,
-  "p99_latency_us": 9034,
+  "p50_latency_us": 8392,
+  "p95_latency_us": 8800,
+  "p99_latency_us": 10054,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "cold_start_burst_inflight",
     "sample_count": 440,
     "peak_count": 4,
-    "p95_count": 2,
+    "p95_count": 3,
     "growth_delta": -1,
-    "growth_per_sec_milli": -1050
+    "growth_per_sec_milli": -1071
   },
   "warnings": [],
   "evidence_quality": {
@@ -41,9 +41,9 @@
     "score": 100,
     "confidence": "high",
     "evidence": [
-      "Stage 'cold_start_stage' has p95 latency 8894 us across 220 samples.",
-      "Stage 'cold_start_stage' cumulative latency is 1817511 us (996 permille of request latency).",
-      "Stage 'cold_start_stage' contributes 996 permille of tail request latency."
+      "Stage 'cold_start_stage' has p95 latency 8766 us across 220 samples.",
+      "Stage 'cold_start_stage' cumulative latency is 1815103 us (996 permille of request latency).",
+      "Stage 'cold_start_stage' contributes 991 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'cold_start_stage'.",

@@ -8,7 +8,6 @@ pub(super) enum OptionValue {
     Usize(usize),
     U8(u8),
     Bool(bool),
-    StringList(Vec<String>),
 }
 
 impl OptionValue {
@@ -18,7 +17,6 @@ impl OptionValue {
             Self::Usize(_) => ValueKind::Usize,
             Self::U8(_) => ValueKind::U8,
             Self::Bool(_) => ValueKind::Bool,
-            Self::StringList(_) => ValueKind::StringList,
         }
     }
 
@@ -28,7 +26,6 @@ impl OptionValue {
             Self::Usize(v) => v.to_string(),
             Self::U8(v) => v.to_string(),
             Self::Bool(v) => v.to_string(),
-            Self::StringList(values) => values.join(","),
         }
     }
 }
@@ -39,7 +36,6 @@ enum ValueKind {
     Usize,
     U8,
     Bool,
-    StringList,
 }
 
 impl ValueKind {
@@ -49,7 +45,6 @@ impl ValueKind {
             Self::Usize => "usize",
             Self::U8 => "u8",
             Self::Bool => "bool",
-            Self::StringList => "Vec<String>",
         }
     }
 
@@ -76,7 +71,6 @@ impl ValueKind {
                     expected: "'true' or 'false'",
                 }),
             },
-            Self::StringList => parse_string_list(path, value).map(OptionValue::StringList),
         }
     }
 }
@@ -135,15 +129,9 @@ macro_rules! option_entries {
 option_entries! {
 "queueing.trigger_permille", U64, "300", "queue suspect trigger", "Minimum p95 queue share (permille) required before queue saturation becomes a ranked suspect.", Some("makes queue-saturation suspects harder to trigger"), Some("makes queue-saturation suspects easier to trigger"), |o| OptionValue::U64(o.queueing.trigger_permille), |o, v| { let OptionValue::U64(v) = v else { unreachable!("registry kind/setter mismatch") }; o.queueing.trigger_permille = v; };
 "blocking.min_nonzero_samples_for_signal", Usize, "2", "blocking signal eligibility", "Minimum non-zero blocking queue samples required before considering blocking pressure evidence.", Some("requires more samples before blocking signal can appear"), Some("requires fewer samples before blocking signal can appear"), |o| OptionValue::Usize(o.blocking.min_nonzero_samples_for_signal), |o, v| { let OptionValue::Usize(v) = v else { unreachable!("registry kind/setter mismatch") }; o.blocking.min_nonzero_samples_for_signal = v; };
-"blocking.strong_p95_threshold", U64, "12", "blocking suspect strength", "Blocking queue-depth p95 threshold used for strong blocking-pressure evidence.", Some("requires stronger p95 pressure"), Some("accepts weaker p95 pressure"), |o| OptionValue::U64(o.blocking.strong_p95_threshold), |o, v| { let OptionValue::U64(v) = v else { unreachable!("registry kind/setter mismatch") }; o.blocking.strong_p95_threshold = v; };
-"blocking.strong_peak_threshold", U64, "20", "blocking suspect strength", "Blocking queue-depth peak threshold used for strong blocking-pressure evidence.", Some("requires stronger peak pressure"), Some("accepts weaker peak pressure"), |o| OptionValue::U64(o.blocking.strong_peak_threshold), |o, v| { let OptionValue::U64(v) = v else { unreachable!("registry kind/setter mismatch") }; o.blocking.strong_peak_threshold = v; };
-"blocking.strong_nonzero_share_permille", U64, "700", "blocking suspect strength", "Minimum share of non-zero blocking samples (permille) for strong blocking-pressure evidence.", Some("requires a higher non-zero share"), Some("accepts a lower non-zero share"), |o| OptionValue::U64(o.blocking.strong_nonzero_share_permille), |o, v| { let OptionValue::U64(v) = v else { unreachable!("registry kind/setter mismatch") }; o.blocking.strong_nonzero_share_permille = v; };
-"blocking.strong_min_samples", Usize, "30", "blocking suspect strength", "Minimum blocking sample count needed before applying strong blocking-pressure thresholds.", Some("requires more samples for strong classification"), Some("requires fewer samples for strong classification"), |o| OptionValue::Usize(o.blocking.strong_min_samples), |o, v| { let OptionValue::Usize(v) = v else { unreachable!("registry kind/setter mismatch") }; o.blocking.strong_min_samples = v; };
 "executor.min_global_queue_p95_for_signal", U64, "1", "executor signal eligibility", "Minimum runtime global-queue p95 required before executor-pressure evidence is considered.", Some("requires higher runtime queue pressure"), Some("allows lower runtime queue pressure"), |o| OptionValue::U64(o.executor.min_global_queue_p95_for_signal), |o, v| { let OptionValue::U64(v) = v else { unreachable!("registry kind/setter mismatch") }; o.executor.min_global_queue_p95_for_signal = v; };
 "executor.min_runnable_queue_per_worker_p95_milli_for_signal", U64, "500", "worker-normalized executor signal eligibility", "Minimum p95 runnable-queue depth per worker, in milli-tasks, required before executor-pressure evidence is considered.", Some("requires higher per-worker runtime queue pressure"), Some("allows lower per-worker runtime queue pressure"), |o| OptionValue::U64(o.executor.min_runnable_queue_per_worker_p95_milli_for_signal), |o, v| { let OptionValue::U64(v) = v else { unreachable!("registry kind/setter mismatch") }; o.executor.min_runnable_queue_per_worker_p95_milli_for_signal = v; };
 "downstream.min_stage_samples", Usize, "3", "downstream stage eligibility", "Minimum distinct completed requests with retained evidence for a stage before downstream dominance is considered.", Some("requires more stage samples"), Some("requires fewer stage samples"), |o| OptionValue::Usize(o.downstream.min_stage_samples), |o, v| { let OptionValue::Usize(v) = v else { unreachable!("registry kind/setter mismatch") }; o.downstream.min_stage_samples = v; };
-"downstream.blocking_correlated_stage_patterns", StringList, "[\"spawn_blocking\", \"blocking_path\", \"blocking\"]", "downstream vs blocking interpretation", "Stage-name patterns used to spot downstream stages that likely correlate with blocking work.", None, None, |o| OptionValue::StringList(o.downstream.blocking_correlated_stage_patterns.clone()), |o, v| { let OptionValue::StringList(v) = v else { unreachable!("registry kind/setter mismatch") }; o.downstream.blocking_correlated_stage_patterns = v; };
-"downstream.blocking_correlation_score_margin", U8, "2", "downstream vs blocking interpretation", "Minimum score gap used when distinguishing downstream-stage and blocking-correlated evidence.", Some("requires a wider score gap"), Some("allows a narrower score gap"), |o| OptionValue::U8(o.downstream.blocking_correlation_score_margin), |o, v| { let OptionValue::U8(v) = v else { unreachable!("registry kind/setter mismatch") }; o.downstream.blocking_correlation_score_margin = v; };
 "confidence.medium_score_threshold", U8, "65", "confidence bucket thresholds", "Minimum suspect score treated as medium confidence.", Some("raises medium-confidence bar"), Some("lowers medium-confidence bar"), |o| OptionValue::U8(o.confidence.medium_score_threshold), |o, v| { let OptionValue::U8(v) = v else { unreachable!("registry kind/setter mismatch") }; o.confidence.medium_score_threshold = v; };
 "confidence.high_score_threshold", U8, "85", "confidence bucket thresholds", "Minimum suspect score treated as high confidence.", Some("raises high-confidence bar"), Some("lowers high-confidence bar"), |o| OptionValue::U8(o.confidence.high_score_threshold), |o, v| { let OptionValue::U8(v) = v else { unreachable!("registry kind/setter mismatch") }; o.confidence.high_score_threshold = v; };
 "confidence.ambiguity_min_score", U8, "60", "ambiguity warning", "Minimum score for top suspects before ambiguity checks can trigger.", Some("requires stronger top scores before ambiguity warning"), Some("allows ambiguity warning with lower scores"), |o| OptionValue::U8(o.confidence.ambiguity_min_score), |o, v| { let OptionValue::U8(v) = v else { unreachable!("registry kind/setter mismatch") }; o.confidence.ambiguity_min_score = v; };
@@ -220,22 +208,6 @@ fn parse_num<T: std::str::FromStr>(
             value: value.to_string(),
             expected,
         })
-}
-
-fn parse_string_list(path: &'static str, value: &str) -> Result<Vec<String>, AnalyzeConfigError> {
-    let mut out = Vec::new();
-    for entry in value.split(',') {
-        let trimmed = entry.trim();
-        if trimmed.is_empty() {
-            return Err(AnalyzeConfigError::InvalidOverrideValue {
-                path,
-                value: value.to_string(),
-                expected: "comma-separated non-empty entries (Vec<String>)",
-            });
-        }
-        out.push(trimmed.to_string());
-    }
-    Ok(out)
 }
 
 fn edit_distance(a: &str, b: &str) -> usize {

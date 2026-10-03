@@ -78,7 +78,8 @@ use tailtriage_core::{
 };
 
 pub use convention::{
-    TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
+    TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_RELATION, TT_REQUEST_ID, TT_ROUTE,
+    TT_STAGE, TT_SUCCESS,
 };
 pub use error::ImportError;
 #[cfg(feature = "jsonl")]
@@ -352,6 +353,14 @@ where
                         OptionalField::Value(success) => success,
                         OptionalField::Invalid => continue,
                     };
+                    let relations = match parse_relation(span, options.is_strict(), &mut warnings)?
+                    {
+                        OptionalField::Missing => tailtriage_core::StageRelations::default(),
+                        OptionalField::Value(value) => {
+                            tailtriage_core::__internal::stage_relations_from_wire_value(value)
+                        }
+                        OptionalField::Invalid => continue,
+                    };
                     let (started_at_run_us, finished_at_run_us) =
                         sanitized_run_relative_offsets(span);
                     if parsed_stages.len() >= capture_limits.max_stages {
@@ -367,6 +376,7 @@ where
                         event: StageEvent {
                             request_id,
                             stage,
+                            relations,
                             started_at_unix_ms: span.started_at_unix_ms(),
                             started_at_run_us,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
@@ -1068,6 +1078,28 @@ fn parse_success(
     }
 }
 
+fn parse_relation(
+    span: &SpanRecord,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<OptionalField<String>, ImportError> {
+    match span.fields().get(TT_RELATION) {
+        Some(FieldValue::String(value)) => Ok(OptionalField::Value(value.clone())),
+        Some(_) => {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "invalid field '{TT_RELATION}' in span '{}': expected string",
+                    span.name()
+                ),
+            )?;
+            Ok(OptionalField::Invalid)
+        }
+        None => Ok(OptionalField::Missing),
+    }
+}
+
 fn parse_depth_at_start(
     span: &SpanRecord,
     strict: bool,
@@ -1226,6 +1258,64 @@ mod tests {
             .with_field(TT_QUEUE, name)
     }
 
+    // TT-TEST: support
+    #[test]
+    fn stage_relation_conversion_is_typed_forward_compatible_and_kind_scoped() {
+        let imported = run_from_span_records(
+            [
+                req("r1", 100, 200).with_field(TT_RELATION, "blocking_pool"),
+                stage("r1", "opaque", 110, 120).with_field(TT_RELATION, "blocking_pool"),
+                stage("r1", "future", 121, 130).with_field(TT_RELATION, "future_relation"),
+                stage("r1", "spawn_blocking_resize", 131, 140),
+                queue("r1", "q", 141, 150).with_field(TT_RELATION, "blocking_pool"),
+            ],
+            opts(),
+        )
+        .unwrap();
+        let stages = &imported.run().stages;
+        assert!(stages[0].has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert!(!stages[1].has_relation(tailtriage_core::StageRelation::BlockingPool));
+        assert_eq!(
+            stages[2].relations,
+            tailtriage_core::StageRelations::default()
+        );
+        let json = serde_json::to_value(imported.run()).unwrap();
+        assert_eq!(
+            json["stages"][0]["relations"],
+            serde_json::json!(["blocking_pool"])
+        );
+        assert_eq!(
+            json["stages"][1]["relations"],
+            serde_json::json!(["future_relation"])
+        );
+        assert!(json["stages"][2].get("relations").is_none());
+    }
+
+    // TT-TEST: support
+    #[test]
+    fn non_string_stage_relation_warns_and_skips_or_fails_strictly() {
+        let spans = [
+            req("r1", 100, 200),
+            stage("r1", "bad", 110, 120).with_field(TT_RELATION, true),
+        ];
+        let permissive = run_from_span_records(spans.clone(), opts()).unwrap();
+        assert_eq!(permissive.run().stages.len(), 0);
+        assert_eq!(
+            permissive
+                .warnings()
+                .iter()
+                .filter(|warning| warning.message().contains("invalid field 'tt.relation'"))
+                .count(),
+            1
+        );
+        let strict =
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true).run_id("run"))
+                .unwrap_err();
+        assert!(
+            matches!(strict, ImportError::StrictViolation(message) if message.contains("invalid field 'tt.relation'"))
+        );
+    }
+
     fn empty_candidate_run() -> Run {
         Run {
             schema_version: tailtriage_core::SCHEMA_VERSION,
@@ -1378,7 +1468,7 @@ mod tests {
     fn imported_run_new_has_no_private_retained_sources() {
         let imported = ImportedRun::new(empty_candidate_run(), Vec::new());
 
-        assert!(imported.retained_sources().is_empty());
+        assert_eq!(imported.retained_sources().len(), 0);
     }
 
     // TT-TEST: R05 primary
@@ -1422,6 +1512,7 @@ mod tests {
         candidate.stages.push(StageEvent {
             request_id: "excluded".to_owned(),
             stage: "child-stage".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 105,
             started_at_run_us: None,
             finished_at_unix_ms: 110,
@@ -1455,6 +1546,7 @@ mod tests {
         candidate.stages.push(StageEvent {
             request_id: "valid".to_owned(),
             stage: "valid-stage".to_owned(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 205,
             started_at_run_us: None,
             finished_at_unix_ms: 210,
@@ -1546,7 +1638,7 @@ mod tests {
         );
         assert_eq!(normalized.run.requests.len(), 1);
         assert_eq!(normalized.run.stages.len(), 1);
-        assert!(normalized.run.queues.is_empty());
+        assert_eq!(normalized.run.queues.len(), 0);
         assert_eq!(candidate.truncation.dropped_requests, 0);
         assert_eq!(candidate.truncation.dropped_stages, 0);
         assert_eq!(candidate.truncation.dropped_queues, 0);
@@ -2605,7 +2697,7 @@ mod tests {
                 .with_field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.run().stages.len(), 0);
         assert!(imported
             .warnings()
             .iter()
@@ -2633,7 +2725,7 @@ mod tests {
                 .with_field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().queues.is_empty());
+        assert_eq!(imported.run().queues.len(), 0);
         assert!(imported
             .warnings()
             .iter()
@@ -3227,7 +3319,7 @@ mod tests {
             .with_field(TT_REQUEST_ID, "r1")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 0);
-        assert!(!imported.warnings().is_empty());
+        assert_ne!(imported.warnings().len(), 0);
     }
 
     // TT-TEST: R02 primary
@@ -3245,7 +3337,7 @@ mod tests {
     fn unknown_kind_warns_non_strict() {
         let spans = vec![SpanRecord::new("x", 1, 2).with_field(TT_KIND, "wat")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(!imported.warnings().is_empty());
+        assert_ne!(imported.warnings().len(), 0);
         assert!(imported
             .run()
             .metadata
@@ -3267,7 +3359,7 @@ mod tests {
     fn span_without_kind_ignored_silently() {
         let spans = vec![SpanRecord::new("x", 1, 2).with_field("a", "b")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.warnings().is_empty());
+        assert_eq!(imported.warnings().len(), 0);
     }
 
     // TT-TEST: support
@@ -3372,9 +3464,9 @@ mod tests {
     #[test]
     fn run_from_span_records_empty_input_uses_equal_start_finish_finalized() {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().queues.len(), 0);
         assert_eq!(
             imported
                 .run()
@@ -3407,9 +3499,9 @@ mod tests {
         let run = imported.run();
         let finalized = run.metadata.finalized_at_unix_ms.expect("finalized");
 
-        assert!(run.requests.is_empty());
-        assert!(run.stages.is_empty());
-        assert!(run.queues.is_empty());
+        assert_eq!(run.requests.len(), 0);
+        assert_eq!(run.stages.len(), 0);
+        assert_eq!(run.queues.len(), 0);
         assert_eq!(run.metadata.started_at_unix_ms, finalized);
         assert!(run.metadata.started_at_unix_ms >= before);
         assert!(run.metadata.started_at_unix_ms <= after);
@@ -3422,7 +3514,7 @@ mod tests {
         assert!(imported.warnings().iter().any(|warning| {
             warning.message().contains("duplicate") || warning.message().contains("request_id")
         }));
-        assert!(imported.retained_sources().is_empty());
+        assert_eq!(imported.retained_sources().len(), 0);
     }
 
     // TT-TEST: R02 secondary
@@ -3440,8 +3532,8 @@ mod tests {
         let run = imported.run();
 
         assert_eq!(run.requests.len(), 1);
-        assert!(!run.queues.is_empty());
-        assert!(!run.stages.is_empty());
+        assert_ne!(run.queues.len(), 0);
+        assert_ne!(run.stages.len(), 0);
         assert!(run.queues.iter().all(|queue| queue.completed));
         assert!(run.stages.iter().all(|stage| stage.completed));
         assert!(run.stages.iter().all(|stage| stage.success));
@@ -3526,8 +3618,8 @@ mod tests {
     #[test]
     fn runtime_snapshots_and_inflight_are_empty() {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().runtime_snapshots.is_empty());
-        assert!(imported.run().inflight.is_empty());
+        assert_eq!(imported.run().runtime_snapshots.len(), 0);
+        assert_eq!(imported.run().inflight.len(), 0);
     }
 
     // TT-TEST: support
@@ -3581,7 +3673,7 @@ mod tests {
     fn non_string_kind_warns_non_strict_and_errors_strict() {
         let bad = SpanRecord::new("bad", 1, 2).with_field(TT_KIND, true);
         let imported = run_from_span_records(vec![bad.clone()], ImportOptions::new("svc")).unwrap();
-        assert!(!imported.warnings().is_empty());
+        assert_ne!(imported.warnings().len(), 0);
         assert!(run_from_span_records(vec![bad], ImportOptions::new("svc").strict(true)).is_err());
     }
 
@@ -3594,8 +3686,8 @@ mod tests {
             .with_field(TT_ROUTE, true);
         let imported =
             run_from_span_records(vec![bad_route.clone()], ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(!imported.warnings().is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_ne!(imported.warnings().len(), 0);
         assert!(
             run_from_span_records(vec![bad_route], ImportOptions::new("svc").strict(true)).is_err()
         );
@@ -3607,8 +3699,8 @@ mod tests {
             .with_field(TT_OUTCOME, 7_u64);
         let imported =
             run_from_span_records(vec![bad_outcome.clone()], ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(!imported.warnings().is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_ne!(imported.warnings().len(), 0);
         assert!(
             run_from_span_records(vec![bad_outcome], ImportOptions::new("svc").strict(true))
                 .is_err()
@@ -3623,7 +3715,7 @@ mod tests {
             .with_field(TT_REQUEST_ID, "   ")
             .with_field(TT_ROUTE, "/")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("invalid field 'tt.request_id' in span 'req'")
@@ -3639,7 +3731,7 @@ mod tests {
             .with_field(TT_REQUEST_ID, "r1")
             .with_field(TT_ROUTE, "  \t")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("invalid field 'tt.route' in span 'req'")
@@ -3661,7 +3753,7 @@ mod tests {
                 .with_field(TT_STAGE, "   "),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.run().stages.len(), 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("invalid field 'tt.stage' in span 'stage'")
@@ -3683,7 +3775,7 @@ mod tests {
                 .with_field(TT_QUEUE, " "),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().queues.is_empty());
+        assert_eq!(imported.run().queues.len(), 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("invalid field 'tt.queue' in span 'queue'")
@@ -3766,7 +3858,7 @@ mod tests {
             .with_field(TT_ROUTE, "/")
             .with_field(TT_OUTCOME, "   ")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
         assert!(imported.warnings().iter().any(|w| w
             .message()
             .contains("invalid field 'tt.outcome' in span 'http.request': expected non-empty, non-whitespace string")));
@@ -3796,7 +3888,7 @@ mod tests {
             .with_field(TT_ROUTE, "/")
             .with_field(TT_OUTCOME, 42_u64)];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
         assert!(imported.warnings().iter().any(|w| w
             .message()
             .contains("invalid field 'tt.outcome' in span 'http.request': expected string")));
@@ -3851,9 +3943,9 @@ mod tests {
                 .with_field(TT_QUEUE, "worker"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().queues.len(), 0);
         assert!(imported
             .warnings()
             .iter()
@@ -4186,7 +4278,7 @@ mod tests {
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 0);
-        assert!(!imported.warnings().is_empty());
+        assert_ne!(imported.warnings().len(), 0);
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
         assert_eq!(
             imported
@@ -4233,7 +4325,7 @@ mod tests {
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 0);
-        assert!(!imported.warnings().is_empty());
+        assert_ne!(imported.warnings().len(), 0);
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
         assert_eq!(
             imported

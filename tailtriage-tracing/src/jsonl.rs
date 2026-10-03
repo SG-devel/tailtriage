@@ -355,7 +355,7 @@ mod tests {
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/tailtriage-span-v1.jsonl");
         let imported = import_jsonl_path(fixture, ImportOptions::new("svc")).unwrap();
-        assert!(!imported.run().requests.is_empty());
+        assert_ne!(imported.run().requests.len(), 0);
     }
 
     // TT-TEST: R01 primary
@@ -604,7 +604,7 @@ mod tests {
     fn invalid_contained_span_warns_non_strict_and_errors_strict() {
         let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.run().requests.len(), 0);
         assert!(imported
             .warnings()
             .iter()

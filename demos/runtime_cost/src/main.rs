@@ -577,7 +577,7 @@ mod tests {
             .await
             .expect("finalize and write");
         let run = run.expect("native run should exist");
-        assert!(!run.requests.is_empty());
+        assert_ne!(run.requests.len(), 0);
         let artifact_path = artifact_path.expect("artifact path should exist");
         assert_eq!(
             PathBuf::from(artifact_path),
@@ -607,7 +607,7 @@ mod tests {
             .await
             .expect("finalize and write");
         let run = run.expect("native run should exist");
-        assert!(run.requests.is_empty());
+        assert_eq!(run.requests.len(), 0);
         let artifact_path = artifact_path.expect("artifact path should exist");
         assert_eq!(
             PathBuf::from(artifact_path),

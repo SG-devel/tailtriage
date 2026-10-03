@@ -212,6 +212,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         StageEvent {
             request_id: "r1".to_string(),
             stage: "db".to_string(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -223,6 +224,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         StageEvent {
             request_id: "r2".to_string(),
             stage: "db".to_string(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -246,6 +248,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         StageEvent {
             request_id: "r1".to_string(),
             stage: "db".to_string(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -257,6 +260,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         StageEvent {
             request_id: "r2".to_string(),
             stage: "db".to_string(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,
@@ -268,6 +272,7 @@ fn downstream_stage_requires_at_least_three_samples() {
         StageEvent {
             request_id: "r3".to_string(),
             stage: "db".to_string(),
+            relations: tailtriage_core::StageRelations::default(),
             started_at_unix_ms: 1,
             started_at_run_us: None,
             finished_at_unix_ms: 2,

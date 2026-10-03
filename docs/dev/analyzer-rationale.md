@@ -75,7 +75,8 @@ numeric calibration remains unknown.
 
 - **Rule or default:** Eligible candidates sort by final confidence, then raw
   score, then stable kind order; `insufficient_evidence` remains after eligible
-  diagnoses. Raw-score ambiguity is computed before evidence caps; see
+  diagnoses. All non-ambiguity evidence caps precede same-family resolution;
+  raw-score ambiguity follows it; see
   [confidence, ambiguity, and final ordering](../diagnostics.md#confidence-ambiguity-and-final-ordering).
 - **Classification:** Hard contract.
 - **Problem addressed:** Weakly supported high scores must not outrank better
@@ -87,8 +88,9 @@ numeric calibration remains unknown.
   last so it cannot displace an eligible diagnosis candidate.
 - **Tradeoff:** A lower raw score may become primary, and the fixed kind order
   introduces a deliberate final tie bias in exchange for stable output.
-- **Proof owner:** `final_ranking_uses_confidence_then_score_then_stable_kind`
-  and ambiguity/fallback tests in `tailtriage-analyzer/src/tests.rs`; canonical
+- **Proof owner:** `final_confidence_ranking_selects_primary_before_raw_score`
+  and `ambiguity_cluster_membership_uses_raw_scores_only` in
+  `tailtriage-analyzer/src/tests.rs`; canonical
   JSON golden tests in `tailtriage-analyzer/tests/analyzer_fixtures.rs`.
 - **Revision criteria:** Require a demonstrated misleading ordering class,
   focused counterexamples, a report compatibility assessment, and replacement
@@ -99,22 +101,23 @@ numeric calibration remains unknown.
 
 ### AN-PCTL-001 — Deterministic non-interpolated percentiles
 
-- **Rule or default:** Percentiles select the documented ceiling index without
-  interpolation; see
+- **Rule or default:** For nonempty sorted samples, percentiles use nearest-rank
+  index `ceil(n * p / q) - 1`, clamped to `n - 1`, without interpolation; see
   [percentiles and units](../diagnostics.md#percentiles-and-units).
 - **Classification:** Hard contract.
 - **Problem addressed:** Integer samples need one reproducible arithmetic rule;
   interpolation would invent values not present in a capture.
-- **Why this shape:** Present-purpose inference: direct selection keeps report
-  arithmetic simple and deterministic.
+- **Why this shape:** Conventional nearest-rank selection returns an observed
+  value while keeping report arithmetic simple and deterministic.
 - **Tradeoff:** Results move in steps on small series.
-- **Proof owner:** Percentile unit tests in
-  `tailtriage-analyzer/src/scoring.rs` and boundary tests in
+- **Proof owner:** Direct production-helper tests in
+  `tailtriage-analyzer/src/tests.rs`, percentile signal tests in
+  `tailtriage-analyzer/src/scoring.rs`, and boundary tests in
   `tailtriage-analyzer/tests/boundary_thresholds.rs`.
 - **Revision criteria:** Require an explicit arithmetic compatibility decision,
   fixture inventory, and report-output impact analysis.
-- **Provenance:** Present-purpose inference; historical reason for the exact
-  estimator is unknown.
+- **Provenance:** EVIDENCE-01 selected nearest-rank after numeric-envelope and
+  report-compatibility review.
 
 ### AN-PCTL-002 — p95 tail-signal selection
 
@@ -209,7 +212,7 @@ numeric calibration remains unknown.
 ### AN-QUEUE-001 — Queue eligibility and multi-signal scoring
 
 - **Rule or default:** Queue p95 share controls eligibility; queue share,
-  retained start depth, positive in-flight growth, and sample quality contribute
+  retained start depth and positive in-flight growth contribute
   to score; see
   [application queue pressure](../diagnostics.md#application-queue-pressure).
 - **Classification:** Calibrated heuristic.
@@ -240,7 +243,10 @@ numeric calibration remains unknown.
 - **Problem addressed:** Additive weak signals could otherwise reach the same
   ceiling as broad, extreme, well-sampled evidence.
 - **Why this shape:** Present-purpose inference: reserve maximum ranking strength
-  for unusually clear cases without making the cap absolute.
+  for unusually clear physical magnitudes without making the cap absolute.
+  Clean-extreme bypass is exclusively a physical-magnitude policy; evidence
+  breadth and family-relevant support are handled separately by maturity and
+  confidence and never change raw magnitude.
 - **Tradeoff:** Strong but nonconforming cases cluster below the cap; exception
   boundaries add policy complexity.
 - **Proof owner:** Family soft-cap boundary tests in
@@ -254,8 +260,7 @@ numeric calibration remains unknown.
 ### AN-BLOCK-001 — Persistent blocking eligibility
 
 - **Rule or default:** Blocking is eligible when p95 is nonzero or enough
-  retained samples are nonzero; p95, peak, nonzero share, and sample quality
-  drive score; see
+  retained samples are nonzero; p95, peak, and nonzero share drive score; see
   [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** A sparse percentile can be zero even when blocking
@@ -276,25 +281,23 @@ numeric calibration remains unknown.
 - **Provenance:** Present-purpose inference; exact persistence default and score
   weights have unknown provenance.
 
-### AN-BLOCK-002 — Strong-blocking calibration
+### AN-BLOCK-002 — Typed blocking/downstream relation policy
 
-- **Rule or default:** Configured thresholds define when blocking-pool evidence
-  is independently strong for downstream correlation; they do not change the
-  blocking score;
+- **Rule or default:** Known `StageRelation::BlockingPool` metadata is the only
+  blocking/downstream relation source. Independently eligible families group
+  without changing either raw score;
   see [blocking-pool pressure](../diagnostics.md#blocking-pool-pressure) and
   [downstream dominance](../diagnostics.md#downstream-stage-dominance).
-- **Classification:** Calibrated heuristic.
-- **Problem addressed:** Ordinary blocking eligibility is too weak to justify
-  constraining a separately observed stage.
-- **Why this shape:** Present-purpose inference: require independently material
-  runtime evidence without adding it to the blocking score.
-- **Tradeoff:** True relationships below either boundary are not correlated.
-- **Proof owner:** Strong-blocking boundary tests in
-  `tailtriage-analyzer/src/tests.rs`.
-- **Revision criteria:** Require representative blocking captures and
-  false-correlation cases demonstrating better strong-evidence boundaries.
-- **Provenance:** Present-purpose inference for the policy; exact thresholds
-  have unknown provenance.
+- **Classification:** Hard provenance contract with deterministic representative policy.
+- **Problem addressed:** Stage names cannot safely establish semantic relation, and
+  related evidence must not compete twice in ranking or ambiguity.
+- **Why this shape:** Typed producer-owned metadata is explicit; maturity, support,
+  magnitude, then stable family order select one R-B representative.
+- **Tradeoff:** Untagged or ambiguously mixed evidence remains independent.
+- **Proof owner:** Relation resolver key-order, provenance, member-measurement, and
+  native/tracing parity tests.
+- **Revision criteria:** Require a new typed relation contract and compatibility analysis.
+- **Provenance:** EVIDENCE-02 typed-relation cutover.
 
 ## Executor diagnosis and compatibility
 
@@ -474,28 +477,6 @@ numeric calibration remains unknown.
   adversarial tests, and report-output compatibility analysis.
 - **Provenance:** Present-purpose inference; the exact tie sequence has unknown
   historical provenance.
-
-### AN-DOWN-003 — Blocking-correlated stage limit
-
-- **Rule or default:** A stage matching configured blocking patterns stays below
-  independently strong blocking-pool evidence by the configured score margin;
-  see [AN-BLOCK-002](#an-block-002--strong-blocking-calibration) and
-  [downstream-stage dominance](../diagnostics.md#downstream-stage-dominance).
-- **Classification:** Conservative policy.
-- **Problem addressed:** A wrapper-like stage should not outrank strong runtime
-  evidence that it mirrors.
-- **Why this shape:** Present-purpose inference: pattern correlation preserves
-  blocking as the actionable family only when it is independently corroborated.
-- **Tradeoff:** Name matching can correlate unrelated stages or miss renamed
-  wrappers, and the margin can constrain a genuinely dominant stage.
-- **Proof owner:** Blocking-pattern, strong-evidence, and score-margin tests in
-  `tailtriage-analyzer/src/tests.rs`.
-- **Revision criteria:** Require relationship evidence beyond naming or focused
-  false-correlation cases, plus ranking and margin calibration analysis.
-- **Provenance:** Present-purpose inference for correlation; exact patterns and
-  margin have unknown provenance.
-
-## Confidence and evidence policy
 
 ### AN-CONF-001 — Default confidence boundaries
 
@@ -910,3 +891,8 @@ holistic review, not rationales or proposed behavior:
 These candidates do not justify changing exact heuristics merely because their
 historical calibration is unknown. Revision still requires the evidence named
 in the relevant entries.
+
+
+### Support, maturity, and downstream materiality
+
+Raw magnitude is independent of family-relevant support. Internally, provisional candidate maturity caps confidence for sparse family evidence; this is distinct from the report-level completed-request context and is not a public or empirically calibrated tuning surface. Candidate-local limitations and maturity apply before completed/lower-bound representation resolution and the existing ambiguity policy. Completed and observed lower-bound forms are representations of one family, not ambiguity peers. Downstream coverage still uses the configured distinct-request minimum, while materiality separately requires at least 300 permille of tail contribution. If no real family has an eligible material candidate, the analyzer emits the score-50 insufficient-evidence sentinel. These evidence-ranked suspects remain triage leads, not proof of root cause. Typed relation grouping uses only captured metadata, preserves raw magnitude, and omits empty `related_groups`. Ambiguity considers independent candidates with at least Medium pre-ambiguity confidence.
