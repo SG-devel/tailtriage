@@ -169,7 +169,7 @@ fn fixture_reports_render_to_text_and_json() {
     assert!(text.contains("Request time at p95:"));
     assert!(text.contains("queue 66.6%"));
     assert!(text.contains("non-queue service 50.0%"));
-    assert!(text.contains("Secondary suspects:") || report.secondary_suspects.as_slice() == []);
+    assert!(text.contains("Secondary suspects:") || report.secondary_suspects.is_empty());
 
     let json = serde_json::to_string_pretty(&report).expect("json rendering should work");
     assert!(json.contains("primary_suspect"));

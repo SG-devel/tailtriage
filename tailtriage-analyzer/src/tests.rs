@@ -8280,11 +8280,6 @@ fn tuning_thresholds_are_directional_at_valid_local_values() {
 // TT-TEST: A02 primary
 #[test]
 fn tuning_options_do_not_rewrite_unrelated_or_surviving_family_magnitude() {
-    let has = |report: &Report, kind: DiagnosisKind| {
-        std::iter::once(&report.primary_suspect)
-            .chain(&report.secondary_suspects)
-            .any(|suspect| suspect.kind == kind)
-    };
     let mut run = test_run();
     run.requests = (0..40)
         .map(|i| precise_request(&format!("r{i}"), 1_000))
@@ -8359,7 +8354,26 @@ fn tuning_options_do_not_rewrite_unrelated_or_surviving_family_magnitude() {
     } {
         assert_eq!(scores(options), baseline);
     }
+}
 
+// TT-TEST: A02 primary
+#[test]
+fn decision_relevant_tuning_options_preserve_unrelated_magnitude() {
+    let has = |report: &Report, kind: DiagnosisKind| {
+        std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .any(|suspect| suspect.kind == kind)
+    };
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| precise_request(&format!("r{i}"), 1_000))
+        .collect();
+    run.queues = (0..40)
+        .map(|i| precise_queue(&format!("r{i}"), 0, 700, 700))
+        .collect();
+    run.stages = (0..40)
+        .map(|i| precise_stage(&format!("r{i}"), "db", Some(0), Some(650), 650))
+        .collect();
     let unrelated_scores = |run: &Run, options| {
         let report = analyze_run(run, options).unwrap();
         [

@@ -1275,7 +1275,10 @@ mod tests {
         let stages = &imported.run().stages;
         assert!(stages[0].has_relation(tailtriage_core::StageRelation::BlockingPool));
         assert!(!stages[1].has_relation(tailtriage_core::StageRelation::BlockingPool));
-        assert_eq!(stages[2].relations.len(), 0);
+        assert_eq!(
+            stages[2].relations,
+            tailtriage_core::StageRelations::default()
+        );
         let json = serde_json::to_value(imported.run()).unwrap();
         assert_eq!(
             json["stages"][0]["relations"],
